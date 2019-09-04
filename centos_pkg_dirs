@@ -1,2 +1,16 @@
 utilities/pm-qos-mgr
 utilities/worker-utils
+ceph/ceph-manager
+ceph/python-cephclient
+utilities/nfscheck
+utilities/logmgmt
+security/tpm2-openssl-engine
+security/stx-ssl
+tools/collector
+tools/engtools/hostdata-collectors
+utilities/build-info
+utilities/namespace-utils
+utilities/pci-irq-affinity-agent
+utilities/platform-util
+utilities/stx-extensions
+utilities/update-motd

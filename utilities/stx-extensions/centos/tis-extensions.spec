@@ -5,7 +5,7 @@
 # without modifying or rebuilding the thirdparty package.
 #
 
-Name: tis-extensions
+Name: stx-extensions
 Version: 1.0
 Summary: TIS Extensions to thirdparty pkgs
 Release: %{tis_patch_ver}%{?_tis_dist}

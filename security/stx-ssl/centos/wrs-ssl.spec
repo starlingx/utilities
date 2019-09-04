@@ -1,5 +1,5 @@
-Summary: wrs-ssl version 1.0.0-r2
-Name: wrs-ssl
+Summary: stx-ssl version 1.0.0-r2
+Name: stx-ssl
 Version: 1.0.0
 Release: %{tis_patch_ver}%{?_tis_dist}
 License: Apache-2.0
