@@ -224,10 +224,11 @@ class Monitor(HandleUpgradesMixin):
         health = self.filter_health_status(health)
         if health['health'] != constants.CEPH_HEALTH_OK:
             self._report_fault(health, fm_constants.FM_ALARM_ID_STORAGE_CEPH)
-            self._report_alarm_osds_health()
         else:
             self._clear_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH)
-            self.clear_all_major_critical()
+
+        # Report OSD down/out even if ceph health is OK
+        self._report_alarm_osds_health()
 
     def filter_health_status(self, health):
         return super(Monitor, self).filter_health_status(health)
@@ -825,46 +826,6 @@ class Monitor(HandleUpgradesMixin):
                     "group-" +
                     alarm_list[alarm].entity_instance_id[group_id + 6])
                 if group_name == group_instance_name:
-                    self.service.fm_api.clear_fault(
-                        fm_constants.FM_ALARM_ID_STORAGE_CEPH_CRITICAL,
-                        alarm_list[alarm].entity_instance_id)
-
-    def clear_all_major_critical(self, group_name=None):
-        # clear major alarms
-        alarm_list = self.service.fm_api.get_faults_by_id(
-            fm_constants.FM_ALARM_ID_STORAGE_CEPH_MAJOR)
-        if alarm_list:
-            for alarm in range(len(alarm_list)):
-                if group_name is not None:
-                    group_id = (
-                        alarm_list[alarm].entity_instance_id.find("group-"))
-                    group_instance_name = (
-                        "group-" +
-                        alarm_list[alarm].entity_instance_id[group_id + 6])
-                    if group_name == group_instance_name:
-                        self.service.fm_api.clear_fault(
-                            fm_constants.FM_ALARM_ID_STORAGE_CEPH_MAJOR,
-                            alarm_list[alarm].entity_instance_id)
-                else:
-                    self.service.fm_api.clear_fault(
-                        fm_constants.FM_ALARM_ID_STORAGE_CEPH_MAJOR,
-                        alarm_list[alarm].entity_instance_id)
-        # clear critical alarms
-        alarm_list = self.service.fm_api.get_faults_by_id(
-            fm_constants.FM_ALARM_ID_STORAGE_CEPH_CRITICAL)
-        if alarm_list:
-            for alarm in range(len(alarm_list)):
-                if group_name is not None:
-                    group_id = (
-                        alarm_list[alarm].entity_instance_id.find("group-"))
-                    group_instance_name = (
-                        "group-" +
-                        alarm_list[alarm].entity_instance_id[group_id + 6])
-                    if group_name == group_instance_name:
-                        self.service.fm_api.clear_fault(
-                            fm_constants.FM_ALARM_ID_STORAGE_CEPH_CRITICAL,
-                            alarm_list[alarm].entity_instance_id)
-                else:
                     self.service.fm_api.clear_fault(
                         fm_constants.FM_ALARM_ID_STORAGE_CEPH_CRITICAL,
                         alarm_list[alarm].entity_instance_id)
