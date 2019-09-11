@@ -6,6 +6,7 @@ Before=kubelet.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/pm-qos-mgr
+ExecStartPost=/bin/bash -c 'echo $MAINPID > /var/run/pm-qos-mgr.pid'
 
 [Install]
 WantedBy=multi-user.target

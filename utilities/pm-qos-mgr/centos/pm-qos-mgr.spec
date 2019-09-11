@@ -25,6 +25,7 @@ A daemon that monitors kubelet cpu-manager static cpu assignments
 and modifies PM QoS CPU wakeup latency.
 
 %define pythonroot %{_libdir}/python2.7/site-packages
+%define local_etc_pmond /etc/pmon.d/
 
 %prep
 %autosetup -n %{name}-%{version} -S git
@@ -44,6 +45,9 @@ export PBR_VERSION=%{version}
                              --install-data=%{_datadir} \
                              --single-version-externally-managed
 
+install -d -m 755 %{buildroot}%{local_etc_pmond}
+install -p -D -m 644 pm-qos-mgr.conf %{buildroot}%{local_etc_pmond}/pm-qos-mgr.conf
+
 install -p -D -m 664 pm-qos-mgr.service %{buildroot}%{_unitdir}/pm-qos-mgr.service
 
 %post
@@ -58,4 +62,5 @@ rm -rf $RPM_BUILD_ROOT
 %{_bindir}/*
 %{pythonroot}/%{pypi_name}/*
 %{pythonroot}/%{pypi_name}-%{version}*.egg-info
+%{local_etc_pmond}/pm-qos-mgr.conf
 %{_unitdir}/*
