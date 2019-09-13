@@ -75,9 +75,9 @@ function source_openrc_if_needed
         # get local host activity state
         OPENRC="/etc/platform/openrc"
         if [ -e "${OPENRC}" ] ; then
-            OS_USERNAME=""
+            OS_PASSWORD=""
             source ${OPENRC}
-            if [ "${OS_USERNAME}" != "" ] ; then
+            if [ "${OS_PASSWORD}" != "" ] ; then
                 ACTIVE=true
             fi
         fi
