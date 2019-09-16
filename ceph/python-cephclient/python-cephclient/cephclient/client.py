@@ -4,13 +4,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import atexit
 import ipaddress
 import json
 import logging
+import os
+import urlparse
 import re
 import requests
 import six
 import subprocess
+import tempfile
 import time
 
 from cephclient.exception import CephMonRestfulListKeysError
@@ -58,22 +62,22 @@ class CephClient(object):
                  retry_timeout=CEPH_CLIENT_RETRY_TIMEOUT_SEC):
         self.username = username
         self.password = password
-        self.check_certificate = True
+        self.cert_file = None
         self.service_url = None
-        # TODO: fix certificates
-        self._disable_certificate_checks()
         self.session = None
         self.retry_count = retry_count
         self.retry_timeout = retry_timeout
+        atexit.register(
+            self._cleanup_certificate)
 
     def _refresh_session(self):
         self.session = requests.Session()
         self.session.auth = (self.username, self.password)
-
-    def _disable_certificate_checks(self):
-        self.check_certificate = False
-        requests.packages.urllib3.disable_warnings()
-        LOG.warning('skip checking server certificate')
+        if not self.cert_file:
+            self._get_certificate()
+            self.session.verify = self.cert_file.name
+        else:
+            self.session.verify = False
 
     def _get_password(self):
         try:
@@ -111,6 +115,30 @@ class CephClient(object):
         except (KeyError, TypeError):
             raise CephMgrMissingRestfulService(
                 status.get('services', ''))
+
+    def _get_certificate(self):
+        self._cleanup_certificate()
+        url = urlparse.urlparse(self.service_url)
+        try:
+            certificate = subprocess.check_output(
+                ('ceph config-key get '
+                 '--connect-timeout {} '
+                 'mgr/restful/{}/crt').format(
+                     CEPH_CLI_TIMEOUT_SEC,
+                     url.hostname),
+                shell=True)
+        except subprocess.CalledProcessError:
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as self.cert_file:
+            self.cert_file.write(certificate)
+
+    def _cleanup_certificate(self):
+        if self.cert_file:
+            try:
+                os.unlink(self.cert_file.name)
+            except OSError:
+                pass
+            self.cert_file = None
 
     def _make_text_result(self, prefix, result):
         if result.get('has_failed'):
@@ -187,7 +215,6 @@ class CephClient(object):
                 result = self.session.post(
                     self.service_url + 'request?wait=1',
                     json=req_json,
-                    verify=self.check_certificate,
                     timeout=timeout).json()
                 LOG.info('Result: {}'.format(result))
                 if 'is_finished' in result:
