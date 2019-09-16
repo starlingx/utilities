@@ -9,7 +9,7 @@ import ipaddress
 import json
 import logging
 import os
-import urlparse
+from six.moves.urllib.parse import urlparse
 import re
 import requests
 import six
