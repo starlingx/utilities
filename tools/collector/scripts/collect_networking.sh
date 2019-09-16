@@ -18,30 +18,29 @@ echo    "${hostname}: Networking Info ...: ${LOGFILE}"
 ###############################################################################
 # All nodes
 ###############################################################################
-delimiter ${LOGFILE} "ip -s link"
-ip -s link >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+declare -a CMDS=("ip -s link"
+"ip -4 -s addr"
+"ip -6 -s addr"
+"ip -4 -s neigh"
+"ip -6 -s neigh"
+"ip -4 rule"
+"ip -6 rule"
+"ip -4 route"
+"ip -6 route"
+)
 
-delimiter ${LOGFILE} "ip -s addr"
-ip -s addr >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+for CMD in "${CMDS[@]}" ; do
+    delimiter ${LOGFILE} "${CMD}"
+    ${CMD} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+done
 
-delimiter ${LOGFILE} "ip -s neigh"
-ip -s neigh >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+CMD="iptables-save"
+delimiter ${LOGFILE} "${CMD}"
+${CMD} > ${extradir}/iptables.dump 2>>${COLLECT_ERROR_LOG}
 
-delimiter ${LOGFILE} "ip rule"
-ip rule >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
-
-delimiter ${LOGFILE} "ip route"
-ip route >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
-
-delimiter ${LOGFILE} "iptables -L -v -x -n"
-iptables -L -v -x -n >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
-
-delimiter ${LOGFILE} "iptables -L -v -x -n -t nat"
-iptables -L -v -x -n -t nat >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
-
-delimiter ${LOGFILE} "iptables -L -v -x -n -t mangle"
-iptables -L -v -x -n -t mangle >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
-
+CMD="ip6tables-save"
+delimiter ${LOGFILE} "${CMD}"
+${CMD} > ${extradir}/ip6tables.dump 2>>${COLLECT_ERROR_LOG}
 
 ###############################################################################
 # Only Worker
@@ -50,11 +49,9 @@ if [[ "$nodetype" = "worker" || "$subfunction" == *"worker"* ]] ; then
     NAMESPACES=($(ip netns))
     for NS in ${NAMESPACES[@]}; do
         delimiter ${LOGFILE} "${NS}"
-        ip netns exec ${NS} ip -s link
-        ip netns exec ${NS} ip -s addr
-        ip netns exec ${NS} ip -s neigh
-        ip netns exec ${NS} ip route
-        ip netns exec ${NS} ip rule
+        for CMD in "${CMDS[@]}" ; do
+            ip netns exec ${NS} ${CMD}
+        done
     done >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 fi
 
