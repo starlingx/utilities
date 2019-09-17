@@ -118,7 +118,7 @@ class CephClient(object):
 
     def _get_certificate(self):
         self._cleanup_certificate()
-        url = urlparse.urlparse(self.service_url)
+        url = urlparse(self.service_url)
         try:
             certificate = subprocess.check_output(
                 ('ceph config-key get '
