@@ -3,6 +3,19 @@
     check:
       jobs:
         - openstack-tox-linters
+        - stx-tox-pylint
     gate:
       jobs:
         - openstack-tox-linters
+        - stx-tox-pylint
+
+- job:
+    name: stx-tox-pylint
+    parent: tox
+    description: |
+      Run pylint tests
+    required-projects:
+      - starlingx/fault
+      - starlingx/config
+    vars:
+      tox_envlist: pylint
