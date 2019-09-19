@@ -19,11 +19,11 @@ from novaclient import client
 from keystoneauth1 import loading
 from keystoneauth1 import session
 import socket
-from log import LOG
-from config import CONF
-from config import sysconfig
-import instance
-import guest
+from pci_irq_affinity.log import LOG
+from pci_irq_affinity.config import CONF
+from pci_irq_affinity.config import sysconfig
+from pci_irq_affinity import instance
+from pci_irq_affinity import guest
 
 
 class NovaProvider:

@@ -11,7 +11,7 @@
 
 """ Define instance related class"""
 
-from log import LOG
+from pci_irq_affinity.log import LOG
 
 
 class numa_cell:

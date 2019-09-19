@@ -15,8 +15,8 @@ import os
 import errno
 from itertools import groupby
 
-from log import LOG
-import instance
+from pci_irq_affinity.log import LOG
+import pci_irq_affinity.instance
 
 
 def list_to_range(input_list=None):
