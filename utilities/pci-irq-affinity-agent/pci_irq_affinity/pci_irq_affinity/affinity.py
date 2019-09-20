@@ -11,10 +11,10 @@
 
 """ Define pci_irq_affinity_provider class"""
 
-import utils as pci_utils
-from driver import AffinePciIrqDriver
-from nova_provider import novaClient
-from log import LOG
+import pci_irq_affinity.utils as pci_utils
+from pci_irq_affinity.driver import AffinePciIrqDriver
+from pci_irq_affinity.nova_provider import novaClient
+from pci_irq_affinity.log import LOG
 
 
 class pci_irq_affinity_provider:

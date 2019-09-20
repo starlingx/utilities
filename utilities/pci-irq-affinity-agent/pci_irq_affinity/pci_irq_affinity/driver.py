@@ -13,11 +13,11 @@
 
 from oslo_service import loopingcall
 from oslo_concurrency import lockutils
-import utils as pci_utils
-import instance
-from config import CONF
-from log import LOG
-from nova_provider import novaClient
+import pci_irq_affinity.utils as pci_utils
+import pci_irq_affinity.instance
+from pci_irq_affinity.config import CONF
+from pci_irq_affinity.log import LOG
+from pci_irq_affinity.nova_provider import novaClient
 
 synchronized = lockutils.synchronized_with_prefix('pci_irq_affinity-')
 

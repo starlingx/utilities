@@ -24,11 +24,11 @@ from oslo_service import periodic_task
 from oslo_service import service
 import oslo_messaging
 
-from config import CONF
-from config import sysconfig
-from nova_provider import novaClient
-from affinity import pciIrqAffinity
-from log import LOG
+from pci_irq_affinity.config import CONF
+from pci_irq_affinity.config import sysconfig
+from pci_irq_affinity.nova_provider import novaClient
+from pci_irq_affinity.affinity import pciIrqAffinity
+from pci_irq_affinity.log import LOG
 
 stay_on = True
 
