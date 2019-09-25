@@ -190,28 +190,33 @@ function is_static_cpu_manager_policy {
 }
 
 # Check criteria for K8s platform steady-state ready on this node.
-# i.e., kube-system pods have recovered, kube application apply
+# i.e., core kube-system pods have recovered, kube application apply
 # has completed, nova-compute is running, cinder-volume is running.
 # NOTE: This function depends on kubectl commands, so is only
 # usable on controllers.
 function is_k8s_platform_steady_state_ready {
     local PASS=0
     local FAIL=1
-    local this_node=${HOSTNAME}
+    # NOTE: hostname changes during first configuration
+    local this_node=$(cat /proc/sys/kernel/hostname)
 
     # Global variable
     NOT_READY_REASON=""
 
-    # Check that kube-system pods have recovered on this node
+    # Check that core kube-system pods have recovered on this AIO node.
+    # This is not an exhaustive list.
+    core_pods=5
     npods=$(kubectl get pods --namespace kube-system --no-headers \
-            --field-selector spec.nodeName=${this_node} 2>/dev/null | \
+            --field-selector spec.nodeName=${this_node},status.phase=Running \
+            --output custom-columns=":metadata.name" 2>/dev/null | \
             awk '
 BEGIN { n=0; }
-!/Completed|Running/ { n+=1 }
+/^coredns|^kube-apiserver|^kube-controller-manager|^kube-proxy|^kube-scheduler/ { n+=1 }
 END { printf "%d\n", n; }
 ')
-    if [ ${npods} -gt 0 ]; then
-        NOT_READY_REASON="${npods} kube-system pods not recovered"
+    if [ ${npods} -lt ${core_pods} ]; then
+        remain=$(( ${core_pods} - ${npods} ))
+        NOT_READY_REASON="${remain} core kube-system pods not recovered"
         STABLE=0
         return ${FAIL}
     fi
@@ -455,7 +460,7 @@ function start {
     done
     affine_drbd_tasks ${NONISOL_CPUS}
 
-    # Wait until K8s pods have recovered and nova-compute is running
+    # Wait until core K8s pods have recovered and nova-compute is running
     t0=${SECONDS}
     until is_k8s_platform_steady_state_ready; do
         dt=$(( ${SECONDS} - ${t0} ))
