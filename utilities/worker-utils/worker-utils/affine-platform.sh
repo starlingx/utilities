@@ -45,11 +45,20 @@ function affine_tasks {
     N_CPUS=$(cat /proc/cpuinfo 2>/dev/null | \
         awk '/^[pP]rocessor/ { n +=1 } END { print (n>0) ? n : 1}')
 
-    # Calculate platform cores cpumap
-    PLATFORM_COREMASK=$(cpulist_to_cpumap ${CPULIST} ${N_CPUS})
+    # Calculate platform cores cpumap. Reformat with comma separator every
+    # 8 hex characters.
+    PLATFORM_COREMASK=$(cpulist_to_cpumap ${CPULIST} ${N_CPUS} | \
+        sed ':a;s/\B[0-9A-Fa-f]\{8\}\>/,&/;ta')
 
     # Set default IRQ affinity
-    echo ${PLATFORM_COREMASK} > /proc/irq/default_smp_affinity
+    # NOTE: The following echoes a value to file and redirects the stderr to
+    # stdout so that potential errors get captured in the variable ERROR.
+    ERROR=$(echo ${PLATFORM_COREMASK} 2>&1 > /proc/irq/default_smp_affinity)
+    RET=$?
+    if [ ${RET} -ne 0 ]; then
+        log_error "Failed to set: ${PLATFORM_COREMASK}" \
+                  "/proc/irq/default_smp_affinity, err=${ERROR}"
+    fi
 
     # Affine all PCI/MSI interrupts to platform cores; this overrides
     # irqaffinity boot arg, since that does not handle IRQs for PCI devices
@@ -66,8 +75,18 @@ function affine_tasks {
     done
     if [[ "$subfunction" == *"worker,lowlatency" ]]; then
         # Affine work queues to platform cores
-        echo ${PLATFORM_COREMASK} > /sys/devices/virtual/workqueue/cpumask
-        echo ${PLATFORM_COREMASK} > /sys/bus/workqueue/devices/writeback/cpumask
+        ERROR=$(echo ${PLATFORM_COREMASK} 2>&1 > /sys/devices/virtual/workqueue/cpumask)
+        RET=$?
+        if [ ${RET} -ne 0 ]; then
+            log_error "Failed to set: ${PLATFORM_COREMASK}" \
+                      "/sys/devices/virtual/workqueue/cpumask, err=${ERROR}"
+        fi
+        ERROR=$(echo ${PLATFORM_COREMASK} 2>&1 > /sys/bus/workqueue/devices/writeback/cpumask)
+        RET=$?
+        if [ ${RET} -ne 0 ]; then
+            log_error "Failed to set: ${PLATFORM_COREMASK}" \
+                      "/sys/bus/workqueue/devices/writeback/cpumask, err=${ERROR}"
+        fi
 
         # On low latency compute reassign the per cpu threads rcuc, ksoftirq,
         # ktimersoftd to FIFO along with the specified priority
@@ -85,6 +104,13 @@ function affine_tasks {
         for PID in ${PIDLIST[@]}; do
             chrt -p -f 3 ${PID} 2>/dev/null
         done
+
+        # Affine kernel irq/ nvme threads to platform cores
+        pidlist=$(ps --ppid 2 -p 2 -o pid=,comm= | grep -E 'irq/.*nvme' | awk '{ print $1; }')
+        for pid in ${pidlist[@]}; do
+            taskset --all-tasks --pid --cpu-list ${PLATFORM_CPULIST} $pid &> /dev/null
+        done
+
     fi
 
     return 0
