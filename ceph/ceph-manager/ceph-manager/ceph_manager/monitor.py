@@ -22,6 +22,8 @@ from ceph_manager.i18n import _LE
 from ceph_manager import constants
 from ceph_manager import exception
 
+from tsconfig import tsconfig
+
 LOG = logging.getLogger(__name__)
 
 
@@ -486,6 +488,7 @@ class Monitor(HandleUpgradesMixin):
         reasons = set()
         degraded_hosts = set()
         severity = fm_constants.FM_ALARM_SEVERITY_CRITICAL
+
         for host_id in hosts:
             if len(osds[host_id]) == 0:
                 reasons.add(constants.ALARM_REASON_NO_OSD)
@@ -501,13 +504,16 @@ class Monitor(HandleUpgradesMixin):
                     elif osd_tree[osd_id]['status'] == 'down':
                         reasons.add(constants.ALARM_REASON_OSDS_DOWN)
                         degraded_hosts.add(host_id)
+
         if constants.ALARM_REASON_OSDS_OUT in reasons \
            and constants.ALARM_REASON_OSDS_DOWN in reasons:
             reasons.add(constants.ALARM_REASON_OSDS_DOWN_OUT)
             reasons.remove(constants.ALARM_REASON_OSDS_OUT)
+
         if constants.ALARM_REASON_OSDS_DOWN in reasons \
            and constants.ALARM_REASON_OSDS_DOWN_OUT in reasons:
             reasons.remove(constants.ALARM_REASON_OSDS_DOWN)
+
         reason = "/".join(list(reasons))
         if severity == fm_constants.FM_ALARM_SEVERITY_CRITICAL:
             reason = "{} {}: {}".format(
@@ -519,8 +525,10 @@ class Monitor(HandleUpgradesMixin):
                 fm_constants.ALARM_MAJOR_REPLICATION,
                 osd_tree[group_id]['name'],
                 reason)
+
         if len(degraded_hosts) == 0:
-            if len(hosts) < 2:
+            if (len(hosts) < 2 and
+                    tsconfig.system_mode != constants.SYSTEM_MODE_SIMPLEX):
                 fn_report_alarm(
                     osd_tree[group_id]['name'],
                     "{} {}: {}".format(
