@@ -10,3 +10,4 @@
 /var/run/avahi-daemon
 /var/run/neutron/metadata_proxy
 /var/run/.vswitch
+/var/run/containerd
