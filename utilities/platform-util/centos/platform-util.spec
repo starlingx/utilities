@@ -18,10 +18,17 @@ BuildRequires: python2-wheel
 %description
 Platform utilities
 
-%package -n platform-util-noncontroller
+%package controller
+Summary: Controller platform utilities
+Requires: genisoimage
+
+%description controller
+Platform utilities installed only on controllers
+
+%package noncontroller
 Summary: non controller platform utilities
 
-%description -n platform-util-noncontroller
+%description noncontroller
 Platform utilities that don't get packaged on controller hosts
 
 %define local_dir /usr/local
@@ -53,6 +60,7 @@ install -d %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/cgcs_tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/remotelogging_tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/connectivity_test %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/update-iso.sh %{buildroot}%{local_bindir}
 
 install -d %{buildroot}%{local_etc_initd}
 install %{_buildsubdir}/scripts/log_functions.sh %{buildroot}%{local_etc_initd}
@@ -72,7 +80,7 @@ ln -sf /dev/null %{buildroot}/etc/systemd/system/ctrl-alt-del.target
 %clean
 rm -rf $RPM_BUILD_ROOT
 
-%post -n platform-util-noncontroller
+%post noncontroller
 mkdir -p /opt/platform
 systemctl enable opt-platform.service
 
@@ -93,7 +101,11 @@ systemctl enable opt-platform.service
 %{pythonroot}/platform_util-%{version}.0-py2.7.egg-info/*
 %{local_etc_initd}/log_functions.sh
 
-%files -n platform-util-noncontroller
+%files controller
+%defattr(-,root,root,-)
+%{local_bindir}/update-iso.sh
+
+%files noncontroller
 %defattr(-,root,root,-)
 # This is necessary to mask opt-platform.mount, so that the version generated
 # from parsing the fstab is not used by systemd.

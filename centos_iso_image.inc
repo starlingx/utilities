@@ -32,6 +32,7 @@ pci-irq-affinity-agent
 
 # platform-util
 platform-util
+platform-util-controller
 platform-util-noncontroller
 
 # stx-extensions
