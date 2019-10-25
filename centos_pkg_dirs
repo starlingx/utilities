@@ -1,4 +1,3 @@
-utilities/pm-qos-mgr
 utilities/worker-utils
 ceph/ceph-manager
 ceph/python-cephclient
