@@ -40,13 +40,13 @@ for i in $(ip link | grep mtu | grep eth |awk '{print $2}' | sed 's#:##g'); do
 done
 
 ###############################################################################
-# TC Configuration Script (/usr/local/bin/cgcs_tc_setup.sh)
+# TC Configuration Script (/usr/local/bin/tc_setup.sh)
 ###############################################################################
-delimiter ${LOGFILE} "cat /usr/local/bin/cgcs_tc_setup.sh"
-if [ -f /usr/local/bin/cgcs_tc_setup.sh ]; then
-    cat /usr/local/bin/cgcs_tc_setup.sh >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+delimiter ${LOGFILE} "cat /usr/local/bin/tc_setup.sh"
+if [ -f /usr/local/bin/tc_setup.sh ]; then
+    cat /usr/local/bin/tc_setup.sh >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 else
-    echo "/usr/local/bin/cgcs_tc_setup.sh NOT FOUND" >> ${LOGFILE}
+    echo "/usr/local/bin/tc_setup.sh NOT FOUND" >> ${LOGFILE}
 fi
 
 ###############################################################################

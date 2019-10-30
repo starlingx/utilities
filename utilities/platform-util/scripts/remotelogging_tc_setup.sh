@@ -30,7 +30,7 @@ function is_loopback {
 function log {
     # It seems that syslog isn't yet running, so append directly to the syslog file
     local FILE=/var/log/platform.log
-    echo `date +%FT%T.%3N` `hostname` CGCS_TC_SETUP: $@ >> $FILE
+    echo `date +%FT%T.%3N` `hostname` TC_SETUP: $@ >> $FILE
 }
 
 function test_valid_speed {
@@ -91,7 +91,7 @@ LOG_BW=9
 DEFAULT_CBW=20
 LOG_CBW=20
 
-# 1:40 = default class from cgcs_tc_setup.sh
+# 1:40 = default class from tc_setup.sh
 # 1:60 = LOG class
 
 if [ $nodetype == "controller" ]; then

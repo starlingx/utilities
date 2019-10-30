@@ -57,7 +57,7 @@ mkdir -p $RPM_BUILD_ROOT/wheels
 install -m 644 dist/*.whl $RPM_BUILD_ROOT/wheels/
 
 install -d %{buildroot}%{local_bindir}
-install %{_buildsubdir}/scripts/cgcs_tc_setup.sh %{buildroot}%{local_bindir}
+install %{_buildsubdir}/scripts/tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/remotelogging_tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/connectivity_test %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/update-iso.sh %{buildroot}%{local_bindir}
@@ -88,7 +88,7 @@ systemctl enable opt-platform.service
 %license LICENSE
 %defattr(-,root,root,-)
 /usr/bin/verify-license
-%{local_bindir}/cgcs_tc_setup.sh
+%{local_bindir}/tc_setup.sh
 %{local_bindir}/remotelogging_tc_setup.sh
 %{local_bindir}/connectivity_test
 %{local_sbindir}/patch-restart-mtce
