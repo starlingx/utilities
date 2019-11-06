@@ -57,6 +57,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 
 # Global parameters
 CGDIR_K8S=/sys/fs/cgroup/cpuset/k8s-infra
+CGDIR_DOCKER=/sys/fs/cgroup/cpuset/docker
 INIT_INTERVAL_SECONDS=10
 CHECK_INTERVAL_SECONDS=30
 PRINT_INTERVAL_SECONDS=300
@@ -97,6 +98,10 @@ PLATFORM_CPUS=$(platform_expanded_cpu_list)
 NOT_READY_REASON=""
 STABLE=0
 
+# Set LOG_DEBUG to non-empty string to enable debug logs
+LOG_DEBUG=""
+
+
 # Log info message to /var/log/daemon.log
 function LOG {
     logger -p daemon.info -t "${NAME}($$): " "$@"
@@ -107,33 +112,63 @@ function ERROR {
     logger -s -p daemon.error -t "${NAME}($$): " "$@"
 }
 
-# Update cgroup k8s-infra cpuset and nodeset to span all non-isolated cpus.
-function update_cgroup_cpuset_k8s_infra_all {
+# Log debug message to /var/log/daemon.log if debug enabled via LOG_DEBUG
+function DEBUG {
+    if [ ! -z "${LOG_DEBUG}" ]; then
+        logger -p daemon.debug -t "${NAME}($$): " "$@"
+    fi
+}
+
+# Update cgroup cpuset and nodeset to span all non-isolated cpus.
+function update_cgroup_cpuset_all {
+    local CGDIR=$1
+    if [ ! -d "${CGDIR}" ]; then
+        ERROR "update_cgroup_cpuset_all: ${CGDIR} does not exist"
+        return
+    fi
+
     # Set all cgroup cpuset and nodeset in tree hierarchy order.
     # This will always work, no matter the previous cpuset state.
-    find ${CGDIR_K8S} -type d | \
+    find ${CGDIR} -type d | \
     while read d; do
         /bin/echo ${ONLINE_NODES} > ${d}/cpuset.mems 2>/dev/null
-        /bin/echo ${NONISOL_CPUS} > ${d}/cpuset.cpus 2>/dev/null
+        /bin/echo ${ONLINE_CPUS} > ${d}/cpuset.cpus 2>/dev/null
     done
-    LOG "Update ${CGDIR_K8S}," \
+
+    # Set all cgroup cpuset in depth-first order.
+    # NOTE: this only works if we are shrinking the cpuset.
+    find ${CGDIR} -depth -type d | \
+    while read d; do
+        /bin/echo ${NONISOL_CPUS} > ${d}/cpuset.cpus 2>/dev/null
+        C=$(cat ${d}/cpuset.cpus 2>/dev/null)
+        DEBUG "update all: ${d}, cpuset.cpus=${C}"
+    done
+    LOG "Update ${CGDIR}," \
         "ONLINE_NODES=${ONLINE_NODES}, NONISOL_CPUS=${NONISOL_CPUS}"
 }
 
-# Update cgroup k8s-infra to span platform cpuset and nodeset.
-function update_cgroup_cpuset_k8s_infra_platform {
+# Update cgroup cpuset to span platform cpuset and nodeset.
+function update_cgroup_cpuset_platform {
+    local CGDIR=$1
+    if [ ! -d "${CGDIR}" ]; then
+        ERROR "update_cgroup_cpuset_platform: ${CGDIR} does not exist"
+        return
+    fi
+
     # Clear any existing cpuset settings. This ensures that the
     # subsequent shrink to platform cpuset will always work.
-    update_cgroup_cpuset_k8s_infra_all
+    update_cgroup_cpuset_all ${CGDIR}
 
     # Set all cgroup cpuset and nodeset in depth-first order.
     # NOTE: this only works if we are shrinking the cpuset.
-    find ${CGDIR_K8S} -depth -type d | \
+    find ${CGDIR} -depth -type d | \
     while read d; do
         /bin/echo ${PLATFORM_NODES} > ${d}/cpuset.mems 2>/dev/null
         /bin/echo ${PLATFORM_CPUS}  > ${d}/cpuset.cpus 2>/dev/null
+        C=$(cat ${d}/cpuset.cpus 2>/dev/null)
+        DEBUG "update platform: ${d}, cpuset.cpus=${C}"
     done
-    LOG "Update ${CGDIR_K8S}," \
+    LOG "Update ${CGDIR}," \
         "PLATFORM_NODES=${PLATFORM_NODES}, PLATFORM_CPUS=${PLATFORM_CPUS}"
 }
 
@@ -172,6 +207,26 @@ function is_k8s_platform_ready {
     fi
 
     LOG "kubelet is ready"
+    return ${PASS}
+}
+
+
+# Check criteria for docker platform ready on this node.
+# i.e., docker is configured
+function is_docker_platform_ready {
+    local PASS=0
+    local FAIL=1
+
+    # Global variable
+    NOT_READY_REASON=""
+
+    # Check that cgroup cpuset docker has been configured
+    if [ ! -e ${CGDIR_DOCKER} ]; then
+        NOT_READY_REASON="docker not configured"
+        return ${FAIL}
+    fi
+
+    LOG "docker is ready"
     return ${PASS}
 }
 
@@ -278,6 +333,22 @@ END { printf "%d\n", n; }
     return ${PASS}
 }
 
+# Check whether this node is configured as openstack-compute-node.
+function is_openstack_compute {
+    local PASS=0
+    local FAIL=1
+    # NOTE: hostname changes during first configuration
+    local this_node=$(cat /proc/sys/kernel/hostname)
+
+    labels=$(kubectl get node ${this_node} \
+                --no-headers --show-labels 2>/dev/null | awk '{print $NF}')
+    if [[ $labels =~ openstack-compute-node=enabled ]]; then
+        return ${PASS}
+    else
+        return ${FAIL}
+    fi
+}
+
 # Get number of DRBD resources started.
 # Returns 0 if DRBD not ready.
 function number_drbd_resources_started {
@@ -333,7 +404,7 @@ function affine_drbd_tasks {
 }
 
 # Return list of reaffineable pids. This includes all processes, but excludes
-# kernel threads, vSwitch, and anything in K8S or qemu/kvm.
+# kernel threads, vSwitch, and anything in K8S, docker or qemu/kvm.
 function reaffineable_pids {
     local pids_excl
     local pidlist
@@ -343,7 +414,7 @@ function reaffineable_pids {
                 sed 's/,$/\n/')
     pidlist=$(ps --ppid ${pids_excl} -p ${pids_excl} --deselect \
                 -o pid=,cgroup= | \
-                awk '!/k8s-infra|machine.slice/ {print $1; }')
+                awk '!/k8s-infra|docker|machine.slice/ {print $1; }')
     echo "${pidlist[@]}"
 }
 
@@ -440,7 +511,7 @@ function start {
     # Update K8S cpuset so that pods float on all cpus
     # NOTE: dynamic cpuset changes incompatible with static policy
     if ! is_static_cpu_manager_policy; then
-        update_cgroup_cpuset_k8s_infra_all
+        update_cgroup_cpuset_all ${CGDIR_K8S}
     fi
 
     # Wait for all DRBD resources to have started. Affine DRBD tasks
@@ -460,6 +531,12 @@ function start {
     done
     affine_drbd_tasks ${NONISOL_CPUS}
 
+    # Update docker cpuset so it floats on non-isolated cpus.
+    # The docker cgroup is not always created, so don't wait for it.
+    if is_docker_platform_ready -eq 0 ; then
+        update_cgroup_cpuset_all ${CGDIR_DOCKER}
+    fi
+
     # Wait until core K8s pods have recovered and nova-compute is running
     t0=${SECONDS}
     until is_k8s_platform_steady_state_ready; do
@@ -472,9 +549,19 @@ function start {
         sleep ${CHECK_INTERVAL_SECONDS}
     done
 
+    # Update docker cpuset to platform cores
+    # The docker cgroup is not always created, so don't wait for it.
+    if is_docker_platform_ready -eq 0 ; then
+        update_cgroup_cpuset_platform ${CGDIR_DOCKER}
+    else
+        LOG "Warning: ${CGDIR_DOCKER} not ready."
+    fi
+
     # Update K8S cpuset to platform cores
     if ! is_static_cpu_manager_policy; then
-        update_cgroup_cpuset_k8s_infra_platform
+        if is_openstack_compute; then
+            update_cgroup_cpuset_platform ${CGDIR_K8S}
+        fi
     fi
 
     # Affine all floating tasks back to platform cores
