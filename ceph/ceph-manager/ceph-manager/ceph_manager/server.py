@@ -6,7 +6,7 @@
 #
 
 # https://chrigl.de/posts/2014/08/27/oslo-messaging-example.html
-# http://docs.openstack.org/developer/oslo.messaging/server.html
+# https://docs.openstack.org/oslo.messaging/latest/reference/server.html
 
 import sys
 
