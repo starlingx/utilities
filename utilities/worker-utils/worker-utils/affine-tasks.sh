@@ -404,7 +404,7 @@ function affine_drbd_tasks {
 }
 
 # Return list of reaffineable pids. This includes all processes, but excludes
-# kernel threads, vSwitch, and anything in K8S, docker or qemu/kvm.
+# kernel threads, vSwitch, and anything in K8S, docker or qemu/kvm cpuset.
 function reaffineable_pids {
     local pids_excl
     local pidlist
@@ -414,7 +414,7 @@ function reaffineable_pids {
                 sed 's/,$/\n/')
     pidlist=$(ps --ppid ${pids_excl} -p ${pids_excl} --deselect \
                 -o pid=,cgroup= | \
-                awk '!/k8s-infra|docker|machine.slice/ {print $1; }')
+                awk '!/cpuset:\/(k8s-infra|docker|machine.slice)/ {print $1; }')
     echo "${pidlist[@]}"
 }
 
@@ -453,7 +453,7 @@ function affine_tasks_to_platform_cores {
     done
 
     # Reaffine vSwitch tasks that span multiple cpus to platform cpus
-    pidlist=$(ps -eL -o pid=,comm= | awk '/eal-intr-thread/ {print $1}')
+    pidlist=( $(ps -eL -o pid=,comm= | awk '/eal-intr-thread/ {print $1}') )
     for pid in ${pidlist[@]}; do
         count=$((${count} + 1))
         grep Cpus_allowed_list /proc/${pid}/task/*/status 2>/dev/null | \
@@ -464,6 +464,13 @@ function affine_tasks_to_platform_cores {
 
     # Reaffine drbd_r_* threads to platform cpus
     affine_drbd_tasks ${PLATFORM_CPUS}
+
+    # Reaffine /pause containers to cpu 0
+    # NOTE: kubelet and containerd spawn '/pause' tasks
+    pidlist=( $(ps -e -o pid,comm | awk '$2 ~ /^pause$/ {print $1}') )
+    for pid in ${pidlist[@]}; do
+        taskset --pid --cpu-list 0 ${pid} > /dev/null 2>&1
+    done
 
     LOG "Affined ${count} processes to platform cores."
 }
@@ -510,8 +517,11 @@ function start {
 
     # Update K8S cpuset so that pods float on all cpus
     # NOTE: dynamic cpuset changes incompatible with static policy
+    # or reserved cpus in general.
     if ! is_static_cpu_manager_policy; then
-        update_cgroup_cpuset_all ${CGDIR_K8S}
+        if is_openstack_compute; then
+            update_cgroup_cpuset_all ${CGDIR_K8S}
+        fi
     fi
 
     # Wait for all DRBD resources to have started. Affine DRBD tasks
@@ -560,6 +570,8 @@ function start {
     # Update K8S cpuset to platform cores
     if ! is_static_cpu_manager_policy; then
         if is_openstack_compute; then
+            LOG "Calling update_cgroup_cpuset_platform: ${CGDIR_K8S}" \
+                "for openstack compute."
             update_cgroup_cpuset_platform ${CGDIR_K8S}
         fi
     fi
