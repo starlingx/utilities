@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block title %}Edit Profile{% endblock %}
+{% block body %}
+  <h2>Edit File</h2>
+  <form action="" method=post>
+<!--    <dl>-->
+    <div class="input-group mb-3">
+      <div class="input-group-prepend">
+        <span class="input-group-text">Name:</span>
+      </div>
+      <input type="text" name=name class="form-control" placeholder="name" aria-label="name" aria-describedby="basic-addon1" value="{{ form.name }}">
+    </div>
+    <div class="input-group mb-3">
+      <div class="input-group-prepend">
+        <span class="input-group-text" id="basic-addon1">Launchpad ID:</span>
+      </div>
+      <input type="text" name=launchpad_id class="form-control" placeholder="launchpad_id" aria-label="launchpad_id" aria-describedby="basic-addon1" value="{{ form.launchpad_id }}">
+    </div>
+<!--      <dt>Name:-->
+<!--      <dd><input type=text name=name size=30 value="{{ form.name }}">-->
+<!--      <dt>Launchpad ID:-->
+<!--      <dd><input type=text name=launchpad_id size=30 value="{{ form.launchpad_id }}">-->
+<!--    </dl>-->
+    <p>
+      <input type=submit value="Update file" class="btn btn-primary">
+  </form>
+{% endblock %}

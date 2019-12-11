@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block title %}Create Profile{% endblock %}
+{% block body %}
+  <h2>Create Profile</h2>
+  <p>
+    Hey!  This is the first time you signed in on this website.  In
+    order to proceed we need some extra information from you:
+  <form action="" method=post>
+    <div class="input-group mb-3">
+      <div class="input-group-prepend">
+        <span class="input-group-text">Name:</span>
+      </div>
+      <input type="text" name=name class="form-control" placeholder="name" aria-label="name" aria-describedby="basic-addon1" value="{{ request.values.name }}">
+    </div>
+    <div class="input-group mb-3">
+      <div class="input-group-prepend">
+        <span class="input-group-text" id="basic-addon1">E-Mail:</span>
+      </div>
+      <input type="text" name=email class="form-control" placeholder="email" aria-label="email" aria-describedby="basic-addon1" value="{{ request.values.email }}">
+    </div>
+    <p>
+      <input type=submit value="Create profile" class="btn btn-primary">
+      <input type=hidden name=next value="{{ next }}">
+  </form>
+  <p>
+    If you don't want to proceed, you can <a href="{{ url_for('logout')
+    }}">sign out</a> again.
+{% endblock %}

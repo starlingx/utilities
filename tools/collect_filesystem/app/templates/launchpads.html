@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% block body %}
+  <h2>Launchpads</h2>
+  <div>
+      <div class="input-group">
+        <input type="text" class="form-control" placeholder="Search this blog" id="search_input_label">
+        <div class="input-group-append">
+          <button class="btn btn-secondary" type="button" onclick="search();">
+            <i class="fa fa-search"></i>
+          </button>
+        </div>
+      </div>
+  </div>
+  {% if user_launchpads|length %}
+  <table style="width:100%" class="table table-striped">
+    <thead>
+    <tr>
+      <th onclick="revert();" style="cursor: pointer;" title="Click to sort the launchpads">
+          LP Files <i id="table_order" class="fa fa-caret-square-o-down"></i>
+      </th>
+      <th>Launchpad Link</th>
+      <th>Launchpad Title</th>
+    </tr>
+    </thead>
+      {% for user_launchpad in user_launchpads %}
+        <tr>
+        <!--      <td><a href="{{ url_for('download_file', file_id=user_launchpad['id']) }}">{{ user_launchpad['title'] }}</a></td>-->
+          <td>
+            <a href="{{ url_for('list_files_under_a_launchpad', launchpad_id=user_launchpad['id']) }}">{{ user_launchpad['id'] }}</a>
+          </td>
+          <td>
+            <a href="https://bugs.launchpad.net/bugs/{{ user_launchpad['id'] }}">https://bugs.launchpad.net/bugs/{{ user_launchpad['id'] }}</a>
+          </td>
+          <td>{{ user_launchpad['title'] }}</td>
+        </tr>
+      {% endfor %}
+  </table>
+  {% else %}
+  <div>Your search returns no result</div>
+  {% endif %}
+
+  <!-- Import Bootstrap JavaScript here -->
+  <script type=text/javascript src="{{url_for('static', filename='main.js') }}"></script>
+{% endblock %}
