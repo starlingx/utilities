@@ -299,10 +299,12 @@ function set_timeout {
     done
 
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
+        sed -i "s/^timeout=.*/timeout=${GRUB_TIMEOUT}/" ${f}
+
         grep -q "^  set timeout=" ${f}
         if [ $? -eq 0 ]; then
             # Submenu timeout is already added. Update the value
-            sed -i -e "s#^  set timeout=.*#${GRUB_TIMEOUT}#" ${f}
+            sed -i -e "s#^  set timeout=.*#  set timeout=${GRUB_TIMEOUT}#" ${f}
             if [ $? -ne 0 ]; then
                 echo "Failed to update grub timeout"
                 exit 1
@@ -327,7 +329,7 @@ declare DEFAULT_LABEL=
 declare DEFAULT_GRUB_ENTRY=
 declare UPDATE_TIMEOUT="no"
 declare -i TIMEOUT=0
-declare -i GRUB_TIMEOUT=-1
+declare GRUB_TIMEOUT=-1
 declare EFI_MOUNT=
 declare EFIBOOT_IMG_LOOP=
 
@@ -381,7 +383,9 @@ while getopts "hi:o:a:p:d:t:" opt; do
             let -i timeout_arg=${OPTARG}
             if [ ${timeout_arg} -gt 0 ]; then
                 let -i TIMEOUT=${timeout_arg}*10
-                let -i GRUB_TIMEOUT=${timeout_arg}
+                GRUB_TIMEOUT=${timeout_arg}
+            elif [ ${timeout_arg} -eq 0 ]; then
+                GRUB_TIMEOUT=0.001
             fi
 
             UPDATE_TIMEOUT="yes"
