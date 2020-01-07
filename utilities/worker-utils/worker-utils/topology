@@ -5,4 +5,4 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-python /usr/bin/topology.pyc
+python3 /usr/bin/topology.pyc

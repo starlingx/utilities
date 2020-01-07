@@ -9,7 +9,7 @@ PLATFORMCONFDIR ?= /etc/platform
 SYSTEMDDIR ?= /usr/lib/systemd/system/
 
 all:
-	python -m compileall topology.py
+	python3 -m compileall -b topology.py
 
 install:
 	install -d -m 755 $(BINDIR)

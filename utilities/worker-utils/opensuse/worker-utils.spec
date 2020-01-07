@@ -12,12 +12,12 @@ BuildRequires: systemd
 BuildRequires: systemd-sysvinit
 BuildRequires: sysvinit-tools
 BuildRequires: insserv-compat
-BuildRequires: python
+BuildRequires: python3
 Requires: systemd
 Requires: systemd-sysvinit
 Requires: sysvinit-tools
 Requires: insserv-compat
-Requires: python
+Requires: python3
 
 %description
 Initial worker node resource reservation and miscellaneous utilities for StarlingX.

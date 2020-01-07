@@ -11,7 +11,7 @@ Source1: LICENSE
 
 BuildRequires: systemd-devel
 Requires: systemd
-Requires: python
+Requires: python3
 Requires: /bin/systemctl
 Requires: perl
 
