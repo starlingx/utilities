@@ -29,15 +29,7 @@ CMD="docker image ls -a"
 delimiter ${LOGFILE} "${CMD}"
 ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE}
 
-CMD="crictl images"
-delimiter ${LOGFILE} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE}
-
 CMD="docker container ps -a"
-delimiter ${LOGFILE} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE}
-
-CMD="crictl ps -a"
 delimiter ${LOGFILE} "${CMD}"
 ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE}
 
