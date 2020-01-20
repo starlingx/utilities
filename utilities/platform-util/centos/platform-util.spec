@@ -9,9 +9,9 @@ URL: unknown
 BuildArch: noarch
 Source: %name-%version.tar.gz
 
-BuildRequires: python-setuptools
-BuildRequires: python2-pip
-BuildRequires: python2-wheel
+BuildRequires: python3-setuptools
+BuildRequires: python3-pip
+BuildRequires: python3-wheel
 
 %global _buildsubdir %{_builddir}/%{name}-%{version}
 
@@ -34,20 +34,20 @@ Platform utilities that don't get packaged on controller hosts
 %define local_dir /usr/local
 %define local_bindir %{local_dir}/bin
 %define local_sbindir %{local_dir}/sbin
-%define pythonroot /usr/lib64/python2.7/site-packages
+%define pythonroot %{python3_sitearch}
 %define local_etc_initd %{_sysconfdir}/init.d
 
 %prep
 %setup
 
 %build
-%{__python} setup.py build
-%py2_build_wheel
+%{__python3} setup.py build
+%py3_build_wheel
 
 %install
 
 
-%{__python} setup.py install --root=$RPM_BUILD_ROOT \
+%{__python3} setup.py install --root=$RPM_BUILD_ROOT \
                              --install-lib=%{pythonroot} \
                              --prefix=/usr \
                              --install-data=/usr/share \
@@ -97,8 +97,8 @@ systemctl enable opt-platform.service
 /etc/systemd/system/ctrl-alt-del.target
 %dir %{pythonroot}/platform_util
 %{pythonroot}/platform_util/*
-%dir %{pythonroot}/platform_util-%{version}.0-py2.7.egg-info
-%{pythonroot}/platform_util-%{version}.0-py2.7.egg-info/*
+%dir %{pythonroot}/platform_util-%{version}.0-py3.6.egg-info
+%{pythonroot}/platform_util-%{version}.0-py3.6.egg-info/*
 %{local_etc_initd}/log_functions.sh
 
 %files controller
