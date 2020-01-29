@@ -10,14 +10,14 @@ Source0: %{name}-%{version}.tar.gz
 
 BuildArch: noarch
 
-BuildRequires: python
-BuildRequires: python2-pip
-BuildRequires: python2-wheel
+BuildRequires: python3
+BuildRequires: python3-pip
+BuildRequires: python3-wheel
 
-Requires: python
-Requires: python-ipaddress
-Requires: python2-six
-Requires: python2-requests
+Requires: python3
+Requires: python3-ipaddress
+Requires: python3-six
+Requires: python3-requests
 
 Provides: python-cephclient
 
@@ -38,11 +38,11 @@ rm -rf python_cephclient.egg-info
 rm -f requirements.txt
 
 %build
-%{__python} setup.py build
-%py2_build_wheel
+%{__python3} setup.py build
+%{__python3} setup.py bdist_wheel
 
 %install
-%{__python2} setup.py install --skip-build --root %{buildroot}
+%{__python3} setup.py install --skip-build --root %{buildroot}
 mkdir -p $RPM_BUILD_ROOT/wheels
 install -m 644 dist/*.whl $RPM_BUILD_ROOT/wheels/
 
@@ -52,8 +52,8 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root,-)
 %license LICENSE
-%{python2_sitelib}/cephclient
-%{python2_sitelib}/*.egg-info
+%{python3_sitelib}/cephclient
+%{python3_sitelib}/*.egg-info
 
 %package wheels
 Summary: %{name} wheels
