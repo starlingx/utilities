@@ -2,13 +2,13 @@
 worker-utils
 
 # python-cephclient
-python-cephclient
+#python-cephclient
 
 # nfscheck
 nfscheck
 
 # logmgmt
-logmgmt
+#logmgmt
 
 # tpm2-openssl-engine
 tpm2-openssl-engine
@@ -26,7 +26,7 @@ build-info
 namespace-utils
 
 # pci-irq-affinity-agent
-pci-irq-affinity-agent
+#pci-irq-affinity-agent
 
 # platform-util
 platform-util
@@ -34,7 +34,7 @@ platform-util-controller
 platform-util-noncontroller
 
 # stx-extensions
-stx-extensions
+#stx-extensions
 
 # update-motd
-update-motd
+#update-motd
