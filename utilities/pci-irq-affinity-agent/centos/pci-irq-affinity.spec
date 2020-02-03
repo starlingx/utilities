@@ -9,8 +9,8 @@ URL: unknown
 
 Source0: %{name}-%{version}.tar.gz
 
-Requires:   python-novaclient
-BuildRequires: python-setuptools
+Requires:   python3-novaclient
+BuildRequires: python3-setuptools
 BuildRequires: systemd-devel
 
 %description
@@ -18,7 +18,7 @@ StarlingX PCI Interrupt Affinity Agent Package
 
 %define local_etc_initd /etc/init.d/
 %define local_etc_pmond /etc/pmon.d/
-%define pythonroot           /usr/lib64/python2.7/site-packages
+%define pythonroot      %{python3_sitearch}
 %define debug_package %{nil}
 
 %prep
@@ -28,10 +28,10 @@ StarlingX PCI Interrupt Affinity Agent Package
 rm -rf *.egg-info
 
 %build
-%{__python} setup.py build
+%{__python3} setup.py build
 
 %install
-%{__python} setup.py install --root=%{buildroot} \
+%{__python3} setup.py install --root=%{buildroot} \
                              --install-lib=%{pythonroot} \
                              --prefix=/usr \
                              --install-data=/usr/share \
