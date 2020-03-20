@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4 textwidth=79 autoindent
 
 """
@@ -8,7 +8,7 @@ Last author: lmwangi at gmail  com
 Displays the available memory fragments
 by querying /proc/buddyinfo
 Example:
-# python buddyinfo.py
+# python3 buddyinfo.py
 """
 import optparse
 import os
