@@ -227,9 +227,6 @@ do
       "dcorch-engine")
          process_list=(${process_list[@]} "sm:dcorch-engine:dcorch-engine:controller:/var/run/resource-agents/dcorch-engine.pid:0")
          ;;
-      "dcorch-snmp")
-         process_list=(${process_list[@]} "sm:dcorch-snmp:dcorch-snmp:controller:/var/run/resource-agents/dcorch-snmp.pid:0")
-         ;;
       "dcorch-sysinv-api-proxy")
          process_list=(${process_list[@]} "sm:dcorch-sysinv-api-proxy:dcorch-sysinv-api-proxy:controller:/var/run/resource-agents/dcorch-sysinv-api-proxy.pid:0")
          ;;
