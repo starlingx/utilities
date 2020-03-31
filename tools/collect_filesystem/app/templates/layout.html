@@ -1,0 +1,28 @@
+<!doctype html>
+<title>{% block title %}Welcome{% endblock %} | Flask OpenID Example</title>
+<link rel=stylesheet type=text/css href="{{ url_for('static',
+  filename='style.css') }}">
+<script src="https://code.jquery.com/jquery-3.4.1.js" integrity="sha384-mlceH9HlqLp7GMKHrj5Ara1+LvdTZVMx4S1U43/NxCvAkzIo8WJ0FE7duLel3wVo" crossorigin="anonymous"></script>
+<!--<script type="text/javascript" src="http://ajax.aspnetcdn.com/ajax/jquery.templates/beta1/jquery.tmpl.js"></script>-->
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+<h1>Collect</h1>
+<ul class=navigation>
+  <li><a href="{{ url_for('index') }}">overview</a>
+  {% if g.user %}
+  <li><a href="{{ url_for('edit_profile') }}">profile</a>
+  <li><a href="{{ url_for('upload') }}">upload</a>
+  <li><a href="{{ url_for('list_user_files') }}">personal files</a>
+  <li><a href="{{ url_for('list_public_files') }}">public files</a>
+  <li><a href="{{ url_for('list_all_launchpads') }}">launchpads</a>
+  <li><a href="{{ url_for('logout') }}">sign out [{{ g.user.name }}]</a>
+  {% else %}
+  <li><a href="{{ url_for('login') }}">sign in</a>
+  {% endif %}
+</ul>
+{% for message in get_flashed_messages() %}
+  <p class=message>{{ message }}
+{% endfor %}
+{% block body %}{% endblock %}

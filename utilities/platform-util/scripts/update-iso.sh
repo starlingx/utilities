@@ -14,6 +14,9 @@
 # the default boot_device and rootfs_device disks
 #
 
+# Source shared utility functions
+source $(dirname $0)/stx-iso-utils.sh
+
 function usage {
     cat <<ENDUSAGE
 Usage:
@@ -66,193 +69,12 @@ EOF
 ENDUSAGE
 }
 
+function cleanup {
+    common_cleanup
+}
+
 function check_requirements {
-    local -a required_utils=(
-        rsync
-        mkisofs
-        isohybrid
-        implantisomd5
-    )
-    if [ $UID -ne 0 ]; then
-        # If running as non-root user, additional utils are required
-        required_utils+=(
-            guestmount
-            guestunmount
-            udisksctl
-        )
-    fi
-
-    local -i missing=0
-
-    for req in ${required_utils[@]}; do
-        which ${req} >&/dev/null
-        if [ $? -ne 0 ]; then
-            echo "Unable to find required utility: ${req}" >&2
-            let -i missing++
-        fi
-    done
-
-    if [ ${missing} -gt 0 ]; then
-        echo "One or more required utilities are missing. Aborting..." >&2
-        exit 1
-    fi
-}
-
-function mount_iso {
-    if [ $UID -eq 0 ]; then
-        # Mount the ISO
-        mount -o loop ${INPUT_ISO} ${MNTDIR}
-        if [ $? -ne 0 ]; then
-            echo "Failed to mount ${INPUT_ISO}" >&2
-            exit 1
-        fi
-    else
-        # As non-root user, mount the ISO using guestmount
-        guestmount -a ${INPUT_ISO} -m /dev/sda1 --ro ${MNTDIR}
-        rc=$?
-        if [ $rc -ne 0 ]; then
-            # Add a retry
-            echo "Call to guestmount failed with rc=$rc. Retrying once..."
-
-            guestmount -a ${INPUT_ISO} -m /dev/sda1 --ro ${MNTDIR}
-            rc=$?
-            if [ $rc -ne 0 ]; then
-                echo "Call to guestmount failed with rc=$rc. Aborting..."
-                exit $rc
-            fi
-        fi
-    fi
-}
-
-function unmount_iso {
-    if [ $UID -eq 0 ]; then
-        umount ${MNTDIR}
-    else
-        guestunmount ${MNTDIR}
-    fi
-    rmdir ${MNTDIR}
-}
-
-function mount_efiboot_img {
-    local isodir=$1
-    local efiboot_img=${isodir}/images/efiboot.img
-    local loop_setup_output=
-
-    if [ $UID -eq 0 ]; then
-        # As root, setup a writeable loop device for the
-        # efiboot.img file and mount it
-        loop_setup_output=$(losetup --show -f ${efiboot_img})
-        if [ $? -ne 0 ]; then
-            echo "Failed losetup" >&2
-            exit 1
-        fi
-
-        EFIBOOT_IMG_LOOP=${loop_setup_output}
-
-        EFI_MOUNT=$(mktemp -d -p /mnt -t EFI-noudev.XXXXXX)
-        mount ${EFIBOOT_IMG_LOOP} ${EFI_MOUNT}
-        if [ $? -ne 0 ]; then
-            echo "Failed to mount loop device ${EFIBOOT_IMG_LOOP}" >&2
-            exit 1
-        fi
-    else
-        # As non-root user, we can use the udisksctl to setup a loop device
-        # and mount the efiboot.img, with read/write access.
-        loop_setup_output=$(udisksctl loop-setup -f ${efiboot_img} --no-user-interaction)
-        if [ $? -ne 0 ]; then
-            echo "Failed udisksctl loop-setup" >&2
-            exit 1
-        fi
-
-        EFIBOOT_IMG_LOOP=$(echo ${loop_setup_output} | awk '{print $5;}' | sed -e 's/\.$//g')
-        if [ -z "${EFIBOOT_IMG_LOOP}" ]; then
-            echo "Failed to determine loop device from command output:" >&2
-            echo "${loop_setup_output}" >&2
-            exit 1
-        fi
-
-        udisksctl mount -b ${EFIBOOT_IMG_LOOP}
-        if [ $? -ne 0 ]; then
-            echo "Failed udisksctl mount" >&2
-            exit 1
-        fi
-
-        EFI_MOUNT=$(udisksctl info -b ${EFIBOOT_IMG_LOOP} | grep MountPoints | awk '{print $2;}')
-        if [ -z "${EFI_MOUNT}" ]; then
-            echo "Failed to determine mount point from udisksctl info command" >&2
-            exit 1
-        fi
-    fi
-}
-
-function unmount_efiboot_img {
-    if [ $UID -eq 0 ]; then
-        if [ -n "${EFI_MOUNT}" ]; then
-            mountpoint -q ${EFI_MOUNT} && umount ${EFI_MOUNT}
-            rmdir ${EFI_MOUNT}
-            EFI_MOUNT=
-        fi
-
-        if [ -n "${EFIBOOT_IMG_LOOP}" ]; then
-            losetup -d ${EFIBOOT_IMG_LOOP}
-            EFIBOOT_IMG_LOOP=
-        fi
-    else
-        if [ -n "${EFIBOOT_IMG_LOOP}" ]; then
-            udisksctl unmount -b ${EFIBOOT_IMG_LOOP}
-            udisksctl loop-delete -b ${EFIBOOT_IMG_LOOP}
-            EFI_MOUNT=
-            EFIBOOT_IMG_LOOP=
-        fi
-    fi
-}
-
-function update_parameter {
-    local isodir=$1
-    local param=$2
-    local value=$3
-
-    if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
-    fi
-
-    for f in ${isodir}/isolinux.cfg ${isodir}/syslinux.cfg; do
-        grep -q "^[[:space:]]*append\>.*[[:space:]]${param}=" ${f}
-        if [ $? -eq 0 ]; then
-            # Parameter already exists. Update the value
-            sed -i -e "s#^\([[:space:]]*append\>.*${param}\)=[^[:space:]]*#\1=${value}#" ${f}
-            if [ $? -ne 0 ]; then
-                echo "Failed to update parameter ($param)"
-                exit 1
-            fi
-        else
-            # Parameter doesn't exist. Add it to the cmdline
-            sed -i -e "s|^\([[:space:]]*append\>.*\)|\1 ${param}=${value}|" ${f}
-            if [ $? -ne 0 ]; then
-                echo "Failed to add parameter ($param)"
-                exit 1
-            fi
-        fi
-    done
-
-    for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        grep -q "^[[:space:]]*linuxefi\>.*[[:space:]]${param}=" ${f}
-        if [ $? -eq 0 ]; then
-            # Parameter already exists. Update the value
-            sed -i -e "s#^\([[:space:]]*linuxefi\>.*${param}\)=[^[:space:]]*#\1=${value}#" ${f}
-            if [ $? -ne 0 ]; then
-                echo "Failed to update parameter ($param)"
-                exit 1
-            fi
-        else
-            # Parameter doesn't exist. Add it to the cmdline
-            sed -i -e "s|^\([[:space:]]*linuxefi\>.*\)|\1 ${param}=${value}|" ${f}
-            if [ $? -ne 0 ]; then
-                echo "Failed to add parameter ($param)"
-                exit 1
-            fi
-        fi
-    done
+    common_check_requirements
 }
 
 function set_default_label {
@@ -330,8 +152,6 @@ declare DEFAULT_GRUB_ENTRY=
 declare UPDATE_TIMEOUT="no"
 declare -i TIMEOUT=0
 declare GRUB_TIMEOUT=-1
-declare EFI_MOUNT=
-declare EFIBOOT_IMG_LOOP=
 
 while getopts "hi:o:a:p:d:t:" opt; do
     case $opt in
@@ -406,10 +226,8 @@ fi
 
 check_requirements
 
-if [ -z "$INPUT_ISO" -o -z "$OUTPUT_ISO" ]; then
-    usage
-    exit 1
-fi
+check_required_param "-i" "${INPUT_ISO}"
+check_required_param "-o" "${OUTPUT_ISO}"
 
 if [ ! -f ${INPUT_ISO} ]; then
     echo "Input file does not exist: ${INPUT_ISO}"
@@ -423,33 +241,7 @@ fi
 
 shift $((OPTIND-1))
 
-declare MNTDIR=
-declare BUILDDIR=
-declare WORKDIR=
-
-function cleanup {
-    unmount_efiboot_img
-
-    if [ -n "$MNTDIR" -a -d "$MNTDIR" ]; then
-        unmount_iso
-    fi
-
-    if [ -n "$BUILDDIR" -a -d "$BUILDDIR" ]; then
-        \rm -rf $BUILDDIR
-    fi
-
-    if [ -n "$WORKDIR" -a -d "$WORKDIR" ]; then
-        \rm -rf $WORKDIR
-    fi
-}
-
 trap cleanup EXIT
-
-MNTDIR=$(mktemp -d -p $PWD updateiso_mnt_XXXXXX)
-if [ -z "${MNTDIR}" -o ! -d ${MNTDIR} ]; then
-    echo "Failed to create mntdir. Aborting..."
-    exit $rc
-fi
 
 BUILDDIR=$(mktemp -d -p $PWD updateiso_build_XXXXXX)
 if [ -z "${BUILDDIR}" -o ! -d ${BUILDDIR} ]; then
@@ -457,7 +249,7 @@ if [ -z "${BUILDDIR}" -o ! -d ${BUILDDIR} ]; then
     exit $rc
 fi
 
-mount_iso
+mount_iso ${INPUT_ISO}
 
 rsync -a ${MNTDIR}/ ${BUILDDIR}/
 rc=$?

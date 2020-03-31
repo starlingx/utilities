@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block body %}
+  <h2>
+    {{ launchpad_info['title'] }}
+    <button class="btn btn-secondary" onclick="window.open(`https://bugs.launchpad.net/bugs/{{ launchpad_info['id'] }}`, '_blank')">
+        Go to the launchpad page
+    </button>
+    <button class="btn btn-secondary" onclick="window.location.href=`{{ url_for('download_launchpad', launchpad_id=launchpad_info['id']) }}`">
+        Download all files
+    </button>
+  </h2>
+  <table class="table table-striped" style="width:100%">
+    <thead>
+      <th>Name</th>
+      <th>Uploaded by</th>
+      <th>Last Modified</th>
+      <th></th>
+    </thead>
+    {% for launchpad_file in launchpad_files %}
+    <tr>
+      <td><a href="{{ url_for('download_file', file_id=launchpad_file['id']) }}">{{ launchpad_file['name'] }}</a></td>
+      <td>{{ launchpad_file['user_name'] }} </td>
+      <td>{{ launchpad_file['modified_date'] }} </td>
+      {% if g.user['id'] == launchpad_file['user_id'] %}
+      <td>
+    <!--        <span><a data-id=${launchpad_file['id']} onclick="file_id(this)" >Edit</a></span>-->
+        <button data-id="{{ launchpad_file['id'] }}" class="btn btn-secondary btn-sm" onclick="window.location.href=`{{ url_for('edit_file', file_id=launchpad_file['id']) }}`">
+            Edit
+        </button>
+    <!--        <span><a data-id=${Id} onclick="ConfirmDelete(this)" ><span class="glyphicon glyphicon-trash"></span></a></span>-->
+    <!--        <span><a href="{{ url_for('delete_file', file_id=launchpad_file['id']) }}">Delete</a></span>-->
+        <button data-id="{{ launchpad_file['id'] }}" onclick="ConfirmDelete(this)" class="btn btn-danger btn-sm" >Delete</button>
+      </td>
+      {% else %}
+      <td></td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+{% endblock %}

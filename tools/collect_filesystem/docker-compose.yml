@@ -1,0 +1,19 @@
+version: "3"
+services:
+  app:
+    container_name: collect
+    build: .
+    links:
+      - db
+    ports:
+      - "5000:5000"
+
+  db:
+    image: mysql:latest
+    container_name: collect_db
+    ports:
+      - "32000:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: Wind2019
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d/:ro

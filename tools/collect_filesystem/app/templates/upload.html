@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block title %}Sign in{% endblock %}
+{% block body %}
+
+<body>
+
+  <div class="container">
+    <div class="row">
+      <div class="col">
+
+        <div class="mb-3 mt-3">
+
+          <h2 class="mb-3" style="font-weight: 300">Upload Log Files</h2>
+
+          <div class="form-group mb-3">
+            <div class="custom-file">
+                <input type="file" class="custom-file-input" name="file_input" id="file_input" oninput="input_filename();" multiple>
+                <label id="file_input_label" class="custom-file-label" style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Select file or drop it here to upload</label>
+<!--                <div class="input-group-prepend">-->
+<!--                  <span class="input-group-text" id="basic-addon1">Launchpad ID:</span>-->
+<!--                </div>-->
+<!--                <input type="text" name="launchpad_id" class="form-control" id="launchpad_input" size=30 value="">-->
+            </div>
+          </div>
+
+          <div class="input-group mb-3">
+            <div class="input-group-prepend">
+              <span class="input-group-text" id="basic-addon1">Launchpad ID:</span>
+            </div>
+            <input type="text" name="launchpad_id" id="launchpad_input" class="form-control" placeholder="launchpad_input" aria-label="launchpad_input" aria-describedby="basic-addon1">
+          </div>
+
+          <p id="launchpad_info" style="color:blue" class="d-none"></p>
+
+          <button onclick="upload();" id="upload_btn" class="btn btn-primary">Upload</button>
+
+          <button class="btn btn-primary d-none" id="loading_btn" type="button" disabled>
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Uploading...
+          </button>
+
+          <button type="button" id="cancel_btn" class="btn btn-secondary d-none">Cancel upload</button>
+
+        </div>
+
+        <div id="progress_wrapper" class="d-none"></div>
+
+        <div id="alert_wrapper"></div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Bootstrap JavaScript here -->
+  <script type=text/javascript src="{{url_for('static', filename='main.js') }}"></script>
+
+</body>
+{% endblock %}
