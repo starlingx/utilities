@@ -11,7 +11,7 @@ URL: unknown
 Source0: %{name}-%{version}.tar.gz
 
 %description
-Titanium Cloud namespace utilities
+StarlingX namespace utilities
 
 %prep
 %setup -q

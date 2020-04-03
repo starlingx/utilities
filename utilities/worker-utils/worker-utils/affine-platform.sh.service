@@ -1,5 +1,5 @@
 [Unit]
-Description=Titanium Cloud Affine Platform
+Description=StarlingX Affine Platform
 After=syslog.service network.service dbus.service sw-patch.service
 Before=workerconfig.service
 
