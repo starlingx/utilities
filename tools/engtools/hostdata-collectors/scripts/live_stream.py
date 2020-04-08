@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 """
 Copyright (c) 2017 Wind River Systems, Inc.
@@ -1478,14 +1478,14 @@ if __name__ == "__main__":
             # use first interface if not specified in engtools.conf
             if external_if == "" or external_if is None:
                 p = Popen("ifconfig", shell=True, stdout=PIPE)
-                external_if = p.stdout.readline().split(":")[0]
+                external_if = p.stdout.readline().decode().split(":")[0]
                 p.kill()
             appendToFile("/tmp/livestream.log", "-External interface for {}: {}".format(node, external_if))
             # enable IP forwarding
             p = Popen("sysctl -w net.ipv4.ip_forward=1 > /dev/null", shell=True)
             p.communicate()
             p = Popen("iptables -t nat -L --line-numbers", shell=True, stdout=PIPE)
-            tmp = [line.strip("\n") for line in p.stdout.readlines()]
+            tmp = [line.decode().strip("\n") for line in p.stdout.readlines()]
             # entries need to be removed in reverse order
             for line in reversed(tmp):
                 formatted_line = " ".join(line.strip("\n").split()[1:])
