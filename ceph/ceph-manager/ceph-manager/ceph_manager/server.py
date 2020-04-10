@@ -140,7 +140,7 @@ class Service(SysinvConductorUpgradeApi, service.Service):
                 topic=constants.SYSINV_CONDUCTOR_TOPIC))
 
         self.ceph_api = wrapper.CephWrapper(
-            endpoint='https://localhost:5001')
+            endpoint='http://localhost:{}'.format(constants.CEPH_MGR_PORT))
 
         # Get initial config from sysinv and send it to
         # services that need it before starting them
