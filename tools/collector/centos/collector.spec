@@ -48,6 +48,7 @@ install -m 755 collect_crash.sh %{buildroot}%{_sysconfdir}/collect.d/collect_cra
 install -m 755 collect_ima.sh %{buildroot}%{_sysconfdir}/collect.d/collect_ima
 install -m 755 collect_fm.sh %{buildroot}%{_sysconfdir}/collect.d/collect_fm
 install -m 755 collect_containerization.sh %{buildroot}%{_sysconfdir}/collect.d/collect_containerization
+install -m 755 collect_dc.sh %{buildroot}%{_sysconfdir}/collect.d/collect_dc
 
 install -m 755 etc.exclude %{buildroot}%{_sysconfdir}/collect/etc.exclude
 install -m 755 run.exclude %{buildroot}%{_sysconfdir}/collect/run.exclude
