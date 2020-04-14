@@ -1,30 +1,33 @@
 #
-# Copyright (c) 2017-2019 Wind River Systems, Inc.
+# Copyright (c) 2017-2020 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-import logging
 import os
 from platform_util.license import exception
 import sys
 
-LOG = logging.getLogger(__name__)
 
-def verify_license(license_file):
-    """Verify all features in a license file"""
-    if not os.path.isfile(license_file):
+def verify_license(*args):
+    """Verify the license file"""
+    if not os.path.isfile(args[1]):
         raise exception.LicenseNotFound()
+    else:
+        print("License file: ", args[1], " is installed")
 
 
 def main():
-    if len(sys.argv) == 2:
-        licensefile = sys.argv[1]
-    else:
-        print("Usage: verify-license <license file>")
+    # Pass the command arguments to verify_license
+    if len(sys.argv) < 2:
+        print("Usage: verify-license <license file> [<optional_parameter>...]")
         exit(-1)
 
+    arg_list = []
+    for arg in sys.argv:
+        arg_list.append(arg)
+
     try:
-        verify_license(licensefile)
+        verify_license(*arg_list)
     except exception.InvalidLicenseType:
         exit(1)
     except exception.LicenseNotFound:
