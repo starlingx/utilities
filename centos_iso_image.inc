@@ -34,7 +34,7 @@ platform-util-controller
 platform-util-noncontroller
 
 # stx-extensions
-#stx-extensions
+stx-extensions
 
 # update-motd
-#update-motd
+update-motd
