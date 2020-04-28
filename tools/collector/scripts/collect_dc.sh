@@ -86,8 +86,8 @@ if [ "$nodetype" = "controller" ] ; then
 
         cp -a /opt/dc/ansible ${extradir}
 
-        delimiter ${LOGFILE} "find /opt/patch-vault -ls"
-        find /opt/patch-vault -ls 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+        delimiter ${LOGFILE} "find /opt/dc-vault -ls"
+        find /opt/dc-vault -ls 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
     fi
 
