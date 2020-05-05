@@ -7,7 +7,7 @@
 
 Name: stx-extensions
 Version: 1.0
-Summary: TIS Extensions to thirdparty pkgs
+Summary: StarlingX Extensions to thirdparty pkgs
 Release: %{tis_patch_ver}%{?_tis_dist}
 License: Apache-2.0
 Group: base
@@ -20,14 +20,14 @@ Source0: %{name}-%{version}.tar.gz
 Requires: systemd
 
 %description
-TIS Extensions to thirdparty pkgs
+StarlingX Extensions to thirdparty pkgs
 
 %package -n %{name}-controller
-Summary: TIS Extensions to thirdparty pkg on controller
+Summary: StarlingX Extensions to thirdparty pkg on controller
 Group: base
 
 %description -n %{name}-controller
-TIS Extensions to thirdparty pkgs on controller
+StarlingX Extensions to thirdparty pkgs on controller
 
 %define local_etc_systemd %{_sysconfdir}/systemd/system/
 %define local_etc_coredump %{_sysconfdir}/systemd/coredump.conf.d
