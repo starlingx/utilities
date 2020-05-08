@@ -1,4 +1,4 @@
-Summary: CGCS Platform Data Collection Scripts Package
+Summary: StarlingX Platform Data Collection Scripts Package
 Name: collector
 Version: 1.0
 Release: %{tis_patch_ver}%{?_tis_dist}
