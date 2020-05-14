@@ -42,7 +42,7 @@ LOGROTATE_PERIOD = 600  # Every ten minutes
 ###################
 def start_polling():
     logmgmt_daemon = LogMgmtDaemon()
-    logmgmt_runner = MyDaemonRunner(logmgmt_daemon)
+    logmgmt_runner = runner.DaemonRunner(logmgmt_daemon)
     logmgmt_runner.daemon_context.umask = 0o022
     logmgmt_runner.do_action()
 
@@ -57,18 +57,6 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 ###################
 # CLASSES
 ###################
-class MyDaemonRunner(runner.DaemonRunner):
-    # Workaround: fix the "unbuffered bytes I/O for py3" runtime
-    # error in pyhon3 env.
-    def _open_streams_from_app_stream_paths(self, app):
-        self.daemon_context.stdin = open(app.stdin_path, 'rt')
-        self.daemon_context.stdout = open(app.stdout_path, 'w+t')
-        try:
-            self.daemon_context.stderr = open(app.stderr_path, 'w+t', buffering=0)
-        except:
-            self.daemon_context.stderr = open(app.stderr_path, 'wb+', buffering=0)
-
-
 class LogMgmtDaemon():
     """Daemon process representation of the /var/log monitoring program"""
     def __init__(self):
@@ -134,7 +122,7 @@ class LogMgmtDaemon():
             output = subprocess.check_output(['/usr/sbin/logrotate', '-d', '/etc/logrotate.conf'],
                                              stderr=subprocess.STDOUT)
 
-            for line in output.decode().split('\n'):
+            for line in output.split('\n'):
                 fields = line.split()
                 if len(fields) > 0 and fields[0] == "considering":
                     self.monitored_files.extend(glob.glob(fields[2]))
@@ -152,7 +140,7 @@ class LogMgmtDaemon():
         try:
             output = subprocess.check_output(['find', '/var/log', '-type', 'f'])
 
-            for fname in output.decode().split('\n'):
+            for fname in output.split('\n'):
                 if fname in self.monitored_files:
                     continue
 
