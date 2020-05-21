@@ -9,4 +9,4 @@
 #
 # Note: Sourced from scripts, so needs to be bash-able
 #
-PLATFORM_RELEASE="20.01"
+PLATFORM_RELEASE="20.06"
