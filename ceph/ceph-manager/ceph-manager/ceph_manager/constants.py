@@ -91,3 +91,6 @@ SB_TIER_CEPH_POOLS = sysinv_constants.SB_TIER_CEPH_POOLS
 
 # System
 SYSTEM_MODE_SIMPLEX = sysinv_constants.SYSTEM_MODE_SIMPLEX
+
+# Port on which ceph manager and ceph-mgr listens
+CEPH_MGR_PORT = sysinv_constants.CEPH_MGR_PORT

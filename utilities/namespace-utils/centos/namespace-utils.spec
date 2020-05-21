@@ -11,7 +11,7 @@ URL: unknown
 Source0: %{name}-%{version}.tar.gz
 
 %description
-StarlingX Cloud namespace utilities
+StarlingX namespace utilities
 
 %define debug_package %{nil}
 

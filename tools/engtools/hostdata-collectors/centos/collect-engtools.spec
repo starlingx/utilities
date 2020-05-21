@@ -12,6 +12,8 @@ Source: %{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
 BuildRequires: systemd
 Requires: iperf3
+Requires: python36-six
+Requires: python36-psutil
 
 %description
 This package contains data collection tools to monitor host performance.

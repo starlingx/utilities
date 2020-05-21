@@ -1,5 +1,5 @@
 [Unit]
-Description=Titanium Cloud Log Management
+Description=StarlingX Log Management
 After=network.target syslog-ng.service iscsid.service sw-patch.service
 Before=config.service pmon.service
 

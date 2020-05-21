@@ -1,5 +1,5 @@
 [Unit]
-Description=Titanium Cloud opt-platform mounter
+Description=StarlingX opt-platform mounter
 After=sw-patch.service
 
 [Service]

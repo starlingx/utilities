@@ -14,7 +14,7 @@ source /usr/local/sbin/collect_utils
 SERVICE="containerization"
 LOGFILE="${extradir}/${SERVICE}.info"
 HELM_DIR="${extradir}/helm"
-ETCD_DB_FILE="${extradir}/etcd_database.json"
+ETCD_DB_FILE="${extradir}/etcd_database.dump"
 KUBE_CONFIG_FILE="/etc/kubernetes/admin.conf"
 KUBE_CONFIG="--kubeconfig ${KUBE_CONFIG_FILE}"
 echo    "${hostname}: Containerization Info ...: ${LOGFILE}"
@@ -82,9 +82,10 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     delimiter ${LOGFILE} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG}
 
-    CMD="curl -L http://localhost:2379/v2/keys/?recursive=true -o ${ETCD_DB_FILE}"
+    export ETCDCTL_API=3
+    CMD="etcdctl --endpoints=localhost:2379 get / --prefix"
     delimiter ${LOGFILE} "${CMD}"
-    ${CMD} 2>>${COLLECT_ERROR_LOG}
+    ${CMD} 2>>${COLLECT_ERROR_LOG} >> ${ETCD_DB_FILE}
 fi
 
 exit 0
