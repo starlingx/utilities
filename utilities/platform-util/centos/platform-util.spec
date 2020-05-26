@@ -76,6 +76,8 @@ install -d %{buildroot}/etc/systemd/system
 install -m 644 -p -D %{_buildsubdir}/scripts/opt-platform.mount %{buildroot}/etc/systemd/system
 install -m 644 -p -D %{_buildsubdir}/scripts/opt-platform.service %{buildroot}/etc/systemd/system
 
+install -m 750 %{_buildsubdir}/scripts/set_keystone_user_option.sh %{buildroot}%{local_bindir}
+
 # Mask the systemd ctrl-alt-delete.target, to disable reboot on ctrl-alt-del
 ln -sf /dev/null %{buildroot}/etc/systemd/system/ctrl-alt-del.target
 
@@ -93,6 +95,7 @@ systemctl enable opt-platform.service
 %{local_bindir}/tc_setup.sh
 %{local_bindir}/remotelogging_tc_setup.sh
 %{local_bindir}/connectivity_test
+%{local_bindir}/set_keystone_user_option.sh
 %{local_sbindir}/patch-restart-mtce
 %{local_sbindir}/patch-restart-processes
 %{local_sbindir}/patch-restart-haproxy
