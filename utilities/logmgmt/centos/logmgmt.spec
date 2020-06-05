@@ -14,7 +14,7 @@ BuildRequires: python3-pip
 BuildRequires: python3-wheel
 BuildRequires: systemd-devel
 Requires: systemd
-Requires: python-daemon
+Requires: python3-daemon
 
 %description
 Management of /var/log filesystem

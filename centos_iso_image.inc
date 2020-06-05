@@ -8,7 +8,7 @@ python-cephclient
 nfscheck
 
 # logmgmt
-#logmgmt
+logmgmt
 
 # tpm2-openssl-engine
 tpm2-openssl-engine
