@@ -9,12 +9,13 @@ URL: unknown
 Source0: %{name}-%{version}.tar.gz
 Source1: LICENSE
 
-BuildRequires: python-setuptools
-BuildRequires: python2-pip
-BuildRequires: python2-wheel
+BuildRequires: python3-setuptools
+BuildRequires: python3-pip
+BuildRequires: python3-wheel
 BuildRequires: systemd-devel
+BuildRequires: python3-devel
 Requires: systemd
-Requires: python-daemon
+Requires: python3-daemon
 
 %description
 Management of /var/log filesystem
@@ -22,7 +23,7 @@ Management of /var/log filesystem
 %define local_bindir /usr/bin/
 %define local_etc_initd /etc/init.d/
 %define local_etc_pmond /etc/pmon.d/
-%define pythonroot /usr/lib64/python2.7/site-packages
+%define pythonroot %{python3_sitearch}
 
 %define debug_package %{nil}
 
@@ -33,11 +34,11 @@ Management of /var/log filesystem
 rm -rf *.egg-info
 
 %build
-%{__python} setup.py build
-%py2_build_wheel
+%{__python3} setup.py build
+%{__python3} setup.py bdist_wheel
 
 %install
-%{__python} setup.py install --root=$RPM_BUILD_ROOT \
+%{__python3} setup.py install --root=$RPM_BUILD_ROOT \
                              --install-lib=%{pythonroot} \
                              --prefix=/usr \
                              --install-data=/usr/share \
@@ -74,8 +75,8 @@ rm -rf $RPM_BUILD_ROOT
 %{_unitdir}/logmgmt.service
 %dir %{pythonroot}/%{name}
 %{pythonroot}/%{name}/*
-%dir %{pythonroot}/%{name}-%{version}.0-py2.7.egg-info
-%{pythonroot}/%{name}-%{version}.0-py2.7.egg-info/*
+%dir %{pythonroot}/%{name}-%{version}.0-py3.6.egg-info
+%{pythonroot}/%{name}-%{version}.0-py3.6.egg-info/*
 
 %package wheels
 Summary: %{name} wheels
