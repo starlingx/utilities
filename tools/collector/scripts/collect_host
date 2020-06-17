@@ -183,6 +183,10 @@ function collect_extra()
     delimiter ${LOGFILE} "ps -eL -o pid,lwp,ppid,state,class,nice,rtprio,priority,psr,stime,etime,time,wchan:16,tty,comm,command"
     ps -eL -o pid,lwp,ppid,state,class,nice,rtprio,priority,psr,stime,etime,time,wchan:16,tty,comm,command >> ${LOGFILE}
 
+    # Collect per kubernetes container name, QoS, and cpusets per numa node
+    delimiter ${LOGFILE} "kube-cpusets"
+    kube-cpusets >> ${LOGFILE}
+
     # Various host attributes
     LOGFILE="${EXTRA_DIR}/host.info"
     echo    "${hostname}: Host Info .........: ${LOGFILE}"
