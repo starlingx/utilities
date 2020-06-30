@@ -36,6 +36,7 @@ declare DELETE="no"
 declare GRUB_TIMEOUT=-1
 declare INPUT_ISO=
 declare KS_NODETYPE=
+declare -i LOCK_TMOUT=600 # Wait up to 10 minutes, by default
 declare NODE_ID=
 declare ORIG_PWD=$PWD
 declare OUTPUT_ISO=
@@ -72,6 +73,7 @@ Optional parameters for setup:
     --boot-netmask <mask>:   Specify netmask for boot interface
     --boot-gateway <addr>:   Specify gateway for boot interface
     --timeout <seconds>:     Specify boot menu timeout, in seconds
+    --lock-timeout <secs>:   Specify time to wait for mutex lock before aborting
     --param <p=v>:           Specify boot parameter customization
         Examples:
         --param rootfs_device=nvme0n1 --param boot_device=nvme0n1
@@ -113,7 +115,7 @@ ENDUSAGE
 #
 # Parse cmdline arguments
 #
-LONGOPTS="input:,addon:,param:,default-boot:,timeout:"
+LONGOPTS="input:,addon:,param:,default-boot:,timeout:,lock-timeout:"
 LONGOPTS="${LONGOPTS},base-url:,www-root:,id:,delete"
 LONGOPTS="${LONGOPTS},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
 LONGOPTS="${LONGOPTS},help"
@@ -227,6 +229,14 @@ while :; do
         --id)
             NODE_ID=$2
             shift 2
+            ;;
+        --lock-timeout)
+            LOCK_TMOUT=$2
+            shift 2
+            if [ $LOCK_TMOUT -le 0 ]; then
+                echo "Lock timeout must be greater than 0" >&2
+                exit 1
+            fi
             ;;
         --delete)
             DELETE="yes"
@@ -508,6 +518,15 @@ declare SHARED_DIR="${WWW_ROOT_DIR}/shared"
 
 if [ ! -d "${WWW_ROOT_DIR}" ]; then
     log_error "Root directory ${WWW_ROOT_DIR} does not exist"
+    exit 1
+fi
+
+# Grab the lock, to protect against simultaneous execution
+LOCK_FILE=/var/run/.gen-bootloader-iso.lock
+exec 200>${LOCK_FILE}
+flock -w ${LOCK_TMOUT} 200
+if [ $? -ne 0 ]; then
+    log_error "Failed waiting for lock: ${LOCK_FILE}"
     exit 1
 fi
 
