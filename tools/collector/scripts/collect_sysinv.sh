@@ -65,7 +65,9 @@ if [ "$nodetype" = "controller" ] ; then
     delimiter ${LOGFILE} "vm-topology"
     timeout 60 vm-topology --show all 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
-    cp -a /opt/platform ${extradir}
+    # copy /opt/platform to extra dir while filtering out the
+    # iso and lost+found dirs
+    rsync -a --relative --exclude 'iso' --exclude 'lost+found' /opt/platform ${extradir}
 fi
 
 

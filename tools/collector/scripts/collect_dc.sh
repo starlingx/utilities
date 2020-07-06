@@ -84,7 +84,8 @@ if [ "$nodetype" = "controller" ] ; then
         delimiter ${LOGFILE} "dcmanager subcloud-group list"
         dcmanager subcloud-group list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
-        cp -a /opt/dc/ansible ${extradir}
+        # copy the /opt/dc/ansible dir but exclude any iso files
+        rsync -a --relative --exclude '*.iso' /opt/dc/ansible ${extradir}
 
         delimiter ${LOGFILE} "find /opt/dc-vault -ls"
         find /opt/dc-vault -ls 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
