@@ -2,7 +2,7 @@
 worker-utils
 
 # python-cephclient
-#python-cephclient
+python-cephclient
 
 # nfscheck
 nfscheck
@@ -26,7 +26,7 @@ build-info
 namespace-utils
 
 # pci-irq-affinity-agent
-#pci-irq-affinity-agent
+pci-irq-affinity-agent
 
 # platform-util
 platform-util
