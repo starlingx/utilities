@@ -29,20 +29,25 @@ declare BOOT_HOSTNAME=
 declare BOOT_INTERFACE=
 declare BOOT_IP=
 declare BOOT_NETMASK=
+declare CLEAN_NODE_DIR="no"
+declare CLEAN_SHARED_DIR="no"
 declare DEFAULT_GRUB_ENTRY=
 declare DEFAULT_LABEL=
 declare DEFAULT_SYSLINUX_ENTRY=
 declare DELETE="no"
 declare GRUB_TIMEOUT=-1
 declare INPUT_ISO=
+declare ISO_VERSION=
 declare KS_NODETYPE=
 declare -i LOCK_TMOUT=600 # Wait up to 10 minutes, by default
 declare NODE_ID=
 declare ORIG_PWD=$PWD
 declare OUTPUT_ISO=
 declare -a PARAMS
+declare PATCHES_FROM_HOST="yes"
 declare -i TIMEOUT=0
 declare UPDATE_TIMEOUT="no"
+declare WORKDIR=
 declare WWW_ROOT_DIR=
 
 function usage {
@@ -74,6 +79,7 @@ Optional parameters for setup:
     --boot-gateway <addr>:   Specify gateway for boot interface
     --timeout <seconds>:     Specify boot menu timeout, in seconds
     --lock-timeout <secs>:   Specify time to wait for mutex lock before aborting
+    --patches-from-iso:      Use patches from the ISO, if any, rather than host
     --param <p=v>:           Specify boot parameter customization
         Examples:
         --param rootfs_device=nvme0n1 --param boot_device=nvme0n1
@@ -115,7 +121,7 @@ ENDUSAGE
 #
 # Parse cmdline arguments
 #
-LONGOPTS="input:,addon:,param:,default-boot:,timeout:,lock-timeout:"
+LONGOPTS="input:,addon:,param:,default-boot:,timeout:,lock-timeout:,patches-from-iso"
 LONGOPTS="${LONGOPTS},base-url:,www-root:,id:,delete"
 LONGOPTS="${LONGOPTS},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
 LONGOPTS="${LONGOPTS},help"
@@ -242,6 +248,10 @@ while :; do
             DELETE="yes"
             shift
             ;;
+        --patches-from-iso)
+            PATCHES_FROM_HOST="no"
+            shift
+            ;;
         --)
             shift
             break
@@ -332,6 +342,11 @@ EOF
 }
 
 function cleanup {
+    if [ $? -ne 0 ]; then
+        # Clean up from failure
+        handle_delete
+    fi
+
     common_cleanup
 }
 
@@ -346,11 +361,99 @@ function handle_delete {
     fi
 
     # If there are no more nodes, cleanup everything else
-    if [ -z "$(ls -A ${NODE_DIR_BASE})" ]; then
-        rmdir ${NODE_DIR_BASE}
+    if [ $(ls -A ${NODE_DIR_BASE} | wc -l) = 0 ]; then
+        if [ -d ${NODE_DIR_BASE} ]; then
+            rmdir ${NODE_DIR_BASE}
+        fi
 
-        rm -rf ${SHARED_DIR}
+        if [ -d ${SHARED_DIR} ]; then
+            rm -rf ${SHARED_DIR}
+        fi
     fi
+}
+
+function get_patches_from_host {
+    local host_patch_repo=/www/pages/updates/rel-${ISO_VERSION}
+
+    if [ ! -d ${host_patch_repo} ]; then
+        log_error "Patch repo not found: ${host_patch_repo}"
+        # Don't fail, as there could be scenarios where there's nothing on
+        # the host related to the release on the ISO
+        return
+    fi
+
+    mkdir -p ${SHARED_DIR}/patches
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create directory: ${SHARED_DIR}/patches"
+        exit 1
+    fi
+
+    rsync -a ${host_patch_repo}/repodata ${host_patch_repo}/Packages ${SHARED_DIR}/patches/
+    if [ $? -ne 0 ]; then
+        log_error "Failed to copy patches repo from ${host_patch_repo}"
+        exit 1
+    fi
+
+    mkdir -p \
+        ${SHARED_DIR}/patches/metadata/available \
+        ${SHARED_DIR}/patches/metadata/applied \
+        ${SHARED_DIR}/patches/metadata/committed
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create directory: ${SHARED_DIR}/patches/metadata/${state}"
+        exit 1
+    fi
+
+    local metadata_to_copy=
+    for state in applied committed; do
+        if [ ! -d /opt/patching/metadata/${state} ]; then
+            continue
+        fi
+
+        metadata_to_copy=$(find /opt/patching/metadata/${state} -type f -exec grep -q "<sw_version>${ISO_VERSION}</sw_version>" {} \; -print)
+        if [ -n "${metadata_to_copy}" ]; then
+            rsync -a ${metadata_to_copy} ${SHARED_DIR}/patches/metadata/${state}/
+            if [ $? -ne 0 ]; then
+                log_error "Failed to copy ${state} patch metadata"
+                exit 1
+            fi
+        fi
+    done
+}
+
+function query_patched_pkg {
+    local pkg=$1
+    local pkg_location=
+    local shared_patch_repo=${SHARED_DIR}/patches
+
+    pkg_location=$(dnf repoquery --disablerepo=* --repofrompath local,file:///${shared_patch_repo} --latest-limit=1 --location -q ${pkg})
+    if [ $? -eq 0 -a -n "${pkg_location}" ]; then
+        echo ${pkg_location/file:\/\/\//}
+    fi
+}
+
+function extract_pkg_to_workdir {
+    local pkg=$1
+    local pkgfile=
+
+    pkgfile=$(query_patched_pkg ${pkg})
+    if [ -z "${pkgfile}" ]; then
+        # Nothing to do
+        return
+    fi
+
+    if [ ! -f "${pkgfile}" ]; then
+        log_error "File doesn't exist, unable to extract: ${pkgfile}"
+        exit 1
+    fi
+
+    pushd ${WORKDIR} >/dev/null
+    echo "Extracting files from ${pkgfile}"
+    rpm2cpio ${pkgfile} | cpio -idmv
+    if [ $? -ne 0 ]; then
+        log_error "Failed to extract files from ${pkgfile}"
+        exit 1
+    fi
+    popd >/dev/null
 }
 
 function extract_shared_files {
@@ -371,13 +474,56 @@ function extract_shared_files {
         exit 1
     fi
 
-    rsync -a ${MNTDIR}/LiveOS/ ${SHARED_DIR}/LiveOS/
+    # Setup shared patch data
+    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
+        get_patches_from_host
+    else
+        if [ -d ${MNTDIR}/patches ]; then
+            rsync -a ${MNTDIR}/patches/ ${SHARED_DIR}/patches/
+            if [ $? -ne 0 ]; then
+                log_error "Failed to copy patches repo from ${INPUT_ISO}"
+                exit 1
+            fi
+        fi
+    fi
+
+    local squashfs_img_file=${MNTDIR}/LiveOS/squashfs.img
+    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
+        extract_pkg_to_workdir 'pxe-network-installer'
+
+        local patched_squashfs_img_file=${WORKDIR}/www/pages/feed/rel-${ISO_VERSION}/LiveOS/squashfs.img
+        if [ -f ${patched_squashfs_img_file} ]; then
+            # Use the patched squashfs.img
+            squashfs_img_file=${patched_squashfs_img_file}
+        fi
+    fi
+
+    mkdir ${SHARED_DIR}/LiveOS
+    rsync -a ${squashfs_img_file} ${SHARED_DIR}/LiveOS/
     if [ $? -ne 0 ]; then
-        log_error "Failed to copy rootfs from ${INPUT_ISO}"
+        log_error "Failed to copy rootfs: ${patched_squashfs_img_file}"
         exit 1
     fi
 
-    rsync ${MNTDIR}/isolinux.cfg ${SHARED_DIR}/
+    local pxeboot_files_dir=${MNTDIR}/pxeboot
+    if [ ${PATCHES_FROM_HOST} = "yes"  ]; then
+        extract_pkg_to_workdir 'platform-kickstarts-pxeboot'
+
+        local patched_pxeboot_files_dir=${WORKDIR}/pxeboot
+        if [ -d ${patched_pxeboot_files_dir} ]; then
+            # Use the patched pxeboot files
+            pxeboot_files_dir=${patched_pxeboot_files_dir}
+        fi
+    fi
+
+    mkdir ${SHARED_DIR}/pxeboot/
+    rsync -a ${pxeboot_files_dir}/pxeboot_*.cfg ${SHARED_DIR}/pxeboot/
+    if [ $? -ne 0 ]; then
+        log_error "Failed to copy pxeboot files from ${pxeboot_files_dir}"
+        exit 1
+    fi
+
+    rsync -a ${MNTDIR}/isolinux.cfg ${SHARED_DIR}/
     if [ $? -ne 0 ]; then
         log_error "Failed to copy isolinux.cfg from ${INPUT_ISO}"
         exit 1
@@ -395,11 +541,15 @@ function extract_shared_files {
         exit 1
     fi
 
-    if [ -d ${MNTDIR}/patches ]; then
-        rsync -a ${MNTDIR}/patches/ ${SHARED_DIR}/patches/
-        if [ $? -ne 0 ]; then
-            log_error "Failed to copy patches repo from ${INPUT_ISO}"
-            exit 1
+    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
+        get_patches_from_host
+    else
+        if [ -d ${MNTDIR}/patches ]; then
+            rsync -a ${MNTDIR}/patches/ ${SHARED_DIR}/patches/
+            if [ $? -ne 0 ]; then
+                log_error "Failed to copy patches repo from ${INPUT_ISO}"
+                exit 1
+            fi
         fi
     fi
 }
@@ -422,6 +572,35 @@ function extract_node_files {
     if [ $rc -ne 0 ]; then
         log_error "Call to rsync ISO content. Aborting..."
         exit $rc
+    fi
+
+    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
+        local patched_initrd_file=${WORKDIR}/pxeboot/rel-${ISO_VERSION}/installer-intel-x86-64-initrd_1.0
+        local patched_vmlinuz_file=${WORKDIR}/pxeboot/rel-${ISO_VERSION}/installer-bzImage_1.0
+
+        # First, check to see if pxe-network-installer is already extracted.
+        # If this is the first setup for this ISO, it will have been extracted
+        # during the shared setup, and we don't need to do it again.
+        if [ ! -f ${patched_initrd_file} ]; then
+            extract_pkg_to_workdir 'pxe-network-installer'
+        fi
+
+        # Copy patched files, as appropriate
+        if [ -f ${patched_initrd_file} ]; then
+            rsync -a ${patched_initrd_file} ${BUILDDIR}/initrd.img
+            if [ $? -ne 0 ]; then
+                log_error "Failed to copy ${patched_initrd_file}"
+                exit 1
+            fi
+        fi
+
+        if [ -f ${patched_vmlinuz_file} ]; then
+            rsync -a ${patched_vmlinuz_file} ${BUILDDIR}/vmlinuz
+            if [ $? -ne 0 ]; then
+                log_error "Failed to copy ${patched_vmlinuz_file}"
+                exit 1
+            fi
+        fi
     fi
 
     # Setup syslinux and grub cfg files
@@ -466,7 +645,13 @@ function extract_node_files {
     implantisomd5 ${OUTPUT_ISO}
 
     # Setup the kickstart
-    cp ${MNTDIR}/pxeboot/pxeboot_${KS_NODETYPE}.cfg ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg
+    local ksfile=${SHARED_DIR}/pxeboot/pxeboot_${KS_NODETYPE}.cfg
+
+    cp ${ksfile} ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg
+    if [ $? -ne 0 ]; then
+        log_error "Failed to copy ${ksfile} to ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg"
+        exit 1
+    fi
 
     # Number of dirs in the NODE_URL: Count the / characters, subtracting 2 for http:// or https://
     DIRS=$(($(grep -o "/" <<< "$NODE_URL" | wc -l) - 2))
@@ -498,9 +683,6 @@ EOF
 #
 # Main
 #
-
-# Run cleanup on any exit
-trap cleanup EXIT
 
 # Check script dependencies
 check_requirements
@@ -556,13 +738,34 @@ if [ -d ${NODE_DIR} ]; then
     exit 1
 fi
 
-BUILDDIR=$(mktemp -d -p $PWD updateiso_build_XXXXXX)
+# Run cleanup on any exit
+trap cleanup EXIT
+
+BUILDDIR=$(mktemp -d -p /scratch gen_bootloader_build_XXXXXX)
 if [ -z "${BUILDDIR}" -o ! -d ${BUILDDIR} ]; then
     log_error "Failed to create builddir. Aborting..."
     exit 1
 fi
 
+WORKDIR=$(mktemp -d -p /scratch gen_bootloader_workdir_XXXXXX)
+if [ -z "${WORKDIR}" -o ! -d ${WORKDIR} ]; then
+    log_error "Failed to create builddir. Aborting..."
+    exit 1
+fi
+
 mount_iso ${INPUT_ISO}
+
+# Determine release version from ISO
+if [ ! -f ${MNTDIR}/upgrades/version ]; then
+    log_error "Version info not found on ${INPUT_ISO}"
+    exit 1
+fi
+
+ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
+if [ -z "${ISO_VERSION}" ]; then
+    log_error "Failed to determine version of installation ISO"
+    exit 1
+fi
 
 # Copy the common files from the ISO, if needed
 extract_shared_files
