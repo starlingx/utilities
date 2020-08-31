@@ -370,6 +370,9 @@ function handle_delete {
             rm -rf ${SHARED_DIR}
         fi
     fi
+
+    # Mark the DNF cache expired
+    dnf clean expire-cache
 }
 
 function get_patches_from_host {
@@ -487,6 +490,9 @@ function extract_shared_files {
         fi
     fi
 
+    # Mark the DNF cache expired, in case there was previous ad-hoc repo data
+    dnf clean expire-cache
+
     local squashfs_img_file=${MNTDIR}/LiveOS/squashfs.img
     if [ ${PATCHES_FROM_HOST} = "yes" ]; then
         extract_pkg_to_workdir 'pxe-network-installer'
@@ -539,18 +545,6 @@ function extract_shared_files {
     if [ $? -ne 0 ]; then
         log_error "Failed to copy base repodata from ${INPUT_ISO}"
         exit 1
-    fi
-
-    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
-        get_patches_from_host
-    else
-        if [ -d ${MNTDIR}/patches ]; then
-            rsync -a ${MNTDIR}/patches/ ${SHARED_DIR}/patches/
-            if [ $? -ne 0 ]; then
-                log_error "Failed to copy patches repo from ${INPUT_ISO}"
-                exit 1
-            fi
-        fi
     fi
 }
 
