@@ -224,6 +224,9 @@ do
       "dcmanager-api")
          process_list=(${process_list[@]} "sm:dcmanager-api:dcmanager-api:controller:/var/run/resource-agents/dcmanager-api.pid:0")
          ;;
+      "dcmanager-orchestrator")
+         process_list=(${process_list[@]} "sm:dcmanager-orchestrator:dcmanager-orchestrator:controller:/var/run/resource-agents/dcmanager-orchestrator.pid:0")
+         ;;
       "dcmanager-audit")
          process_list=(${process_list[@]} "sm:dcmanager-audit:dcmanager-audit:controller:/var/run/resource-agents/dcmanager-audit.pid:0")
          ;;
