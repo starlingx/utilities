@@ -361,7 +361,7 @@ function handle_delete {
     fi
 
     # If there are no more nodes, cleanup everything else
-    if [ $(ls -A ${NODE_DIR_BASE} | wc -l) = 0 ]; then
+    if [ $(ls -A ${NODE_DIR_BASE} 2>/dev/null | wc -l) = 0 ]; then
         if [ -d ${NODE_DIR_BASE} ]; then
             rmdir ${NODE_DIR_BASE}
         fi
@@ -391,10 +391,25 @@ function get_patches_from_host {
         exit 1
     fi
 
-    rsync -a ${host_patch_repo}/repodata ${host_patch_repo}/Packages ${SHARED_DIR}/patches/
+    rsync -a ${host_patch_repo}/repodata ${SHARED_DIR}/patches/
     if [ $? -ne 0 ]; then
-        log_error "Failed to copy patches repo from ${host_patch_repo}"
+        log_error "Failed to copy ${host_patch_repo}/repodata"
         exit 1
+    fi
+
+    if [ -d ${host_patch_repo}/Packages ]; then
+        rsync -a ${host_patch_repo}/Packages ${SHARED_DIR}/patches/
+        if [ $? -ne 0 ]; then
+            log_error "Failed to copy ${host_patch_repo}/Packages"
+            exit 1
+        fi
+    elif [ ! -d ${SHARED_DIR}/patches/Packages ]; then
+        # Create an empty Packages dir
+        mkdir ${SHARED_DIR}/patches/Packages
+        if [ $? -ne 0 ]; then
+            log_error "Failed to create ${SHARED_DIR}/patches/Packages"
+            exit 1
+        fi
     fi
 
     mkdir -p \
@@ -516,7 +531,7 @@ function extract_shared_files {
         extract_pkg_to_workdir 'platform-kickstarts-pxeboot'
 
         local patched_pxeboot_files_dir=${WORKDIR}/pxeboot
-        if [ -d ${patched_pxeboot_files_dir} ]; then
+        if [ -f ${patched_pxeboot_files_dir}/pxeboot_controller.cfg ]; then
             # Use the patched pxeboot files
             pxeboot_files_dir=${patched_pxeboot_files_dir}
         fi
