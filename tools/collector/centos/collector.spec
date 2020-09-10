@@ -32,9 +32,11 @@ install -m 755 collect_utils %{buildroot}/usr/local/sbin/collect_utils
 install -m 755 collect_parms %{buildroot}/usr/local/sbin/collect_parms
 install -m 755 collect_mask_passwords %{buildroot}/usr/local/sbin/collect_mask_passwords
 install -m 755 expect_done %{buildroot}/usr/local/sbin/expect_done
+install -m 755 mariadb-cli.sh %{buildroot}/usr/local/sbin/mariadb-cli
 
 install -m 755 collect_sysinv.sh %{buildroot}%{_sysconfdir}/collect.d/collect_sysinv
 install -m 755 collect_psqldb.sh %{buildroot}%{_sysconfdir}/collect.d/collect_psqldb
+install -m 755 collect_mariadb.sh %{buildroot}%{_sysconfdir}/collect.d/collect_mariadb
 install -m 755 collect_openstack.sh %{buildroot}%{_sysconfdir}/collect.d/collect_openstack
 install -m 755 collect_networking.sh %{buildroot}%{_sysconfdir}/collect.d/collect_networking
 install -m 755 collect_ceph.sh %{buildroot}%{_sysconfdir}/collect.d/collect_ceph
