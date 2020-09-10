@@ -17,6 +17,10 @@
 # Source shared utility functions
 source $(dirname $0)/stx-iso-utils.sh
 
+function log_error {
+    echo "$@" >&2
+}
+
 function usage {
     cat <<ENDUSAGE
 Usage:
