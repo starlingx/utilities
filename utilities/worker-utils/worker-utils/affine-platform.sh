@@ -111,6 +111,11 @@ function affine_tasks {
             taskset --all-tasks --pid --cpu-list ${PLATFORM_CPULIST} $pid &> /dev/null
         done
 
+        # Affine kernel kswapd threads to platform cores
+        pidlist=$(ps --ppid 2 -p 2 -o pid=,comm= | grep -E 'kswapd' | awk '{ print $1; }')
+        for pid in ${pidlist[@]}; do
+            taskset --all-tasks --pid --cpu-list ${PLATFORM_CPULIST} $pid &> /dev/null
+        done
     fi
 
     return 0
