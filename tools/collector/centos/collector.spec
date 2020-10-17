@@ -54,6 +54,7 @@ install -m 755 collect_dc.sh %{buildroot}%{_sysconfdir}/collect.d/collect_dc
 
 install -m 755 etc.exclude %{buildroot}%{_sysconfdir}/collect/etc.exclude
 install -m 755 run.exclude %{buildroot}%{_sysconfdir}/collect/run.exclude
+install -m 755 varlog.exclude %{buildroot}%{_sysconfdir}/collect/varlog.exclude
 
 ln -sf /usr/local/sbin/collect %{buildroot}/usr/local/bin/collect
 ln -sf /usr/local/sbin/collect %{buildroot}%{_sbindir}/collect

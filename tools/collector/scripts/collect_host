@@ -77,6 +77,7 @@ TARBALL="${COLLECT_NAME_DIR}.tgz"
 COLLECT_PATH="/etc/collect.d"
 RUN_EXCLUDE="/etc/collect/run.exclude"
 ETC_EXCLUDE="/etc/collect/etc.exclude"
+VAR_LOG_EXCLUDE="/etc/collect/varlog.exclude"
 COLLECT_INCLUDE="/var/run /etc /root"
 FLIGHT_RECORDER_PATH="var/lib/sm/"
 FLIGHT_RECORDER_FILE="sm.eru.v1"
@@ -430,7 +431,7 @@ done
 
 log_space "before first tar ....:"
 
-(cd ${COLLECT_NAME_DIR} ; ${IONICE_CMD} ${NICE_CMD}   ${TAR_CMD} ${COLLECT_NAME_DIR}/${COLLECT_NAME}.tar -T ${VAR_LOG_INCLUDE_LIST} -X ${RUN_EXCLUDE} -X ${ETC_EXCLUDE} ${COLLECT_INCLUDE} 2>>${COLLECT_ERROR_LOG} 1>>${COLLECT_ERROR_LOG} )
+(cd ${COLLECT_NAME_DIR} ; ${IONICE_CMD} ${NICE_CMD}   ${TAR_CMD} ${COLLECT_NAME_DIR}/${COLLECT_NAME}.tar -T ${VAR_LOG_INCLUDE_LIST} -X ${RUN_EXCLUDE} -X ${ETC_EXCLUDE} -X ${VAR_LOG_EXCLUDE} ${COLLECT_INCLUDE} 2>>${COLLECT_ERROR_LOG} 1>>${COLLECT_ERROR_LOG} )
 
 log_space "after first tar .....:"
 
