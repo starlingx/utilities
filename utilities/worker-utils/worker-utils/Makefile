@@ -29,5 +29,5 @@ install:
 	install -p -D -m 755 topology $(BINDIR)/topology
 	install -p -D -m 644 worker_reserved.conf $(PLATFORMCONFDIR)/worker_reserved.conf
 	install -p -D -m 755 worker-goenabled.sh $(GOENABLEDDIR)/worker-goenabled.sh
-	install -p -D -m 664 affine-platform.sh.service $(SYSTEMDDIR)/affine-platform.sh.service
-	install -p -D -m 664 affine-tasks.service $(SYSTEMDDIR)/affine-tasks.service
+	install -p -D -m 644 affine-platform.sh.service $(SYSTEMDDIR)/affine-platform.sh.service
+	install -p -D -m 644 affine-tasks.service $(SYSTEMDDIR)/affine-tasks.service
