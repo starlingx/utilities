@@ -389,7 +389,7 @@ function topology_to_cpulist {
     }
 }
 END {
-    @cores = sort { $a <=> $b } keys $T{$socket};
+    @cores = sort { $a <=> $b } keys %{ $T{$socket} };
     @sel_cores = splice @cores, $core_start, $num_cores;
     @lcpus = ();
     for $C (@sel_cores) {
