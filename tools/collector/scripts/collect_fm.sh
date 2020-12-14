@@ -36,6 +36,8 @@ if [ "$nodetype" = "controller" ] ; then
     # These go into the SERVICE.info file
     delimiter ${LOGFILE} "fm alarm-list"
     fm alarm-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    delimiter ${LOGFILE} "fm event-list --nopaging"
+    fm event-list --nopaging 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 fi
 
 exit 0
