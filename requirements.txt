@@ -1,1 +1,14 @@
-# Nothing
+eventlet
+keyring
+keystoneauth1
+pkgconfig
+libvirt-python
+oslo.concurrency
+oslo.config
+oslo.i18n
+oslo.log
+oslo.messaging
+oslo.service
+python-daemon
+python-novaclient
+retrying
