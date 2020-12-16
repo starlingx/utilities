@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2016-2019 Wind River Systems, Inc.
+# Copyright (c) 2016-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -34,6 +34,7 @@ source_openrc_if_needed
 #
 COLLECT_NAME="${1}"
 DEBUG=${8}
+INVENTORY=${9}
 set_debug_mode ${DEBUG}
 
 # Calling parms
@@ -46,7 +47,8 @@ set_debug_mode ${DEBUG}
 # 6 = end date
 # 7 = "any"          (ignored - no longer used ; kept to support upgrades/downgrades)
 # 8 = debug mode
-logger -t ${COLLECT_TAG} "${0} ${1} ${2} ${3} ${4} ${5} ${6} ${7} ${8}"
+# 9 = inventory
+logger -t ${COLLECT_TAG} "${0} ${1} ${2} ${3} ${4} ${5} ${6} ${7} ${8} ${9}"
 
 # parse out the start data/time data if it is present
 STARTDATE_RANGE=false
@@ -85,6 +87,7 @@ VAR_LOG_INCLUDE_LIST="/tmp/${COLLECT_NAME}.lst"
 COLLECT_DIR_PCENT_CMD="df --output=pcent ${COLLECT_BASE_DIR}"
 COLLECT_DIR_USAGE_CMD="df -h ${COLLECT_BASE_DIR}"
 COLLECT_DATE="/usr/local/sbin/collect_date"
+COLLECT_SYSINV="${COLLECT_PATH}/collect_sysinv"
 
 function log_space()
 {
@@ -150,7 +153,11 @@ function collect_parts()
     if [ -d ${COLLECT_PATH} ]; then
         for i in ${COLLECT_PATH}/*; do
             if [ -f $i ]; then
-                $i ${COLLECT_NAME_DIR} ${EXTRA_DIR} ${hostname}
+                if [ ${i} = ${COLLECT_SYSINV} ]; then
+                    $i ${COLLECT_NAME_DIR} ${EXTRA_DIR} ${hostname} ${INVENTORY}
+                else
+                    $i ${COLLECT_NAME_DIR} ${EXTRA_DIR} ${hostname}
+                fi
             fi
         done
     fi

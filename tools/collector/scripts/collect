@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2014-2017 Wind River Systems, Inc.
+# Copyright (c) 2014-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -174,6 +174,8 @@ function print_help()
     echo ""
     echo "collect [--verbose | -v]                        ... print details during collect"
     echo ""
+    echo "collect [--inventory | -i]                      ... collect inventory by system cli command"
+    echo ""
     echo "Avoid password and security masking:"
     echo ""
     echo "collect [--skip-mask]                           ... skip masking of collect data"
@@ -197,6 +199,7 @@ DEBUG=false
 CLEAN=false
 VERBOSE=false
 SKIP_MASK=false
+INVENTORY=false
 
 # date variables
 STARTDATE="any"
@@ -335,6 +338,10 @@ while [[ ${#} -gt 0 ]] ; do
 
         -c|--clean)
         CLEAN=true
+        ;;
+
+        -i|--inventory)
+        INVENTORY=true
         ;;
 
         -l|--list)
@@ -999,8 +1006,8 @@ for host in "${HOSTLIST[@]}" ; do
             log_user ${USER_LOG_MODE}
             spawn bash -i
 
-            set timeout 900
-            send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG}\n"
+            set timeout 1000
+            send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}\n"
             expect {
                 "assword:" {
                     send "${pw}\r"
@@ -1090,8 +1097,8 @@ EOF
                     send "${pw}\r"
                     expect {
                         "${host}:" {
-                            set timeout 500
-                            send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG}\n"
+                            set timeout 600
+                            send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}\n"
                             expect {
                                 "assword:" {
                                     send "${pw}\r"
