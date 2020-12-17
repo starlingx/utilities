@@ -257,8 +257,8 @@ function collect_extra()
     ps -e -o ppid,pid,nlwp,rss:10,vsz:10,cmd --sort=-rss >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
     # mounted hugepages
-    delimiter ${LOGFILE} "lsof | grep /mnt/huge"
-    lsof | awk '($3 !~ /^[0-9]+$/ && /\/mnt\/huge/) || NR==1 {print $0;}' >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    delimiter ${LOGFILE} "lsof -lwX | awk '($3 !~ /^[0-9]+$/ && /\/mnt\/huge/) || NR==1 {print $0;}'"
+    lsof -lwX | awk '($3 !~ /^[0-9]+$/ && /\/mnt\/huge/) || NR==1 {print $0;}' >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
     # hugepages numa mapping
     delimiter ${LOGFILE} "grep huge /proc/*/numa_maps"
