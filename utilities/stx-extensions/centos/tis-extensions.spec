@@ -22,13 +22,6 @@ Requires: systemd
 %description
 StarlingX Extensions to thirdparty pkgs
 
-%package -n %{name}-controller
-Summary: StarlingX Extensions to thirdparty pkg on controller
-Group: base
-
-%description -n %{name}-controller
-StarlingX Extensions to thirdparty pkgs on controller
-
 %define local_etc_systemd %{_sysconfdir}/systemd/system/
 %define local_etc_coredump %{_sysconfdir}/systemd/coredump.conf.d
 %define local_etc_initd %{_sysconfdir}/init.d
