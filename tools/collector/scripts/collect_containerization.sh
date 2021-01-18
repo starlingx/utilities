@@ -49,9 +49,9 @@ CMD="crictl ps -a"
 delimiter ${LOGFILE_IMG} "${CMD}"
 ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
 
-CMD="cat /var/lib/kubelet/cpu_manager_state | python -mjson.tool"
+CMD="cat /var/lib/kubelet/cpu_manager_state | python -m json.tool"
 delimiter ${LOGFILE_HOST} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HOST}
+eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HOST}
 
 ###############################################################################
 # Active Controller
@@ -136,20 +136,38 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
                 > ${HELM_DIR}/${APPNAME}.v${APPREVISION}
         done <<< "${APPLIST}"
     elif [[ $HELM_VERSION =~ v3 ]]; then
-        CMD="helm list --all --all-namespaces"
+        # NOTE: helm environment not configured for root user
+        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
         delimiter ${LOGFILE_HELM} "${CMD}"
         ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
-        CMD="helm repo list"
+        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm search repo"
+        delimiter ${LOGFILE_HELM} "${CMD}"
+        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+
+        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm repo list"
         delimiter ${LOGFILE_HELM} "${CMD}"
         ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
     fi
 
     HELM2CLI=$(which helmv2-cli)
     if [ $? -eq 0 ]; then
-        CMD="helmv2-cli -- helm list"
+        CMD="helmv2-cli -- helm version --short"
         delimiter ${LOGFILE_HELM} "${CMD}"
         ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+
+        CMD="helmv2-cli -- helm list -a"
+        delimiter ${LOGFILE_HELM} "${CMD}"
+        mapfile -t ARR < <( ${CMD} 2>>${COLLECT_ERROR_LOG} )
+        printf "%s\n" "${ARR[@]}" >> ${LOGFILE_HELM}
+        for((i=1; i < ${#ARR[@]}; i++))
+        do
+            APPNAME=$(echo ${ARR[$i]} | awk '{print $1}')
+            APPREVISION=$(echo ${ARR[$i]} | awk '{print $2}')
+            ${HELM2CLI} -- helm status ${APPNAME} > ${HELM_DIR}/${APPNAME}.status
+            ${HELM2CLI} -- helm get values ${APPNAME} --revision ${APPREVISION} \
+                > ${HELM_DIR}/${APPNAME}.v${APPREVISION}
+        done <<< "${APPLIST}"
 
         CMD="helmv2-cli -- helm search"
         delimiter ${LOGFILE_HELM} "${CMD}"
@@ -164,6 +182,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     delimiter ${LOGFILE} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG}
 
+    # NOTE(LP1911935): The following etcdctl command is not producing output.
     export ETCDCTL_API=3
     CMD="etcdctl --endpoints=localhost:2379 get / --prefix"
     delimiter ${LOGFILE} "${CMD}"
