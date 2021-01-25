@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2020 Wind River Systems, Inc.
+# Copyright (c) 2013-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -108,7 +108,7 @@ if [ "$nodetype" = "controller" ] ; then
 
     # copy /opt/platform to extra dir while filtering out the
     # iso and lost+found dirs
-    rsync -a --relative --exclude 'iso' --exclude 'lost+found' /opt/platform ${extradir}
+    rsync -a --exclude 'iso' --exclude 'lost+found' /opt/platform ${extradir}
 fi
 
 

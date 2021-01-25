@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2020 Wind River Systems, Inc.
+# Copyright (c) 2020-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -85,7 +85,7 @@ if [ "$nodetype" = "controller" ] ; then
         dcmanager subcloud-group list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
         # copy the /opt/dc/ansible dir but exclude any iso files
-        rsync -a --relative --exclude '*.iso' /opt/dc/ansible ${extradir}
+        rsync -a --exclude '*.iso' /opt/dc/ansible ${extradir}
 
         delimiter ${LOGFILE} "find /opt/dc-vault -ls"
         find /opt/dc-vault -ls 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
