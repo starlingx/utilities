@@ -72,6 +72,9 @@ function collect_inventory {
         delimiter ${LOGFILE} "system host-ethernet-port-list ${host}"
         system host-ethernet-port-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
+        delimiter ${LOGFILE} "system host-cpu-list ${host}"
+        system host-cpu-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+
         delimiter ${LOGFILE} "system host-memory-list ${host}"
         system host-memory-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 

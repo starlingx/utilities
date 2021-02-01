@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2019 Wind River Systems, Inc.
+# Copyright (c) 2019-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -41,6 +41,10 @@ CMD="crictl images"
 delimiter ${LOGFILE_IMG} "${CMD}"
 ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
 
+CMD="ctr -n k8s.io images list"
+delimiter ${LOGFILE_IMG} "${CMD}"
+${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+
 CMD="docker container ps -a"
 delimiter ${LOGFILE_IMG} "${CMD}"
 ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
@@ -67,6 +71,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     CMDS+=("kubectl get nodes --show-labels")
     CMDS+=("kubectl get nodes -o json")
     CMDS+=("kubectl describe nodes")
+    CMDS+=("kubectl describe nodes | grep -e Capacity: -B1 -A40 | grep -e 'System Info:' -B13 | grep -v 'System Info:'")
     CMDS+=("kubectl services")
     CMDS+=("kubectl get configmaps --all-namespaces")
     CMDS+=("kubectl get daemonsets --all-namespaces")

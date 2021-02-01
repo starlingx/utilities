@@ -212,8 +212,17 @@ function collect_extra()
     delimiter ${LOGFILE} "cat /proc/version"
     cat /proc/version >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
+    delimiter ${LOGFILE} "lscpu"
+    lscpu >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+    delimiter ${LOGFILE} "lscpu -e"
+    lscpu -e >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
     delimiter ${LOGFILE} "cat /proc/cpuinfo"
     cat /proc/cpuinfo >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+    delimiter ${LOGFILE} "cat /sys/devices/system/cpu/isolated"
+    cat /sys/devices/system/cpu/isolated >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
     delimiter ${LOGFILE} "ip addr show"
     ip addr show >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
