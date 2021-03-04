@@ -230,6 +230,9 @@ do
       "dcmanager-audit")
          process_list=(${process_list[@]} "sm:dcmanager-audit:dcmanager-audit:controller:/var/run/resource-agents/dcmanager-audit.pid:0")
          ;;
+      "dcmanager-audit-worker")
+         process_list=(${process_list[@]} "sm:dcmanager-audit-worker:dcmanager-audit-worker:controller:/var/run/resource-agents/dcmanager-audit-worker.pid:0")
+         ;;
       "dcorch-engine")
          process_list=(${process_list[@]} "sm:dcorch-engine:dcorch-engine:controller:/var/run/resource-agents/dcorch-engine.pid:0")
          ;;
