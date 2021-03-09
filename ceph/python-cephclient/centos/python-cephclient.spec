@@ -15,7 +15,6 @@ BuildRequires: python3-pip
 BuildRequires: python3-wheel
 
 Requires: python3
-Requires: python3-ipaddress
 Requires: python3-six
 Requires: python3-requests
 
