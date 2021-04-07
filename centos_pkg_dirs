@@ -1,5 +1,5 @@
 utilities/worker-utils
-#ceph/ceph-manager
+ceph/ceph-manager
 ceph/python-cephclient
 utilities/nfscheck
 utilities/logmgmt

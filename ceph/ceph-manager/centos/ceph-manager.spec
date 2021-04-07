@@ -1,3 +1,5 @@
+%global __python /usr/bin/python3
+
 Summary: Handle Ceph API calls and provide status updates via alarms
 Name: ceph-manager
 Version: 1.0
@@ -8,9 +10,9 @@ Packager: Wind River <info@windriver.com>
 URL: unknown
 Source0: %{name}-%{version}.tar.gz
 
-BuildRequires: python-setuptools
-BuildRequires: python2-pip
-BuildRequires: python2-wheel
+BuildRequires: python3-setuptools
+BuildRequires: python3-pip
+BuildRequires: python3-wheel
 BuildRequires: systemd-units
 BuildRequires: systemd-devel
 Requires: sysinv
@@ -24,16 +26,18 @@ Handle sysinv RPC calls for long running Ceph API operations:
 %define local_bindir /usr/bin/
 %define local_etc_initd /etc/init.d/
 %define local_etc_logrotated /etc/logrotate.d/
-%define pythonroot /usr/lib64/python2.7/site-packages
+%define pythonroot /usr/lib64/python3.6/site-packages
 
 %define debug_package %{nil}
 
 %prep
 %setup
+# Change shebang in all relevant files in this directory and all subdirectories
+find -type f -exec sed -i '1s=^#!/usr/bin/\(python\|env python\)[23]\?=#!%{__python}=' {} +
 
 %build
 %{__python} setup.py build
-%py2_build_wheel
+%py3_build_wheel
 
 %install
 %{__python} setup.py install --root=$RPM_BUILD_ROOT \
@@ -71,8 +75,8 @@ rm -rf $RPM_BUILD_ROOT
 %{local_etc_logrotated}/*
 %dir %{pythonroot}/ceph_manager
 %{pythonroot}/ceph_manager/*
-%dir %{pythonroot}/ceph_manager-%{version}.0-py2.7.egg-info
-%{pythonroot}/ceph_manager-%{version}.0-py2.7.egg-info/*
+%dir %{pythonroot}/ceph_manager-%{version}.0-py3.6.egg-info
+%{pythonroot}/ceph_manager-%{version}.0-py3.6.egg-info/*
 
 %package wheels
 Summary: %{name} wheels

@@ -1,6 +1,9 @@
 # worker-utils
 worker-utils
 
+# ceph-manager
+ceph-manager
+
 # python-cephclient
 python-cephclient
 
