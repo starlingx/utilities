@@ -13,6 +13,7 @@ BuildRequires: python3-setuptools
 BuildRequires: python3-pip
 BuildRequires: python3-wheel
 BuildRequires: systemd-devel
+BuildRequires: python3-devel
 Requires: systemd
 Requires: python3-daemon
 
@@ -34,7 +35,7 @@ rm -rf *.egg-info
 
 %build
 %{__python3} setup.py build
-%py3_build_wheel
+%{__python3} setup.py bdist_wheel
 
 %install
 %{__python3} setup.py install --root=$RPM_BUILD_ROOT \
