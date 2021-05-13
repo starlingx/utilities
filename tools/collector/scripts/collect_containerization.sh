@@ -187,9 +187,18 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     delimiter ${LOGFILE} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG}
 
-    # NOTE(LP1911935): The following etcdctl command is not producing output.
-    export ETCDCTL_API=3
-    CMD="etcdctl --endpoints=localhost:2379 get / --prefix"
+    export $(grep '^ETCD_LISTEN_CLIENT_URLS=' /etc/etcd/etcd.conf | tr -d '"')
+
+    CMD="sudo ETCDCTL_API=3  etcdctl \
+    --endpoints=$ETCD_LISTEN_CLIENT_URLS get / --prefix"
+
+    #Use certificate if secured access is detected
+    SEC_STR='https'
+    if [[ "$ETCD_LISTEN_CLIENT_URLS" == *"$SEC_STR"* ]]; then
+        CMD="$CMD --cert=/etc/etcd/etcd-server.crt \
+        --key=/etc/etcd/etcd-server.key --cacert=/etc/etcd/ca.crt"
+    fi
+
     delimiter ${LOGFILE} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG} >> ${ETCD_DB_FILE}
 fi
