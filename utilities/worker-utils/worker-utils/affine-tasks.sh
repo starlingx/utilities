@@ -68,6 +68,8 @@ LNAME=$(readlink -n -f $0)
 NAME=$(basename $LNAME)
 PIDFILE=/var/run/${NAME}.pid
 
+TASK_AFFINING_INCOMPLETE="/etc/platform/.task_affining_incomplete"
+
 # Define number of logical cpus
 LOGICAL_CPUS=$(getconf _NPROCESSORS_ONLN)
 
@@ -89,6 +91,11 @@ else
     NONISOL_CPUS=${ONLINE_CPUS}
     NONISOL_MASK=${ONLINE_MASK}
 fi
+# NONISOL_CPULIST is a space separated list, consumed by SM so that
+# it knows about extra available cores
+NONISOL_CPULIST=$(echo ${NONISOL_CPUS} | \
+                    perl -pe 's/(\d+)-(\d+)/join(",",$1..$2)/eg'| \
+                    sed 's/,/ /g')
 
 # Define platform memory nodeset and cpuset
 PLATFORM_NODES=$(cat /sys/devices/system/node/online)
@@ -404,7 +411,8 @@ function affine_drbd_tasks {
 }
 
 # Return list of reaffineable pids. This includes all processes, but excludes
-# kernel threads, vSwitch, and anything in K8S, docker or qemu/kvm cpuset.
+# kernel threads, vSwitch, and anything in the cgroup cpusets: k8s-infra, docker,
+# and machine.slice (i.e., qemu-kvm).
 function reaffineable_pids {
     local pids_excl
     local pidlist
@@ -433,6 +441,8 @@ function affine_tasks_to_all_cores {
             ${NONISOL_CPUS} ${pid} > /dev/null 2>&1
     done
 
+
+    echo ${NONISOL_CPULIST} > ${TASK_AFFINING_INCOMPLETE}
     LOG "Affined ${count} processes to all cores."
 }
 
@@ -472,6 +482,7 @@ function affine_tasks_to_platform_cores {
         taskset --pid --cpu-list 0 ${pid} > /dev/null 2>&1
     done
 
+    rm -v -f ${TASK_AFFINING_INCOMPLETE}
     LOG "Affined ${count} processes to platform cores."
 }
 
