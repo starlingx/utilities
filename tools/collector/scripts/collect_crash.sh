@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2016 Wind River Systems, Inc.
+# Copyright (c) 2016-2020 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -24,6 +24,14 @@ delimiter ${LOGFILE} "${COMMAND}"
 ${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
 COMMAND="rsync -a --include=*.txt --include=*/ --exclude=* ${CRASHDIR} ${basedir}/var/"
+delimiter ${LOGFILE} "${COMMAND}"
+${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+COMMAND="ls -lrtd ${CRASHDIR}/*"
+delimiter ${LOGFILE} "${COMMAND}"
+${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+COMMAND="md5sum ${CRASHDIR}/*"
 delimiter ${LOGFILE} "${COMMAND}"
 ${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 

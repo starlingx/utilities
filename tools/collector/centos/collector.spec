@@ -32,9 +32,11 @@ install -m 755 collect_utils %{buildroot}/usr/local/sbin/collect_utils
 install -m 755 collect_parms %{buildroot}/usr/local/sbin/collect_parms
 install -m 755 collect_mask_passwords %{buildroot}/usr/local/sbin/collect_mask_passwords
 install -m 755 expect_done %{buildroot}/usr/local/sbin/expect_done
+install -m 755 mariadb-cli.sh %{buildroot}/usr/local/sbin/mariadb-cli
 
 install -m 755 collect_sysinv.sh %{buildroot}%{_sysconfdir}/collect.d/collect_sysinv
 install -m 755 collect_psqldb.sh %{buildroot}%{_sysconfdir}/collect.d/collect_psqldb
+install -m 755 collect_mariadb.sh %{buildroot}%{_sysconfdir}/collect.d/collect_mariadb
 install -m 755 collect_openstack.sh %{buildroot}%{_sysconfdir}/collect.d/collect_openstack
 install -m 755 collect_networking.sh %{buildroot}%{_sysconfdir}/collect.d/collect_networking
 install -m 755 collect_ceph.sh %{buildroot}%{_sysconfdir}/collect.d/collect_ceph
@@ -49,9 +51,12 @@ install -m 755 collect_ima.sh %{buildroot}%{_sysconfdir}/collect.d/collect_ima
 install -m 755 collect_fm.sh %{buildroot}%{_sysconfdir}/collect.d/collect_fm
 install -m 755 collect_containerization.sh %{buildroot}%{_sysconfdir}/collect.d/collect_containerization
 install -m 755 collect_dc.sh %{buildroot}%{_sysconfdir}/collect.d/collect_dc
+install -m 755 collect_disk.sh %{buildroot}%{_sysconfdir}/collect.d/collect_disk
+install -m 755 collect_interfaces.sh %{buildroot}%{_sysconfdir}/collect.d/collect_interfaces
 
 install -m 755 etc.exclude %{buildroot}%{_sysconfdir}/collect/etc.exclude
 install -m 755 run.exclude %{buildroot}%{_sysconfdir}/collect/run.exclude
+install -m 755 varlog.exclude %{buildroot}%{_sysconfdir}/collect/varlog.exclude
 
 ln -sf /usr/local/sbin/collect %{buildroot}/usr/local/bin/collect
 ln -sf /usr/local/sbin/collect %{buildroot}%{_sbindir}/collect

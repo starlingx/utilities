@@ -60,6 +60,7 @@ install -d %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/remotelogging_tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/connectivity_test %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/is-rootdisk-device.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/update-iso.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/gen-bootloader-iso.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/stx-iso-utils.sh %{buildroot}%{local_bindir}
@@ -95,6 +96,7 @@ systemctl enable opt-platform.service
 %{local_bindir}/tc_setup.sh
 %{local_bindir}/remotelogging_tc_setup.sh
 %{local_bindir}/connectivity_test
+%{local_bindir}/is-rootdisk-device.sh
 %{local_bindir}/set_keystone_user_option.sh
 %{local_sbindir}/patch-restart-mtce
 %{local_sbindir}/patch-restart-processes

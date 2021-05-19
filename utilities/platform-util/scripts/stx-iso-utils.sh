@@ -47,6 +47,12 @@ function common_check_requirements {
 
     local -i missing=0
 
+    which which >&/dev/null
+    if [ $? -ne 0 ]; then
+        log_error "Unable to find 'which' utility. Aborting..."
+        exit 1
+    fi
+
     for req in ${required_utils[@]}; do
         which ${req} >&/dev/null
         if [ $? -ne 0 ]; then

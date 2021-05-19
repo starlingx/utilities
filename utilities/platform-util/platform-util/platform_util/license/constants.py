@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2017 Wind River Systems, Inc.
+# Copyright (c) 2017-2020 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -28,7 +28,9 @@ LICENSE_NAMES = [
     AIO_SX_PRODUCT_CFG
 ]
 
-# License mapping 
+LICENSE_PLUGIN_NAME = 'verify_license'
+
+# License mapping
 LICENSE_MAP = { 
     LICENSE_FEATURE_STD: STD_PRODUCT_CFG,
     LICENSE_FEATURE_AIO: AIO_PRODUCT_CFG,

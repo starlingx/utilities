@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2016-2019 Wind River Systems, Inc.
+# Copyright (c) 2016-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -34,6 +34,7 @@ source_openrc_if_needed
 #
 COLLECT_NAME="${1}"
 DEBUG=${8}
+INVENTORY=${9}
 set_debug_mode ${DEBUG}
 
 # Calling parms
@@ -46,7 +47,8 @@ set_debug_mode ${DEBUG}
 # 6 = end date
 # 7 = "any"          (ignored - no longer used ; kept to support upgrades/downgrades)
 # 8 = debug mode
-logger -t ${COLLECT_TAG} "${0} ${1} ${2} ${3} ${4} ${5} ${6} ${7} ${8}"
+# 9 = inventory
+logger -t ${COLLECT_TAG} "${0} ${1} ${2} ${3} ${4} ${5} ${6} ${7} ${8} ${9}"
 
 # parse out the start data/time data if it is present
 STARTDATE_RANGE=false
@@ -77,6 +79,7 @@ TARBALL="${COLLECT_NAME_DIR}.tgz"
 COLLECT_PATH="/etc/collect.d"
 RUN_EXCLUDE="/etc/collect/run.exclude"
 ETC_EXCLUDE="/etc/collect/etc.exclude"
+VAR_LOG_EXCLUDE="/etc/collect/varlog.exclude"
 COLLECT_INCLUDE="/var/run /etc /root"
 FLIGHT_RECORDER_PATH="var/lib/sm/"
 FLIGHT_RECORDER_FILE="sm.eru.v1"
@@ -84,6 +87,7 @@ VAR_LOG_INCLUDE_LIST="/tmp/${COLLECT_NAME}.lst"
 COLLECT_DIR_PCENT_CMD="df --output=pcent ${COLLECT_BASE_DIR}"
 COLLECT_DIR_USAGE_CMD="df -h ${COLLECT_BASE_DIR}"
 COLLECT_DATE="/usr/local/sbin/collect_date"
+COLLECT_SYSINV="${COLLECT_PATH}/collect_sysinv"
 
 function log_space()
 {
@@ -149,7 +153,11 @@ function collect_parts()
     if [ -d ${COLLECT_PATH} ]; then
         for i in ${COLLECT_PATH}/*; do
             if [ -f $i ]; then
-                $i ${COLLECT_NAME_DIR} ${EXTRA_DIR} ${hostname}
+                if [ ${i} = ${COLLECT_SYSINV} ]; then
+                    $i ${COLLECT_NAME_DIR} ${EXTRA_DIR} ${hostname} ${INVENTORY}
+                else
+                    $i ${COLLECT_NAME_DIR} ${EXTRA_DIR} ${hostname}
+                fi
             fi
         done
     fi
@@ -183,6 +191,10 @@ function collect_extra()
     delimiter ${LOGFILE} "ps -eL -o pid,lwp,ppid,state,class,nice,rtprio,priority,psr,stime,etime,time,wchan:16,tty,comm,command"
     ps -eL -o pid,lwp,ppid,state,class,nice,rtprio,priority,psr,stime,etime,time,wchan:16,tty,comm,command >> ${LOGFILE}
 
+    # Collect per kubernetes container name, QoS, and cpusets per numa node
+    delimiter ${LOGFILE} "kube-cpusets"
+    kube-cpusets >> ${LOGFILE}
+
     # Various host attributes
     LOGFILE="${EXTRA_DIR}/host.info"
     echo    "${hostname}: Host Info .........: ${LOGFILE}"
@@ -200,8 +212,17 @@ function collect_extra()
     delimiter ${LOGFILE} "cat /proc/version"
     cat /proc/version >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
+    delimiter ${LOGFILE} "lscpu"
+    lscpu >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+    delimiter ${LOGFILE} "lscpu -e"
+    lscpu -e >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
     delimiter ${LOGFILE} "cat /proc/cpuinfo"
     cat /proc/cpuinfo >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+    delimiter ${LOGFILE} "cat /sys/devices/system/cpu/isolated"
+    cat /sys/devices/system/cpu/isolated >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
     delimiter ${LOGFILE} "ip addr show"
     ip addr show >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
@@ -251,9 +272,9 @@ function collect_extra()
     delimiter ${LOGFILE} "ps -e -o ppid,pid,nlwp,rss:10,vsz:10,cmd --sort=-rss"
     ps -e -o ppid,pid,nlwp,rss:10,vsz:10,cmd --sort=-rss >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
-    # mounted hugepages
-    delimiter ${LOGFILE} "lsof | grep /mnt/huge"
-    lsof | awk '($3 !~ /^[0-9]+$/ && /\/mnt\/huge/) || NR==1 {print $0;}' >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    # list open files
+    delimiter ${LOGFILE} "lsof -lwX"
+    lsof -lwX >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
     # hugepages numa mapping
     delimiter ${LOGFILE} "grep huge /proc/*/numa_maps"
@@ -426,7 +447,7 @@ done
 
 log_space "before first tar ....:"
 
-(cd ${COLLECT_NAME_DIR} ; ${IONICE_CMD} ${NICE_CMD}   ${TAR_CMD} ${COLLECT_NAME_DIR}/${COLLECT_NAME}.tar -T ${VAR_LOG_INCLUDE_LIST} -X ${RUN_EXCLUDE} -X ${ETC_EXCLUDE} ${COLLECT_INCLUDE} 2>>${COLLECT_ERROR_LOG} 1>>${COLLECT_ERROR_LOG} )
+(cd ${COLLECT_NAME_DIR} ; ${IONICE_CMD} ${NICE_CMD}   ${TAR_CMD} ${COLLECT_NAME_DIR}/${COLLECT_NAME}.tar -T ${VAR_LOG_INCLUDE_LIST} -X ${RUN_EXCLUDE} -X ${ETC_EXCLUDE} -X ${VAR_LOG_EXCLUDE} ${COLLECT_INCLUDE} 2>>${COLLECT_ERROR_LOG} 1>>${COLLECT_ERROR_LOG} )
 
 log_space "after first tar .....:"
 

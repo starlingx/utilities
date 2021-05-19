@@ -224,6 +224,15 @@ do
       "dcmanager-api")
          process_list=(${process_list[@]} "sm:dcmanager-api:dcmanager-api:controller:/var/run/resource-agents/dcmanager-api.pid:0")
          ;;
+      "dcmanager-orchestrator")
+         process_list=(${process_list[@]} "sm:dcmanager-orchestrator:dcmanager-orchestrator:controller:/var/run/resource-agents/dcmanager-orchestrator.pid:0")
+         ;;
+      "dcmanager-audit")
+         process_list=(${process_list[@]} "sm:dcmanager-audit:dcmanager-audit:controller:/var/run/resource-agents/dcmanager-audit.pid:0")
+         ;;
+      "dcmanager-audit-worker")
+         process_list=(${process_list[@]} "sm:dcmanager-audit-worker:dcmanager-audit-worker:controller:/var/run/resource-agents/dcmanager-audit-worker.pid:0")
+         ;;
       "dcorch-engine")
          process_list=(${process_list[@]} "sm:dcorch-engine:dcorch-engine:controller:/var/run/resource-agents/dcorch-engine.pid:0")
          ;;
@@ -232,6 +241,12 @@ do
          ;;
       "dcorch-patch-api-proxy")
          process_list=(${process_list[@]} "sm:dcorch-patch-api-proxy:dcorch-patch-api-proxy:controller:/var/run/resource-agents/dcorch-patch-api-proxy.pid:0")
+         ;;
+      "dcorch-identity-api-proxy")
+         process_list=(${process_list[@]} "sm:dcorch-identity-api-proxy:dcorch-identity-api-proxy:controller:/var/run/resource-agents/dcorch-identity-api-proxy.pid:0")
+         ;;
+      "dcdbsync-api")
+         process_list=(${process_list[@]} "sm:dcdbsync-api:dcdbsync-api:controller:/var/run/resource-agents/dcdbsync-api.pid:0")
          ;;
       "collectd")
          process_list=(${process_list[@]} "pmon:collectd:collectd:all:/var/run/collectd.pid:0")

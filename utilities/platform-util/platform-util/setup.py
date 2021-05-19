@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2017-2018 Wind River Systems, Inc.
+# Copyright (c) 2017-2020 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,6 +15,9 @@ setuptools.setup(
     entry_points={
         'console_scripts': [
             'verify-license = platform_util.license.license:main'
+        ],
+        'platformutil.license_plugins': [
+            '001_verify_license = platform_util.license.stxlicense:StxVerifyLicense'
         ],
     }
 )

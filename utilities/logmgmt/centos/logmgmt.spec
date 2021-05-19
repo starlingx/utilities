@@ -57,7 +57,7 @@ install -p -D -m 700 scripts/init.d/logmgmt %{buildroot}%{local_etc_initd}/logmg
 install -d -m 755 %{buildroot}%{local_etc_pmond}
 install -p -D -m 644 scripts/pmon.d/logmgmt %{buildroot}%{local_etc_pmond}/logmgmt
 
-install -p -D -m 664 scripts/etc/systemd/system/logmgmt.service %{buildroot}%{_unitdir}/logmgmt.service
+install -p -D -m 644 scripts/etc/systemd/system/logmgmt.service %{buildroot}%{_unitdir}/logmgmt.service
 
 %post
 /usr/bin/systemctl enable logmgmt.service >/dev/null 2>&1
