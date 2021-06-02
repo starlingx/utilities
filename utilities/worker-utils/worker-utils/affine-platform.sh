@@ -37,7 +37,8 @@ LOG_DEBUG=1
 # Affine all running tasks to the CPULIST provided in the first parameter.
 ################################################################################
 function affine_tasks {
-    local CPULIST=$1
+    local PLAT_CPULIST=$1
+    local IRQ_CPULIST=$2
     local PIDLIST
     local RET=0
 
@@ -47,20 +48,27 @@ function affine_tasks {
 
     # Calculate platform cores cpumap. Reformat with comma separator every
     # 8 hex characters.
-    PLATFORM_COREMASK=$(cpulist_to_cpumap ${CPULIST} ${N_CPUS} | \
+    PLATFORM_COREMASK=$(cpulist_to_cpumap ${PLAT_CPULIST} ${N_CPUS} | \
         sed ':a;s/\B[0-9A-Fa-f]\{8\}\>/,&/;ta')
+    log_debug "PLATFORM_CPULIST=${PLAT_CPULIST}, COREMASK=${PLATFORM_COREMASK}"
+
+    # Calculate irq cores cpumap. Reformat with comma separator every
+    # 8 hex characters.
+    IRQ_COREMASK=$(cpulist_to_cpumap ${IRQ_CPULIST} ${N_CPUS} | \
+        sed ':a;s/\B[0-9A-Fa-f]\{8\}\>/,&/;ta')
+    log_debug "IRQ_CPULIST=${IRQ_CPULIST}, COREMASK=${IRQ_COREMASK}"
 
     # Set default IRQ affinity
     # NOTE: The following echoes a value to file and redirects the stderr to
     # stdout so that potential errors get captured in the variable ERROR.
-    ERROR=$(echo ${PLATFORM_COREMASK} 2>&1 > /proc/irq/default_smp_affinity)
+    ERROR=$(echo ${IRQ_COREMASK} 2>&1 > /proc/irq/default_smp_affinity)
     RET=$?
     if [ ${RET} -ne 0 ]; then
-        log_error "Failed to set: ${PLATFORM_COREMASK}" \
+        log_error "Failed to set: ${IRQ_COREMASK}" \
                   "/proc/irq/default_smp_affinity, err=${ERROR}"
     fi
 
-    # Affine all PCI/MSI interrupts to platform cores; this overrides
+    # Affine all PCI/MSI interrupts to IRQ cores; this overrides
     # irqaffinity boot arg, since that does not handle IRQs for PCI devices
     # on numa nodes that do not intersect with platform cores.
     PCIDEVS=/sys/bus/pci/devices
@@ -69,11 +77,12 @@ function affine_tasks {
     irqs+=($(ls ${PCIDEVS}/*/msi_irqs 2>/dev/null | grep -E '^[0-9]+$' | xargs))
     # flatten list of irqs, removing duplicates
     irqs=($(echo ${irqs[@]} | tr ' ' '\n' | sort -nu))
-    log_debug "Affining all PCI/MSI irqs(${irqs[@]}) with cpus (${CPULIST})"
+    log_debug "Affining all PCI/MSI irqs(${irqs[@]}) with cpus (${IRQ_CPULIST})"
     for i in ${irqs[@]}; do
-        /bin/bash -c "[[ -e /proc/irq/${i} ]] && echo ${CPULIST} > /proc/irq/${i}/smp_affinity_list" 2>/dev/null
+        /bin/bash -c "[[ -e /proc/irq/${i} ]] && echo ${IRQ_CPULIST} > /proc/irq/${i}/smp_affinity_list" 2>/dev/null
     done
     if [[ "$subfunction" == *"worker,lowlatency" ]]; then
+        log_debug "Affining workqueues with cpus (${PLATFORM_CPULIST})"
         # Affine work queues to platform cores
         ERROR=$(echo ${PLATFORM_COREMASK} 2>&1 > /sys/devices/virtual/workqueue/cpumask)
         RET=$?
@@ -139,8 +148,16 @@ function start {
     ## Define platform cpulist to be thread siblings of core 0
     PLATFORM_CPULIST=$(get_platform_cpu_list)
 
-    # Affine all tasks to platform cpulist
-    affine_tasks ${PLATFORM_CPULIST}
+    # Obtain current IRQ affinity setting from kernel boot cmdline
+    if [[ $(</proc/cmdline) =~ irqaffinity=([0-9,-]+) ]]; then
+        IRQ_CPULIST=${BASH_REMATCH[1]}
+    else
+        IRQ_CPULIST=${PLATFORM_CPULIST}
+    fi
+
+    # Affine all tasks to platform cpulist and irqs to irq cpulist.
+    # NOTE: irq/* tasks inherit /proc/irq/*/smp_affinity_list setting.
+    affine_tasks ${PLATFORM_CPULIST} ${IRQ_CPULIST}
     RET=$?
     if [ ${RET} -ne 0 ]; then
         log_error "Failed to affine tasks ${PLATFORM_CPULIST}, rc=${RET}"
