@@ -125,7 +125,7 @@ class LogMgmtDaemon():
 
     def get_percent_free(self):
         usage = os.statvfs('/var/log')
-        return ((usage.f_bavail * 100) / usage.f_blocks)
+        return ((usage.f_bavail * 100) // usage.f_blocks)
 
     def get_monitored_files(self):
         self.monitored_files = []
