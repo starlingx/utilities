@@ -36,17 +36,20 @@ FAIL_INACTIVE=35
 FAIL_PERMISSION_SKIP=36
 FAIL_OUT_OF_SPACE=37
 FAIL_INSUFFICIENT_SPACE=38
-FAIL_OUT_OF_SPACE_LOCAL=39
-FAIL_CREATE=39
+FAIL_INTERNAL=39
+FAIL_NO_TARDIR=40
+FAIL_NO_TARBALLS=41
 
 # Warnings are above 200
 WARN_WARNING=200
 WARN_HOSTNAME=201
 
 # Failure Strings
+FAIL_NOT_ENOUGH_SPACE_STR="Not enough /scratch filesystem space"
 FAIL_OUT_OF_SPACE_STR="No space left on device"
 FAIL_TAR_OUT_OF_SPACE_STR="tar: Error is not recoverable"
 FAIL_INSUFFICIENT_SPACE_STR="Not enough space on device"
+FAIL_UNREACHABLE_STR="Unreachable"
 
 # The minimum amount of % free space on /scratch to allow collect to proceed
 MIN_PERCENT_SPACE_REQUIRED=75
@@ -121,19 +124,18 @@ function ilog
 {
     echo "$@"
     logger -t ${COLLECT_TAG} $@
-    #logger -p local3.info -t ${COLLECT_TAG} $@
 }
 
 function elog
 {
     echo "Error: $@"
-    logger -t ${COLLECT_TAG} $@
+    logger -t ${COLLECT_TAG} "Error: $@"
 }
 
 function wlog
 {
     echo "Warning: $@"
-    logger -t ${COLLECT_TAG} $@
+    logger -t ${COLLECT_TAG} "Warning: $@"
 }
 
 function set_debug_mode()
@@ -144,8 +146,8 @@ function set_debug_mode()
 function dlog()
 {
     if [ "$DEBUG" == true ] ; then
-        logger -t ${COLLECT_TAG} $@
-        echo "Debug: $@"
+        logger -t ${COLLECT_TAG} "Debug: $@"
+        echo "$(date) Debug: $@"
     fi
 }
 
@@ -235,3 +237,35 @@ function collect_errors()
     fi
     return ${RC}
 }
+
+############################################################################
+#
+# Name       : space_precheck
+#
+# Description:
+#
+############################################################################
+
+function space_precheck()
+{
+    HOSTNAME=${1}
+    COLLECT_BASE_DIR=${2}
+    COLLECT_DIR_PCENT_CMD="df --output=pcent ${COLLECT_BASE_DIR}"
+
+    space="`${COLLECT_DIR_PCENT_CMD}`"
+    space1=`echo "${space}" | grep -v Use`
+    size=`echo ${space1} | cut -f 1 -d '%'`
+    if [ ${size} -ge 0 -a ${size} -le 100 ] ; then
+        if [ ${size} -ge ${MIN_PERCENT_SPACE_REQUIRED} ] ; then
+            ilog "${COLLECT_BASE_DIR} is $size% full"
+            echo "${FAIL_INSUFFICIENT_SPACE_STR}"
+            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} does not have enough available space in to perform collect"
+            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} must be below ${MIN_PERCENT_SPACE_REQUIRED}% to perform collect"
+            wlog "Increase available space in ${HOSTNAME}:${COLLECT_BASE_DIR} and retry operation."
+            exit ${FAIL_INSUFFICIENT_SPACE}
+        fi
+    else
+        wlog "unable to parse available space from '${COLLECT_DIR_PCENT_CMD}' output"
+    fi
+}
+
