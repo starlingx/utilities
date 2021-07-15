@@ -251,9 +251,6 @@ do
       "collectd")
          process_list=(${process_list[@]} "pmon:collectd:collectd:all:/var/run/collectd.pid:0")
          ;;
-      "influxdb")
-         process_list=(${process_list[@]} "pmon:influxdb:influxdb:all:/var/run/influxdb/influxdb.pid:0")
-         ;;
 
       *)
          echo "Unknown process:${process}"
