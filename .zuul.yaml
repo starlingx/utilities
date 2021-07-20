@@ -4,10 +4,14 @@
       jobs:
         - openstack-tox-linters
         - stx-tox-pylint
+        - utilities-ceph-manager-tox-bandit
+        - utilities-ceph-client-tox-bandit
     gate:
       jobs:
         - openstack-tox-linters
         - stx-tox-pylint
+        - utilities-ceph-manager-tox-bandit
+        - utilities-ceph-client-tox-bandit
     post:
       jobs:
         - stx-utilities-upload-git-mirror
@@ -34,6 +38,30 @@
       - name: git_mirror_credentials
         secret: stx-utilities-github-secret
         pass-to-parent: true
+
+- job:
+    name: utilities-ceph-manager-tox-bandit
+    parent: tox
+    description: |
+      Run bandit test for utilities ceph-mananger
+    nodeset: ubuntu-bionic
+    files:
+      - ./ceph/ceph-manager/ceph-manager/*
+    vars:
+      tox_envlist: bandit
+      tox_extra_args: -c ./ceph/ceph-manager/ceph-manager/tox.ini
+
+- job:
+    name: utilities-ceph-client-tox-bandit
+    parent: tox
+    description: |
+      Run bandit test for utilities python-cephclient
+    nodeset: ubuntu-bionic
+    files:
+      - ./ceph/python-cephclient/python-cephclient/*
+    vars:
+      tox_envlist: bandit
+      tox_extra_args: -c ./ceph/python-cephclient/python-cephclient/tox.ini
 
 - secret:
     name: stx-utilities-github-secret
