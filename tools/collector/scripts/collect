@@ -74,28 +74,34 @@
 
 TOOL_NAME=collect
 TOOL_VER=2
-TOOL_REV=0
+TOOL_REV=1
 
-# collect must be run as sysadmin
-if [ ${UID} -eq 0 ]; then
-  echo "Error: Cannot run collect as 'root' user"
-  exit 1
-fi
+# only supported username
+UN="sysadmin"
 
 # pull in common utils and environment
 source /usr/local/sbin/collect_utils
+
+# collect must be run as sysadmin
+if [ ${UID} -eq 0 ]; then
+  elog "Cannot run collect as 'root' user"
+  exit 1
+fi
+
 source_openrc_if_needed
 
 function clean_up()
 {
-    `reset`
-    echo ""
+    # kill all processes whose parent is this process
+    pkill -P $$
+    $(reset)
+    echo " clean up called"
 }
 
 function control_c()
 {
     echo ""
-    echo "... received exit signal ..."
+    echo -n "... received exit signal ..."
     clean_up
     exit 0
 }
@@ -104,25 +110,20 @@ function control_c()
 trap control_c SIGINT
 trap control_c SIGTERM
 
-
-
 # static expect log level control ;
 # 0 = hide expect output
 # 1 = show expect outout
 USER_LOG_MODE=0
-
-# static execution status 'return value'
-RETVAL=0
 
 # limit scp bandwidth to 1MB/s
 # increase limit of scp bandwidth from 1MB/s to 10MB/s
 SCP_CMD="scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -l $((10*8*1000))"
 SCP_TIMEOUT="600"
 SSH_CMD="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no"
-NOWDATE=`date +"%Y%m%d.%H%M%S"`
+NOWDATE=$(date +"%Y%m%d.%H%M%S")
 COLLECT_BASE_DIR="/scratch"
 collect_host="/usr/local/sbin/collect_host"
-CURR_DIR=`pwd`
+CURR_DIR=$(pwd)
 
 
 # common permission error strings
@@ -145,6 +146,8 @@ function print_help()
     echo "Host data collection scope can be the current host, any single specified hostname,"
     echo "a --list of hostnames or --all hosts in the system using a single command."
     echo ""
+    echo "Optionally specify --parallel or -p to collect from hosts in parallel"
+    echo ""
     echo "Optionally specify --start-date and/or --end-date options to limit"
     echo "  the date range and therefore size of the collect."
     echo ""
@@ -159,7 +162,8 @@ function print_help()
     echo " collect host1                                  ... collect logs for single named host"
     echo " collect host1 host2 host3                      ... collect logs for stacked host list"
     echo " collect [--list | -l] host1 host2 host3        ... collect logs for list of named hosts"
-    echo " collect [--all  | -a]                          ... collect data for all hosts"
+    echo " collect [--all  | -a]                          ... collect logs for all hosts"
+    echo " collect -a -p                                  ... collect logs for all hosts in parallel"
     echo ""
     echo "Dated Collect:"
     echo ""
@@ -197,6 +201,7 @@ function print_help()
 # command line arguement variables ; defaulted
 DEBUG=false
 CLEAN=false
+ASYNC=false
 VERBOSE=false
 SKIP_MASK=false
 INVENTORY=false
@@ -214,7 +219,9 @@ LISTING=false
 ALLHOSTS=false
 HOSTS=1
 HOSTLIST=(${HOSTNAME})
-THISHOST=false
+
+# overall collect timeout
+TIMEOUT=1000
 
 COLLECT_TARNAME=""
 
@@ -226,8 +233,13 @@ function clear_variable_args()
     GETENDDATE=false
 }
 
+space_precheck ${HOSTNAME} ${COLLECT_BASE_DIR}
+
+############################################################################
 #
-# Utility function to print a status message and record the last error code
+# Name       : report_error
+#
+# Purpose    : Report error to console and logfile
 #
 # Assumptions: Handles specific cases of invalid password and permission errors
 #              by exiting so as to avoid repeated errors during multi-host
@@ -236,54 +248,39 @@ function clear_variable_args()
 # $1 - status string
 # $2 - status code number
 #
-function print_status()
+function report_error()
 {
     local string=${1}
     local code=${2}
 
-    logger -t ${COLLECT_TAG} "${string} (reason:${code})"
+    if [ ${code} -eq ${FAIL_PASSWORD} ] ; then
+        elog "Invalid password"
+        exit ${code}
 
-    # if the status code is in the FAIL range ( less than WARNING ) then update RETVAL
-    if [ ${code} -lt ${WARN_WARNING} ] ; then
-        RETVAL=${code}
-    fi
+    elif [ ${code} -eq ${FAIL_PERMISSION} ] ; then
+        elog "Permission error ; exiting (${string})"
+        exit ${code}
 
-    if [ ${RETVAL} -eq ${FAIL_PASSWORD} ] ; then
+    elif [ ${code} -eq ${FAIL_UNREACHABLE} ] ; then
+        elog "${string} (reason:${code}:host unreachable)"
 
-        echo "Invalid password ; exiting (${string})"
-        exit ${RETVAL}
+    elif [ ${code} -eq ${FAIL_PERMISSION_SKIP} ] ; then
+        elog "${string} (reason:${code}:permission error)"
 
-    elif [ ${RETVAL} -eq ${FAIL_PERMISSION} ] ; then
+    elif [ ${code} -eq ${FAIL_OUT_OF_SPACE} ] ; then
+        elog "${string} (reason:${code}:${FAIL_NOT_ENOUGH_SPACE_STR}) ; need to increase available space ${COLLECT_BASE_DIR}"
 
-        echo "Permission error ; exiting (${string})"
-        exit ${RETVAL}
+    elif [ ${code} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
+        elog "${string} (reason:${code}:${FAIL_NOT_ENOUGH_SPACE_STR}) ; ${COLLECT_BASE_DIR} usage must be below ${MIN_PERCENT_SPACE_REQUIRED}%"
 
-    elif [ ${RETVAL} -eq ${FAIL_UNREACHABLE} ] ; then
+    elif [ ${code} -ge ${FAIL_TIMEOUT} -a ${code} -le ${FAIL_TIMEOUT9} ] ; then
+        elog "${string} (reason:${code}:operation timeout)"
 
-        echo "${string} (reason:${code}:host unreachable)"
-
-    elif [ ${RETVAL} -eq ${FAIL_PERMISSION_SKIP} -o ${RETVAL} -eq ${FAIL_PERMISSION} ] ; then
-
-        echo "${string} (reason:${code}:permission error)"
-
-    elif [ ${RETVAL} -eq ${FAIL_OUT_OF_SPACE} ] ; then
-
-        echo "${string} (reason:${code}) ; need to increase available space in host ${COLLECT_BASE_DIR}"
-
-    elif [ ${RETVAL} -eq ${FAIL_OUT_OF_SPACE_LOCAL} ] ; then
-
-        echo "${string} (reason:${code}) ; need to increase available space in ${HOSTNAME}:${COLLECT_BASE_DIR}"
-
-    elif [ ${RETVAL} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
-
-        echo "${string} (reason:${code}) ; ${HOSTNAME}:${COLLECT_BASE_DIR} usage must be below ${MIN_PERCENT_SPACE_REQUIRED}%"
-
-    elif [ ${RETVAL} -ge ${FAIL_TIMEOUT} -a ${RETVAL} -le ${FAIL_TIMEOUT9} ] ; then
-
-        echo "${string} (reason:${code}:operation timeout)"
+    elif [ ${code} -ge ${FAIL_HOSTNAME} ] ; then
+        wlog "${string} (reason:${code})"
 
     else
-        echo "${string} (reason:${code})"
+        elog "${string} (reason:${code})"
     fi
 }
 
@@ -300,17 +297,17 @@ function is_valid_host()
     if [ "${this_hostname}" == "None" ] ; then
         return ${FAIL_HOSTNAME}
     elif [ "${this_hostname}" == "${HOSTNAME}" ] ; then
-        return $PASS
+        return ${PASS}
     elif [ "${ACTIVE}" = true ] ; then
         system host-show "${this_hostname}" 2>/dev/null 1>/dev/null
         if [ ${?} -ne 0 ] ; then
             return ${FAIL_HOSTNAME}
         fi
     else
-        print_status "Error: can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
+        report_error "can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
         exit ${FAIL_INACTIVE}
     fi
-    return $PASS
+    return ${PASS}
 }
 
 
@@ -333,6 +330,7 @@ while [[ ${#} -gt 0 ]] ; do
         ;;
 
         -v|--verbose)
+        USER_LOG_MODE=1
         VERBOSE=true
         ;;
 
@@ -346,21 +344,19 @@ while [[ ${#} -gt 0 ]] ; do
 
         -l|--list)
         if [[ ${#} -lt  2 ]] ; then
-            print_status "Error: empty host --list" ${FAIL}
+            report_error "empty host list" ${FAIL_HOSTNAME}
             exit ${FAIL}
         fi
         is_valid_host "${2}"
         if [ ${?} -ne 0 ] ; then
-            print_status "Error: empty host --list or invalid first hostname" ${FAIL}
-            exit ${FAIL}
+            report_error "empty host list or invalid first hostname" ${FAIL_HOSTNAME}
+            exit ${FAIL_HOSTNAME}
         fi
 
         HOSTLIST=(${2})
         HOSTS=1
-        if [ "${2}" == "${HOSTNAME}" ] ; then
-            THISHOST=true
-        elif [ "${ACTIVE}" = false ] ; then
-            print_status "Error: can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
+        if [ "${ACTIVE}" = false ] ; then
+            report_error "can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
             exit ${FAIL_INACTIVE}
         fi
         LISTING=true
@@ -371,13 +367,12 @@ while [[ ${#} -gt 0 ]] ; do
 
         -a|--all|all)
         if [ "${ACTIVE}" = false ] ; then
-            print_status "Error: can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
+            report_error "can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
             exit ${FAIL_INACTIVE}
         fi
         ALLHOSTS=true
         HOSTLIST=(${HOSTNAME})
         HOSTS=1
-        THISHOST=true
         clear_variable_args
         ;;
 
@@ -399,7 +394,6 @@ while [[ ${#} -gt 0 ]] ; do
 
         -d|--debug)
         DEBUG=true
-        USER_LOG_MODE=1
         clear_variable_args
         ;;
 
@@ -408,19 +402,23 @@ while [[ ${#} -gt 0 ]] ; do
         shift
         ;;
 
+        -p|--parallel)
+        ASYNC=true
+        SECONDS=0
+        let UNTIL=${SECONDS}+${TIMEOUT}
+        dlog "collect timeout is ${TIMEOUT}"
+        ;;
+
         *)
         if [ "${LISTING}" = true ] ; then
             is_valid_host ${key}
             if [ ${?} -eq 0 ] ; then
-                HOSTS=$((${HOSTS} + 1))
+                HOSTS=$((HOSTS+1))
                 HOSTLIST=( "${HOSTLIST[@]}" ${key} )
-                if [ "${key}" == "${HOSTNAME}" ] ; then
-                    THISHOST=true
-                fi
             else
                 # make the invalid hostname a warning only.
                 # if we got here then at least the first hostname was valid
-                print_status "Warning: cannot collect data from unknown host '${key}'" ${WARN_HOSTNAME}
+                report_error "cannot collect data from unknown host '${key}'" ${WARN_HOSTNAME}
             fi
         elif [ "${GETSTARTDATE}" = true ] ; then
             dlog "accepting but ignoring legacy starttime specification"
@@ -428,17 +426,14 @@ while [[ ${#} -gt 0 ]] ; do
             dlog "accepting but ignoring legacy endtime specification"
         else
             is_valid_host ${key}
-            RETVAL=${?}
-            if [ ${RETVAL} -eq 0 ] ; then
+            rc=${?}
+            if [ ${rc} -eq 0 ] ; then
                 HOSTLIST=${key}
                 HOSTS=1
                 LISTING=true
-                if [ "${key}" == "${HOSTNAME}" ] ; then
-                    THISHOST=true
-                fi
             else
-                print_status "Error: cannot collect data from unknown host '${key}'" ${RETVAL}
-                exit ${RETVAL}
+                report_error "cannot collect data from unknown host '${key}'" ${rc}
+                exit ${rc}
             fi
         fi
         GETSTARTDATE=false
@@ -447,13 +442,6 @@ while [[ ${#} -gt 0 ]] ; do
     esac
     shift # past argument or value
 done
-
-if [ ${RETVAL} -ne 0 ]; then
-    echo "command line parse error (${RETVAL})"
-    print_help
-    exit ${RETVAL}
-fi
-
 
 #
 # request root password and use it for
@@ -480,46 +468,37 @@ if [ "${ALLHOSTS}" = true ] ; then
 
     for foreign_host in $(system host-list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' ' | grep -v ${HOSTNAME}); do
         if [ "${foreign_host}" != "None" ] ; then
-            HOSTS=$((${HOSTS} + 1))
+            HOSTS=$((HOSTS+1))
             HOSTLIST=( "${HOSTLIST[@]}" ${foreign_host})
-            dlog "Host:${HOSTS}: ${foreign_host}"
         fi
     done
 
 elif [ ${HOSTS} == 0 ] ; then
 
     HOSTLIST=${HOSTNAME}
-    THISHOST=true
     COLLECT_TARNAME="${HOSTNAME}_${NOWDATE}"
 
 fi
 
-# Print Summary
-if [ "${DEBUG}" == true ] ; then
+# debug logs
+dlog "HOSTLIST = ${HOSTLIST[@]}"
+dlog "HOSTS    = ${HOSTS}"
+dlog "ALLHOSTS = ${ALLHOSTS}"
+dlog "STARTDATE= ${STARTDATE}"
+dlog "ENDDATE  = ${ENDDATE}"
+dlog "SECONDS  = ${SECONDS}"
+for hosts in "${HOSTLIST[@]}" ; do
+    dlog "Host:${hosts}"
+done
 
-    echo "HOSTLIST = <${HOSTLIST[@]}>"
-    echo "HOSTS    = ${HOSTS}"
-    echo "ALLHOSTS = ${ALLHOSTS}"
-    echo "STARTDATE= ${STARTDATE}"
-    echo "ENDDATE  = ${ENDDATE}"
-
-    for hosts in "${HOSTLIST[@]}" ; do
-        echo "Host:${hosts}"
-    done
-
-elif [ ${HOSTS} -eq 0 ] ; then
-
-     print_status "Error: no hosts specified" "${FAIL}"
+if [ ${HOSTS} -eq 0 ] ; then
+     elog "no hosts specified"
      exit ${FAIL}
-
-elif [ "${CLEAN}" == false ] ; then
-
+fi
+if [ "${CLEAN}" == false ] ; then
     ilog "collecting data from ${HOSTS} host(s): ${HOSTLIST[@]}"
-
 else
-
     ilog "cleaning scratch space on ${HOSTLIST[@]}"
-
 fi
 
 #
@@ -550,7 +529,7 @@ function clean_scratch_dir_local ()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "Error: clean_scratch_dir_local ${this_hostname} failed" ${rc}
+       report_error "clean_scratch_dir_local ${this_hostname} failed" ${rc}
    fi
    return ${rc}
 }
@@ -571,7 +550,7 @@ function clean_scratch_dir_remote()
     spawn bash -i
     expect -re $
     set timeout 60
-    send "${SSH_CMD} sysadmin@${this_hostname}\n"
+    send "${SSH_CMD} ${UN}@${this_hostname}\n"
     expect {
         "assword:" {
             send "${pw}\r"
@@ -608,7 +587,7 @@ function clean_scratch_dir_remote()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "Error: clean_scratch_dir_remote ${this_hostname} failed" ${rc}
+       report_error "clean_scratch_dir_remote ${this_hostname} failed" ${rc}
    fi
    return ${rc}
 }
@@ -629,7 +608,7 @@ function delete_remote_dir_or_file()
     spawn bash -i
     expect -re $
     set timeout 60
-    send "${SSH_CMD} sysadmin@${this_hostname}\n"
+    send "${SSH_CMD} ${UN}@${this_hostname}\n"
     expect {
         "assword:" {
             send "${pw}\r"
@@ -666,7 +645,7 @@ function delete_remote_dir_or_file()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "Error: delete_remote_dir_or_file ${this_hostname} failed" ${rc}
+       report_error "delete_remote_dir_or_file ${this_hostname} failed" ${rc}
    fi
    return ${rc}
 }
@@ -691,7 +670,7 @@ function get_file_from_host()
     spawn bash -i
     set timeout ${SCP_TIMEOUT}
     expect -re $
-    send "${SCP_CMD} sysadmin@${this_hostname}:${remote_src} ${local_dest} 2>>${HOST_COLLECT_ERROR_LOG}\n"
+    send "${SCP_CMD} ${UN}@${this_hostname}:${remote_src} ${local_dest} 2>>${HOST_COLLECT_ERROR_LOG}\n"
     expect {
         "assword:" {
             send "${pw}\r"
@@ -713,7 +692,7 @@ function get_file_from_host()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "failed to get_file_from ${this_hostname}" ${rc}
+       report_error "failed to get_file_from ${this_hostname}" ${rc}
    else
        # Look for "No space left on device" error
        grep -q "${FAIL_OUT_OF_SPACE_STR}" ${HOST_COLLECT_ERROR_LOG}
@@ -763,7 +742,8 @@ function create_collect_dir_local()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "failed to create_collect_dir_local for ${dir}" ${rc}
+       report_error "failed to create_collect_dir_local for ${dir}" ${rc}
+       exit ${rc}
    fi
    return ${rc}
 }
@@ -797,7 +777,7 @@ function remove_file_local()
 EOF
        local rc=${?}
        if [ ${rc} -ne ${PASS} ] ; then
-           print_status "failed to remove_file_local ${local_file}" ${rc}
+           report_error "failed to remove_file_local ${local_file}" ${rc}
        fi
    fi
    return ${rc}
@@ -829,7 +809,7 @@ function remove_dir_local()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "failed to remove_dir_local ${dir}" ${rc}
+       report_error "failed to remove_dir_local ${dir}" ${rc}
    fi
    return ${rc}
 }
@@ -862,7 +842,7 @@ function move_file_local()
 EOF
    local rc=${?}
    if [ ${rc} -ne ${PASS} ] ; then
-       print_status "failed to move_file_local ${src} to ${dst}" ${rc}
+       report_error "failed to move_file_local ${src} to ${dst}" ${rc}
    fi
    return ${rc}
 }
@@ -872,22 +852,435 @@ EOF
 function echo_stats()
 {
     local secs=${1}
-    local file=${2}
+    local label="${2}"
+    local file="${3}"
+    MSG=""
+    if [ $label != "stats-only" ] ; then
+       if [ "${ASYNC}" = true ] ; then
 
-    echo -n " ($(date -d@${secs} -u +%H:%M:%S)"
+            MSG="collected "
+            len=${#label}
+            for ((i=len;i<longest_hostname+16;i++))
+            do
+                MSG+=" "
+            done
+
+            MSG+="${label} ... done"
+        fi
+    fi
+
+    MSG+=" ($(date -d@${secs} -u +%H:%M:%S)"
     if [ -e ${file} ] ; then
         size=$(du -h ${file} | cut -f 1 2>/dev/null)
         if [ $? -eq 0 ] ; then
-            printf " %5s)\n" "${size}"
+            printf "%s %5s)\n" "${MSG}" "${size}"
             return
         fi
     fi
-    echo ")"
+    printf "%s )\n" "${MSG}"
+}
+
+############################################################################
+#
+# Name       : collect_host_run
+#
+# Purpose    : Run collect host in selected mode
+#
+# Description: Run collect_host as a background task for each host if
+#              parallel option is specified. Otherwise, run collect in
+#              forground (legacy mode) for each host one after the other.
+#
+############################################################################
+
+function collect_host_run()
+{
+    local host="${1}"
+    local rc=${PASS}
+
+    if [ "${ASYNC}" = false ] ; then
+        MSG="collecting"
+        # line up the host names
+        len=${#host}
+        for ((i=len;i<longest_hostname;i++))
+        do
+            MSG+=" "
+        done
+        MSG+=" ${TARNAME} ... "
+        echo -n "$MSG"
+        MSG=""
+    fi
+
+    # Save current user log level
+    save=${USER_LOG_MODE}
+    if [ "${VERBOSE}" = true ] ; then
+        USER_LOG_MODE=1
+    fi
+
+    if [ "${host}" == "${HOSTNAME}" ] ;  then
+
+/usr/bin/expect << EOF
+        trap exit {SIGINT SIGTERM}
+        log_user ${USER_LOG_MODE}
+        spawn bash -i
+
+        set timeout ${TIMEOUT}
+        send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
+        expect {
+            "assword:" {
+                send "${pw}\r"
+                expect {
+                    "${FAIL_INSUFFICIENT_SPACE_STR}" { exit ${FAIL_INSUFFICIENT_SPACE}}
+                    "${FAIL_OUT_OF_SPACE_STR}" { exit ${FAIL_OUT_OF_SPACE}}
+                    "${collect_done}"          { exit ${PASS}             }
+                    "${pw_error}" { exit ${FAIL_PASSWORD}  }
+                    "${ac_error}" { exit ${FAIL_PERMISSION}}
+                    timeout       { exit ${FAIL_TIMEOUT}   }
+                }
+            }
+            timeout { exit ${FAIL_TIMEOUT} }
+        }
+        exit { ${FAIL} }
+EOF
+        rc=${?}
+
+    # otherwise the host is remote
+    else
+
+/usr/bin/expect << EOF
+        trap exit {SIGINT SIGTERM}
+        log_user ${USER_LOG_MODE}
+        spawn bash -i
+        set timeout 30
+        expect -re $
+        send "${SSH_CMD} ${UN}@${host}\n"
+        expect {
+            "assword:" {
+                send "${pw}\r"
+                expect {
+                    "${host}:" {
+                        set timeout 600
+                        send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
+                        expect {
+                            "assword:" {
+                                send "${pw}\r"
+                                expect {
+                                    "${FAIL_INSUFFICIENT_SPACE_STR}" {
+                                       send "exit\r"
+                                       exit ${FAIL_INSUFFICIENT_SPACE}
+                                    }
+                                    "${FAIL_OUT_OF_SPACE_STR}" {
+                                       send "exit\r"
+                                       exit ${FAIL_OUT_OF_SPACE}
+                                    }
+                                    "${collect_done}" {
+                                        send "exit\r"
+                                        exit ${PASS}
+                                    }
+                                    "${pw_error}"   { exit ${FAIL_PASSWORD} }
+                                    "${ac_error}"   { exit ${FAIL_PERMISSION_SKIP}}
+                                    timeout         { exit ${FAIL_TIMEOUT5} }
+                                }
+                            }
+                            timeout { exit ${FAIL_TIMEOUT4} }
+                        }
+                    }
+                    "${pw_error}" { exit ${FAIL_PASSWORD} }
+                    "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
+                    timeout       { exit ${FAIL_TIMEOUT3} }
+                }
+            }
+            "(yes/no)?" {
+                send "yes\r"
+                exp_continue
+            }
+            "No route to host" {
+                exit ${FAIL_UNREACHABLE}
+            }
+            "Could not resolve hostname" {
+                exit ${FAIL_UNREACHABLE}
+            }
+            "Host key verification failed" {
+                send "rm -f /home/${UN}/.ssh/known_hosts\n"
+                exit ${FAIL}
+            }
+            timeout { exit ${FAIL_TIMEOUT} }
+        }
+        exit { $FAIL }
+EOF
+        rc=${?}
+    fi
+
+    USER_LOG_MODE=${save}
+    return ${rc}
+}
+
+############################################################################
+#
+# Name       : collect_host_complete_local
+#
+# Description: Perform collect host complete operations for a
+#              local collect host.
+#
+#              1. Get the tarball
+#              2. Handle errors
+#                 - report
+#                 - cleanup
+#
+############################################################################
+
+function collect_host_complete_local()
+{
+    local tarname="${1}"
+    local rc=${PASS}
+
+    # create the dir again just to handle the case where we are
+    # collecting on ourself and have removed the collect_dir
+    # directory in collect_host above.
+    create_collect_dir_local "${COLLECT_DIR}"
+
+    # move the tarball into the collect dir
+    # only applies to the local collect since the remote
+    # collect scp's it directly into the collect dir.
+    move_file_local "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
+    rc=${?}
+    if [ ${rc} -eq ${PASS} ] ; then
+        logger -t ${COLLECT_TAG} "collect ${COLLECT_BASE_DIR}/${tarname}.tgz succeeded"
+    else
+        if [ ${rc} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
+
+            report_error "${FAIL_INSUFFICIENT_SPACE_STR}" ${rc}
+
+            echo ""
+            wlog "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
+            echo ""
+
+            remove_dir_local ${COLLECT_DIR}
+
+            exit ${FAIL_INSUFFICIENT_SPACE}
+
+        elif [ ${rc} -eq ${FAIL_OUT_OF_SPACE} ] ; then
+
+            report_error "${FAIL_OUT_OF_SPACE_STR}" ${rc}
+
+            echo ""
+            wlog "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
+            echo ""
+
+            # Remove the corrupt file and exit
+            remove_file_local ${COLLECT_ERROR_LOG}
+            remove_file_local ${COLLECT_BASE_DIR}/${tarname}.tgz
+            remove_dir_local ${COLLECT_BASE_DIR}/${tarname}
+            remove_dir_local ${COLLECT_BASE_DIR}/${COLLECT_NAME}
+
+            exit ${FAIL_OUT_OF_SPACE}
+
+        else
+            report_error "failed to collect from ${HOSTNAME}" ${rc}
+        fi
+    fi
+    return ${rc}
+}
+
+############################################################################
+#
+# Name       : collect_host_complete_remote
+#
+# Description: Perform collect host complete operations for a
+#              remote host collect.
+#
+#              1. Fetch the tarball
+#              2. Remove tarball from remote host
+#              2. Handle errors
+#                 - report
+#                 - cleanup
+#
+############################################################################
+
+function collect_host_complete_remote ()
+{
+    local host="${1}"
+    local tarname="${2}"
+
+    get_file_from_host "${host}" "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
+    local rc=${?}
+    if [ ${rc} -eq ${PASS} ] ; then
+        delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${tarname}.tgz"
+        rc=$?
+        if [ ${rc} -eq ${PASS} ] ; then
+            logger -t ${COLLECT_TAG} "collect ${COLLECT_BASE_DIR}/${tarname}.tgz succeeded"
+        else
+            logger -t ${COLLECT_TAG} "collect ${COLLECT_BASE_DIR}/${tarname}.tgz succeeded but failed to cleanup"
+            rc=${PASS}
+        fi
+    else
+        report_error "failed to collect from ${host}" ${rc}
+    fi
+    return ${rc}
+}
+
+############################################################################
+#
+# Parallel Collect Support
+#
+# collect_host_run     - run collect_host as a background task
+# collect_host_monitor - monitor for collect_host background task status
+# collect_host_done    - mark collect_host done with status
+# collect_host_stats   - print collect host stats
+#
+# collect_host_complete_local  - local collect complete operations
+# collect_host_complete_remote - remote collect complete operations
+#
+# collect_host_ctrl_list_index_print - print collect host control list@index
+#
+# collect_host_ctrl_list is a structured host list used to track the state of
+# collect_host run as a background task for each host.
+#
+# Structure members:
+#
+#  hostname - the name of the host being collected
+#  stage    - the collect stage for this host ; RUN, MON, DONE
+#  pid      - the pid of the background'ed collect host process
+#  seconds  - the time in seconds of when the collect started
+#  status   - the exit status of the remote collect 0..255
+#  name     - the full path and name of the remote collected tarball
+#
+############################################################################
+declare collect_host_ctrl_list=()
+
+# The following index constants are used to access each field.
+declare -r INDEX_HOST=0
+declare -r INDEX_STAGE=1
+declare -r INDEX_PID=2
+declare -r INDEX_SECONDS=3
+declare -r INDEX_STATUS=4
+declare -r INDEX_TARBALL=5
+
+# The stages each launched collect_host goes through
+declare -r STAGE_RUN="run"
+declare -r STAGE_MON="monitor"
+declare -r STAGE_DONE="done"
+
+declare -r INVALID_PID=-1
+
+###########################################################################
+#
+# Name       : collect_host_monitor
+#
+# Purpose    : Transition host into tjhe monitor stage
+#
+############################################################################
+
+function collect_host_monitor()
+{
+    local index=${1}
+
+    if [ ${index} -lt ${HOSTS} ] ; then
+        HOST=${collect_host_ctrl_list[${index}]}
+        info=(${HOST//:/ })
+
+        # Update collect host control structure for this host with
+        #
+        # collect_host_ctrl_list[index].stage = MONitor
+        #
+        collect_host_ctrl_list[${index}]="${info[${INDEX_HOST}]}:\
+                                          ${STAGE_MON}:\
+                                          ${info[${INDEX_PID}]}:\
+                                          ${info[${INDEX_SECONDS}]}:\
+                                          ${info[${INDEX_STATUS}]}:\
+                                          ${info[${INDEX_TARBALL}]}"
+        collect_host_ctrl_list_index_print ${index}
+    else
+        elog "collect_host_monitor called with invalid host index ${index} ; must be smaller than ${HOSTS}"
+        exit ${FAIL_INTERNAL}
+    fi
+}
+
+###########################################################################
+#
+# Name       : collect_host_done
+#
+# Purpose    : mart a host collect as done
+#
+############################################################################
+
+function collect_host_done()
+{
+    local index=${1}
+    local status=${2}
+
+    if [ ${index} -lt ${HOSTS} ] ; then
+        HOST=${collect_host_ctrl_list[${index}]}
+        info=(${HOST//:/ })
+
+        # update struct for this pid/process with
+        #
+        # collect_host_ctrl_list[index].stage = DONE
+        # collect_host_ctrl_list[index].seconds = script run time
+        # collect_host_ctrl_list[index].status = status
+        HOST_START_TIME=${info[${INDEX_SECONDS}]}
+        collect_host_ctrl_list[${index}]="${info[${INDEX_HOST}]}:\
+                                          ${STAGE_DONE}:\
+                                          ${INVALID_PID}:\
+                                          $((SECONDS-HOST_START_TIME)):\
+                                          ${status}:\
+                                          ${info[${INDEX_TARBALL}]}"
+        collect_host_ctrl_list_index_print ${index}
+    else
+        elog "collect_host_done called with invalid host index ${index} ; must be smaller than ${HOSTS}"
+        exit ${FAIL_INTERNAL}
+    fi
+}
+
+###########################################################################
+#
+# Name       : collect_host_stats
+#
+# Purpose    : call echo stats for specified collect_host_ctrl_list index
+#
+############################################################################
+
+function collect_host_stats()
+{
+    local index=${1}
+
+    HOST=${collect_host_ctrl_list[${index}]}
+    info=(${HOST//:/ })
+    echo_stats "${info[${INDEX_SECONDS}]}" \
+               "${info[${INDEX_TARBALL}]}" \
+               "${COLLECT_DIR}/${info[${INDEX_TARBALL}]}.tgz"
+}
+
+###########################################################################
+#
+# Name       : collect_host_ctrl_list_index_print
+#
+# Purpose    : debug
+#
+# Description: print the structure for a specified index
+#
+############################################################################
+
+collect_host_ctrl_list_index_print()
+{
+    local index=${1}
+
+    if [ "${DEBUG}" = true ] ; then
+        HOST=${collect_host_ctrl_list[${index}]}
+        info=(${HOST//:/ })
+        printf "%s Debug: %-12s %7s [%6s] | Secs:%3s | %3s | %s\n" \
+            "$(date)" \
+            "${info[${INDEX_HOST}]}" \
+            "${info[${INDEX_STAGE}]}" \
+            "${info[${INDEX_PID}]}" \
+            "${info[${INDEX_SECONDS}]}" \
+            "${info[${INDEX_STATUS}]}" \
+            "${info[${INDEX_TARBALL}]}"
+    fi
 }
 
 
-# Handle clean command
-if [ "${CLEAN}" == true ] ; then
+# Handle clean command option
+if [ "${CLEAN}" = true ] ; then
     for host in "${HOSTLIST[@]}" ; do
         if [ "${host}" != " " ] ; then
 
@@ -969,9 +1362,12 @@ done
 
 #
 # Loop over all the targetted hosts and
-# 1. run collect
+# 1. run collect_host
+#    - all hosts at once with the -p | --parallel option
+#    - otherwise collect one after the other serially.
 # 2. copy the tarball to $COLLECT_DIR
 #
+
 for host in "${HOSTLIST[@]}" ; do
    if [ "${host}" != " " ] ; then
 
@@ -980,232 +1376,155 @@ for host in "${HOSTLIST[@]}" ; do
         elif [ "${host}" == "" ] ; then
             continue
         fi
-
         HOST_START_TIME=${SECONDS}
-
         TARNAME="${host}_${NOWDATE}"
 
-        # line up the hostr namaes
-        echo -n "collecting"
-        len=${#host}
-        for ((i=len;i<longest_hostname;i++))
-        do
-            echo -n " "
-        done
-        echo -n " ${TARNAME} ... "
+        if [ "${ASYNC}" = false ] ; then
 
-        if [ "${host}" == "${HOSTNAME}" ] ;  then
+            collect_host_run "${host}" "${TARNAME}"
+            rc=${?}
+            if [ ${rc} -eq ${PASS} ] ; then
 
-            save=${USER_LOG_MODE}
-            if [ "${VERBOSE}" = true ] ; then
-                USER_LOG_MODE=1
-            fi
-
-/usr/bin/expect << EOF
-            trap exit {SIGINT SIGTERM}
-            log_user ${USER_LOG_MODE}
-            spawn bash -i
-
-            set timeout 1000
-            send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}\n"
-            expect {
-                "assword:" {
-                    send "${pw}\r"
-                    expect {
-                        "${FAIL_INSUFFICIENT_SPACE_STR}" { exit ${FAIL_INSUFFICIENT_SPACE}}
-                        "${FAIL_OUT_OF_SPACE_STR}" { exit ${FAIL_OUT_OF_SPACE}}
-                        "${collect_done}"          { exit ${PASS}             }
-                        "${pw_error}" { exit ${FAIL_PASSWORD}  }
-                        "${ac_error}" { exit ${FAIL_PERMISSION}}
-                        timeout       { exit ${FAIL_TIMEOUT}   }
-                    }
-                }
-                timeout { exit ${FAIL_TIMEOUT} }
-            }
-            exit { ${FAIL} }
-EOF
-            RETVAL=${?}
-            USER_LOG_MODE=${save}
-            if [ ${RETVAL} -eq ${PASS} ] ; then
-
-                # create the dir again just to handle the case where we are
-                # collecting on ourself and have removed the collect_dir
-                # directory in collect_host above.
-                create_collect_dir_local "${COLLECT_DIR}"
-
-                # move the tarball into the collect dir
-                # only applies to the local collect since the remote
-                # collect scp's it directly into the collect dir.
-                move_file_local "${COLLECT_BASE_DIR}/${TARNAME}.tgz" "${COLLECT_DIR}"
-                RETVAL=${?}
-
-            fi
-            if [ ${RETVAL} -eq ${PASS} ] ; then
-                secs=$((SECONDS-HOST_START_TIME))
-                echo -n "done"
-                echo_stats $secs "${COLLECT_DIR}/${TARNAME}.tgz"
-                logger -t ${COLLECT_TAG} "collect ${COLLECT_BASE_DIR}/${TARNAME}.tgz succeeded"
+                if [ "${host}" == "${HOSTNAME}" ] ; then
+                    collect_host_complete_local "${TARNAME}"
+                else
+                    collect_host_complete_remote "${host}" "${TARNAME}"
+                fi
+                rc=${?}
+                if [ ${rc} -ne ${PASS} ] ; then
+                    # handle copy error here
+                    report_error "failed to collect from ${host}" ${rc}
+                else
+                    secs=$((SECONDS-HOST_START_TIME))
+                    echo -n "done"
+                    echo_stats $secs "${TARNAME}" "${COLLECT_DIR}/${TARNAME}.tgz"
+                fi
             else
-                if [ ${RETVAL} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
-
-                    print_status "Error: ${FAIL_INSUFFICIENT_SPACE_STR}" ${RETVAL}
-                    echo ""
-                    echo "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
-                    echo ""
-
-                    remove_dir_local ${COLLECT_DIR}
-
-                    exit 1
-
-                elif [ ${RETVAL} -eq ${FAIL_OUT_OF_SPACE} ] ; then
-
-                    print_status "Error: ${FAIL_OUT_OF_SPACE_STR}" ${RETVAL}
-
-                    echo ""
-                    wlog "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
-                    echo ""
-
-                    # Remove the corrupt file and exit
-                    remove_file_local ${COLLECT_ERROR_LOG}
-                    remove_file_local ${COLLECT_BASE_DIR}/${TARNAME}.tgz
-                    remove_dir_local ${COLLECT_BASE_DIR}/${TARNAME}
-                    remove_dir_local ${COLLECT_BASE_DIR}/${COLLECT_NAME}
-
-                    exit 1
-
-                else
-                    echo "failed"
-                    print_status "Error: failed to collect from ${HOSTNAME}" ${RETVAL}
-                fi
+                report_error "failed to collect from ${host}" ${rc}
             fi
+
+        # handle collect for this host as background task
         else
+            # run collect_host in the background
+           (collect_host_run "${host}" "${TARNAME}")&
 
-            save=${USER_LOG_MODE}
-            if [ "${VERBOSE}" = true ] ; then
-                USER_LOG_MODE=1
-            fi
+            # save the child process's pid
+            CHILD_PID=${!}
 
-/usr/bin/expect << EOF
-            trap exit {SIGINT SIGTERM}
-            log_user ${USER_LOG_MODE}
-            spawn bash -i
-            set timeout 30
-            expect -re $
-            send "${SSH_CMD} sysadmin@${host}\n"
-            expect {
-                "assword:" {
-                    send "${pw}\r"
-                    expect {
-                        "${host}:" {
-                            set timeout 600
-                            send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}\n"
-                            expect {
-                                "assword:" {
-                                    send "${pw}\r"
-                                    expect {
-                                        "${FAIL_INSUFFICIENT_SPACE_STR}" {
-                                           send "exit\r"
-                                           exit ${FAIL_INSUFFICIENT_SPACE}
-                                        }
-                                        "${FAIL_OUT_OF_SPACE_STR}" {
-                                           send "exit\r"
-                                           exit ${FAIL_OUT_OF_SPACE}
-                                        }
-                                        "${collect_done}" {
-                                            send "exit\r"
-                                            exit ${PASS}
-                                        }
-                                        "${pw_error}"   { exit ${FAIL_PASSWORD} }
-                                        "${ac_error}"   { exit ${FAIL_PERMISSION_SKIP}}
-                                        timeout         { exit ${FAIL_TIMEOUT5} }
-                                    }
-                                }
-                                timeout { exit ${FAIL_TIMEOUT4} }
-                            }
-                        }
-                        "${pw_error}" { exit ${FAIL_PASSWORD} }
-                        "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
-                        timeout       { exit ${FAIL_TIMEOUT3} }
-                    }
-                }
-                "(yes/no)?" {
-                    send "yes\r"
-                    exp_continue
-                }
-                "No route to host" {
-                    exit ${FAIL_UNREACHABLE}
-                }
-                "Could not resolve hostname" {
-                    exit ${FAIL_UNREACHABLE}
-                }
-                "Host key verification failed" {
-                    send "rm -f /home/sysadmin/.ssh/known_hosts\n"
-                    exit ${FAIL}
-                }
-                timeout { exit ${FAIL_TIMEOUT} }
-            }
-            exit { $FAIL }
-EOF
-            RC=${?}
-            USER_LOG_MODE=${save}
-            if [ ${RC} -eq ${PASS} ] ; then
-                get_file_from_host "${host}" "${COLLECT_BASE_DIR}/${TARNAME}.tgz" "${COLLECT_DIR}"
-                RC=${?}
-                if [ ${RC} -eq ${PASS} ] ; then
-                    delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${TARNAME}.tgz"
-                    RC=$?
-                    if [ ${RC} -eq ${PASS} ] ; then
-                        secs=$((SECONDS-HOST_START_TIME))
-                        echo -n "done"
-                        echo_stats $secs "${COLLECT_DIR}/${TARNAME}.tgz"
-                        logger -t ${COLLECT_TAG} "collect ${COLLECT_BASE_DIR}/${TARNAME}.tgz succeeded"
-                    else
-                        logger -t ${COLLECT_TAG} "collect ${COLLECT_BASE_DIR}/${TARNAME}.tgz succeeded but failed to cleanup"
-                        RC=${PASS}
-                    fi
-                else
-                    if [ ${RC} -eq ${FAIL_OUT_OF_SPACE} ] ; then
-
-                        print_status "Error: ${FAIL_OUT_OF_SPACE_STR}" ${FAIL_OUT_OF_SPACE_LOCAL}
-
-                        # don't re-report the error below
-                        RC=${PASS}
-                    fi
-                fi
-            fi
-
-            # report on the collect and get file error cases
-            if [ ${RC} -ne ${PASS} ] ; then
-
-                # call out the more common out of space error
-                if [ ${RC} -eq ${FAIL_OUT_OF_SPACE} ] ; then
-
-                    print_status "Error: ${FAIL_OUT_OF_SPACE_STR}" ${RC}
-
-                elif [ ${RC} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
-
-                    print_status "Error: ${FAIL_INSUFFICIENT_SPACE_STR}" ${RC}
-
-                else
-
-                    print_status "failed to collect from ${host}" ${RC}
-
-                fi
-            fi
+            #################################################################
+            #
+            # Add this collect_host';s background child process info
+            # to the collect_host_ctrl_list
+            #
+            # collect_host_ctrl_list[index].hostname = host
+            # collect_host_ctrl_list[index].stage    = RUN
+            # collect_host_ctrl_list[index].pid      = invalid pid (-1)
+            # collect_host_ctrl_list[index].seconds  = script time in secs
+            # collect_host_ctrl_list[index].status   = default to FAIL
+            # collect_host_ctrl_list[index].tarball  = host's tarball name
+            #
+            #################################################################
+            collect_host_ctrl_list[${index}]="${host}:\
+                                              ${STAGE_RUN}:\
+                                              ${CHILD_PID}:\
+                                              ${SECONDS}:\
+                                              ${FAIL}:\
+                                              ${TARNAME}"
+            collect_host_ctrl_list_index_print ${index}
+            index=$((index+1))
         fi
-    fi
+     fi
 done
 
-# Don't create a tarball if there was an error for single host collection
-if [ ${RETVAL} -ne 0 -a ${HOSTS} -lt 2 ] ; then
+#############################################
+#
+# Parallel Collect in ASYNC=true mode
+#
+#############################################
+monitoring=false
+if [ "${ASYNC}" = true ] ; then
+    # All hosts collected overall timeout
+    while [ ${UNTIL} -ge ${SECONDS} ]
+    do
+        index=0
+        monitoring=false
+        for HOST in "${collect_host_ctrl_list[@]}"
+        do
+            info=(${HOST//:/ })
+            # collect_host_ctrl_list_index_print ${index}
+            if [ "${info[${INDEX_STAGE}]}" == "${STAGE_MON}" ] ; then
 
-    # return to callers dir
-    cd ${CURR_DIR}
+                # check to see if this collect_host pocess is done collecting
+                kill -0 "${info[${INDEX_PID}]}" 2>/dev/null
+                rc=${?}
+                if [ ${rc} -ne 0 ] ; then
 
-    exit ${RETVAL}
+                    # the process is done ; get its exit code
+                    wait "${info[${INDEX_PID}]}"
+                    rc=${?}
+                    if [ ${rc} == ${PASS} ] ; then
+
+                        # if it passed then fetch that host's tarball
+                        if [ "${info[${INDEX_HOST}]}" == "${HOSTNAME}" ] ; then
+                            collect_host_complete_local  "${info[${INDEX_TARBALL}]}"
+                        else
+                            collect_host_complete_remote "${info[${INDEX_HOST}]}" \
+                                                         "${info[${INDEX_TARBALL}]}"
+                        fi
+
+                        collect_host_done ${index} ${rc}
+                        collect_host_stats ${index} ${rc}
+                    else
+                        collect_host_done ${index} ${rc}
+                        report_error "failed to collect from ${info[${INDEX_HOST}]}" ${rc}
+                    fi
+                else
+                    monitoring=true
+                fi
+
+            elif [ "${info[${INDEX_STAGE}]}" == "${STAGE_RUN}" ] ; then
+                monitoring=true
+                # update stage to Monitor
+                collect_host_monitor ${index}
+            fi
+            index=$((index+1))
+        done
+
+        if [ "${monitoring}" = false ] ; then
+            dlog "All hosts done ..."
+            break
+        fi
+    done
+    echo ""
+fi
+
+# Report that the overall collect timed-out
+if [ "$monitoring" = true ]; then
+    report_error "collect operation timeout after $TIMEOUT secs" ${FAIL_TIMEOUT}
+fi
+
+# Don't create a tarball if the collect name dir does not exists or contain files
+if [ -d ${COLLECT_DIR} ] ; then
+    stat ${COLLECT_DIR}/* 2>/dev/null 1>/dev/null
+    if [ $? -eq 0 ] ; then
+        tarballs=(${COLLECT_DIR}/*)
+        for tarball in ${tarballs[@]}
+        do
+            dlog "collected $tarball"
+        done
+    else
+        elog "No ${COLLECT_DIR} tarballs found ; refusing to create empty ${TARBALL_NAME}"
+        exit ${FAIL_NO_TARFILES}
+    fi
+else
+    elog "${COLLECT_DIR} not present ; refusing to create empty ${TARBALL_NAME}"
+    exit ${FAIL_NO_TARDIR}
 fi
 
 echo -n "creating ${named} tarball ${TARBALL_NAME} ... "
+
+remove_file_local ${COLLECT_ERROR_LOG}
+remove_file_local ${HOST_COLLECT_ERROR_LOG}
 
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
@@ -1226,17 +1545,17 @@ echo -n "creating ${named} tarball ${TARBALL_NAME} ... "
         timeout { exit ${FAIL_TIMEOUT} }
     }
 EOF
-   RETVAL=${?}
-   if [ ${RETVAL} -ne ${PASS} ] ; then
+   rc=${?}
+   if [ ${rc} -ne ${PASS} ] ; then
        collect_errors ${HOSTNAME}
-       print_status "failed to create ${TARBALL_NAME}" ${RETVAL}
+       report_error "failed to create ${TARBALL_NAME}" ${rc}
    else
        collect_errors ${HOSTNAME}
-       RETVAL=$?
-       if [ ${RETVAL} -eq ${PASS} ] ; then
+       rc=$?
+       if [ ${rc} -eq ${PASS} ] ; then
            secs=$((SECONDS-COLLECT_START_TIME))
            echo -n "done"
-           echo_stats $secs "${TARBALL_NAME}"
+           echo_stats $secs "stats-only" "${TARBALL_NAME}"
            logger -t ${COLLECT_TAG} "created ${named} tarball ${TARBALL_NAME}"
        else
            echo "removing incomplete collect: ${TARBALL_NAME}"
@@ -1249,4 +1568,4 @@ EOF
 # return to callers dir
 cd ${CURR_DIR}
 
-exit ${RETVAL}
+exit ${rc}

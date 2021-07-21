@@ -84,7 +84,6 @@ COLLECT_INCLUDE="/var/run /etc /root"
 FLIGHT_RECORDER_PATH="var/lib/sm/"
 FLIGHT_RECORDER_FILE="sm.eru.v1"
 VAR_LOG_INCLUDE_LIST="/tmp/${COLLECT_NAME}.lst"
-COLLECT_DIR_PCENT_CMD="df --output=pcent ${COLLECT_BASE_DIR}"
 COLLECT_DIR_USAGE_CMD="df -h ${COLLECT_BASE_DIR}"
 COLLECT_DATE="/usr/local/sbin/collect_date"
 COLLECT_SYSINV="${COLLECT_PATH}/collect_sysinv"
@@ -98,26 +97,7 @@ function log_space()
     ilog "${COLLECT_BASE_DIR} ${msg} ${space1}"
 }
 
-function space_precheck()
-{
-    space="`${COLLECT_DIR_PCENT_CMD}`"
-    space1=`echo "${space}" | grep -v Use`
-    size=`echo ${space1} | cut -f 1 -d '%'`
-    if [ ${size} -ge 0 -a ${size} -le 100 ] ; then
-        ilog "${COLLECT_BASE_DIR} is $size% full"
-        if [ ${size} -ge ${MIN_PERCENT_SPACE_REQUIRED} ] ; then
-            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} does not have enough available space in to perform collect"
-            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} must be below ${MIN_PERCENT_SPACE_REQUIRED}% to perform collect"
-            wlog "Increase available space in ${HOSTNAME}:${COLLECT_BASE_DIR} and retry operation."
-            echo "${FAIL_INSUFFICIENT_SPACE_STR}"
-            exit ${FAIL_INSUFFICIENT_SPACE}
-        fi
-    else
-        wlog "unable to parse available space from '${COLLECT_DIR_PCENT_CMD}' output"
-    fi
-}
-
-space_precheck
+space_precheck ${HOSTNAME} ${COLLECT_BASE_DIR}
 
 CURR_DIR=`pwd`
 mkdir -p ${COLLECT_NAME_DIR}
@@ -187,7 +167,7 @@ function collect_extra()
 
     # Collect process, thread and scheduling, and elapsed time
     # This has everything that ps-sched.sh does, except for cpu affinity mask,
-    # adds:  stime,etime,time,wchan,tty).  
+    # adds:  stime,etime,time,wchan,tty).
     delimiter ${LOGFILE} "ps -eL -o pid,lwp,ppid,state,class,nice,rtprio,priority,psr,stime,etime,time,wchan:16,tty,comm,command"
     ps -eL -o pid,lwp,ppid,state,class,nice,rtprio,priority,psr,stime,etime,time,wchan:16,tty,comm,command >> ${LOGFILE}
 
