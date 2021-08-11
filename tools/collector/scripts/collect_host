@@ -394,7 +394,7 @@ collect_parts
 #
 VAR_LOG="/var/log"
 if [ -e /www/var/log ]; then
-	VAR_LOG="$VAR_LOG /www/var/log"
+    VAR_LOG="$VAR_LOG /www/var/log"
 fi
 
 rm -f ${VAR_LOG_INCLUDE_LIST}

@@ -27,6 +27,8 @@ FAIL_TIMEOUT7=17
 FAIL_TIMEOUT8=18
 FAIL_TIMEOUT9=19
 
+FAIL_SUBCLOUD_TIMEOUT=20
+
 FAIL_PASSWORD=30
 FAIL_PERMISSION=31
 FAIL_CLEANUP=32
@@ -39,10 +41,29 @@ FAIL_INSUFFICIENT_SPACE=38
 FAIL_INTERNAL=39
 FAIL_NO_TARDIR=40
 FAIL_NO_TARBALLS=41
+FAIL_NO_FILE_SPECIFIED=42
+FAIL_FILE_NOT_FOUND=43
+FAIL_FILE_EMPTY=44
+FAIL_PASSWORD_PROMPT=45
+FAIL_MISSING_PARAMETER=46
+FAIL_DATE_FORMAT=47
+FAIL_NO_HOSTS=48
+FAIL_FILE_COPY=49
+FAIL_SUBCLOUD=50
+FAIL_CONTINUE=51
+FAIL_SUBCLOUDNAME=52
+FAIL_NO_SUBCLOUDS=53
+FAIL_NOT_SYSTEMCONTROLLER=54
+
 
 # Warnings are above 200
 WARN_WARNING=200
 WARN_HOSTNAME=201
+WARN_SUBCLOUD=202
+
+COLLECT_ERROR="Error:"
+COLLECT_DEBUG="Debug:"
+COLLECT_WARN="Warning:"
 
 # Failure Strings
 FAIL_NOT_ENOUGH_SPACE_STR="Not enough /scratch filesystem space"
@@ -51,12 +72,38 @@ FAIL_TAR_OUT_OF_SPACE_STR="tar: Error is not recoverable"
 FAIL_INSUFFICIENT_SPACE_STR="Not enough space on device"
 FAIL_UNREACHABLE_STR="Unreachable"
 
+FAIL_TIMEOUT_STR="operation timeout"
+FAIL_SUBCLOUD_TIMEOUT_STR="subcloud collect timeout"
+
+FAIL_NO_FILE_SPECIFIED_STR="no file specified"
+FAIL_FILE_NOT_FOUND_STR="no such file or directory"
+FAIL_FILE_EMPTY_STR="file is empty"
+FAIL_PASSWORD_PROMPT_STR="password for"
+
+FAIL_DATE_FORMAT_STR="date format"
+FAIL_INACTIVE_STR="not active"
+FAIL_NO_HOSTS_STR="empty host list"
+FAIL_NO_SUBCLOUDS_STR="empty subcloud list"
+FAIL_MISSING_PARAMETER_STR="missing parameter"
+FAIL_FILE_COPY_STR="failed to copy"
+FAIL_CONTINUE_STR="cannot continue"
+
 # The minimum amount of % free space on /scratch to allow collect to proceed
 MIN_PERCENT_SPACE_REQUIRED=75
+
+# Subcloud collect stops when avail scratch drops below this threshold.
+# Use collect -sc --continue to tell collect to continue collecting subclouds
+# from where it left off.
+# 2Gib in K blocks rounded up
+declare -i COLLECT_BASE_DIR_FULL_THRESHOLD=2147484 # 2Gib in K blocks rounded up
 
 # Log file path/names
 COLLECT_LOG=/var/log/collect.log
 COLLECT_ERROR_LOG=/tmp/collect_error.log
+HOST_COLLECT_ERROR_LOG="/tmp/host_collect_error.log"
+
+DCROLE_SYSTEMCONTROLLER="systemcontroller"
+DCROLE_SUBCLOUD="subcloud"
 
 function source_openrc_if_needed
 {
@@ -79,7 +126,7 @@ function source_openrc_if_needed
         OPENRC="/etc/platform/openrc"
         if [ -e "${OPENRC}" ] ; then
             OS_PASSWORD=""
-            source ${OPENRC}
+            source ${OPENRC} 2>/dev/null 1>/dev/null
             if [ "${OS_PASSWORD}" != "" ] ; then
                 ACTIVE=true
             fi
@@ -99,6 +146,7 @@ cmd_done_file="/usr/local/sbin/expect_done"
 TAR_ZIP_CMD="tar -cvzf"
 TAR_UZIP_CMD="tar -xvzf"
 TAR_CMD="tar -cvhf"
+TAR_CMD_APPEND="tar -rvhf"
 UNTAR_CMD="tar -xvf"
 ZIP_CMD="gzip"
 NICE_CMD="/usr/bin/nice -n19"
@@ -128,14 +176,14 @@ function ilog
 
 function elog
 {
-    echo "Error: $@"
-    logger -t ${COLLECT_TAG} "Error: $@"
+    echo "${COLLECT_ERROR} $@"
+    logger -t ${COLLECT_TAG} "${COLLECT_ERROR} $@"
 }
 
 function wlog
 {
-    echo "Warning: $@"
-    logger -t ${COLLECT_TAG} "Warning: $@"
+    echo "${COLLECT_WARN} $@"
+    logger -t ${COLLECT_TAG} "${COLLECT_WARN} $@"
 }
 
 function set_debug_mode()
@@ -146,8 +194,8 @@ function set_debug_mode()
 function dlog()
 {
     if [ "$DEBUG" == true ] ; then
-        logger -t ${COLLECT_TAG} "Debug: $@"
-        echo "$(date) Debug: $@"
+        logger -t ${COLLECT_TAG} "${COLLECT_DEBUG} $@"
+        echo "$(date) ${COLLECT_DEBUG} $@"
     fi
 }
 
@@ -165,9 +213,9 @@ function log_slabinfo()
     cat /proc/slabinfo | awk -v page_size_B=${PAGE_SIZE} '
     BEGIN {page_KiB = page_size_B/1024; TOT_KiB = 0;}
     (NF == 17) {
-         gsub(/[<>]/, "");
-         printf("%-22s %11s %8s %8s %10s %12s %1s %5s %10s %12s %1s %12s %9s %11s %8s\n",
-         $2, $3, $4, $5, $6, $7, $8, $10, $11, $12, $13, $15, $16, $17, "KiB");
+        gsub(/[<>]/, "");
+        printf("%-22s %11s %8s %8s %10s %12s %1s %5s %10s %12s %1s %12s %9s %11s %8s\n",
+        $2, $3, $4, $5, $6, $7, $8, $10, $11, $12, $13, $15, $16, $17, "KiB");
     }
     (NF == 16) {
         num_objs=$3; obj_per_slab=$5; pages_per_slab=$6;
@@ -214,8 +262,7 @@ function collect_errors()
 
         ## now loop through known space related error strings
         index=0
-        while [ "x${listOfOutOfSpaceErrors[index]}" != "x" ]
-        do
+        while [ "x${listOfOutOfSpaceErrors[index]}" != "x" ] ; do
             grep -q "${listOfOutOfSpaceErrors[index]}" ${COLLECT_ERROR_LOG}
             if [ "$?" == "0" ] ; then
 
