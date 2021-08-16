@@ -376,7 +376,7 @@ function handle_delete {
 }
 
 function get_patches_from_host {
-    local host_patch_repo=/www/pages/updates/rel-${ISO_VERSION}
+    local host_patch_repo=/var/www/pages/updates/rel-${ISO_VERSION}
 
     if [ ! -d ${host_patch_repo} ]; then
         log_error "Patch repo not found: ${host_patch_repo}"
@@ -512,7 +512,7 @@ function extract_shared_files {
     if [ ${PATCHES_FROM_HOST} = "yes" ]; then
         extract_pkg_to_workdir 'pxe-network-installer'
 
-        local patched_squashfs_img_file=${WORKDIR}/www/pages/feed/rel-${ISO_VERSION}/LiveOS/squashfs.img
+        local patched_squashfs_img_file=${WORKDIR}/var/www/pages/feed/rel-${ISO_VERSION}/LiveOS/squashfs.img
         if [ -f ${patched_squashfs_img_file} ]; then
             # Use the patched squashfs.img
             squashfs_img_file=${patched_squashfs_img_file}

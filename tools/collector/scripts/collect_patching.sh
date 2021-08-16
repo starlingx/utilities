@@ -37,8 +37,8 @@ if [ "$nodetype" = "controller" ] ; then
     delimiter ${LOGFILE} "find /opt/patching"
     find /opt/patching 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
-    delimiter ${LOGFILE} "find /www/pages/updates"
-    find /www/pages/updates 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    delimiter ${LOGFILE} "find /var/www/pages/updates"
+    find /var/www/pages/updates 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
 fi
 
