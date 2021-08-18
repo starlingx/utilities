@@ -1,0 +1,25 @@
+Source: python-cephclient
+Section: admin
+Priority: optional
+Maintainer: Starlingx Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-setuptools, python3-all
+Build-Depends-Indep:
+ python3-ipaddr,
+ python3-requests,
+ python3-six
+Standards-Version: 4.4.1
+
+Package: python3-cephclient
+Architecture: all
+Depends: ${python3:Depends},
+ ${misc:Depends},
+ python3-ipaddr,
+ python3-requests,
+ python3-six
+Description: ceph client library
+ A client library in Python for Ceph Mgr RESTful plugin
+ providing REST API access to the cluster over an SSL-secured
+ connection. Python API is compatible with the old Python
+ Ceph client at https://github.com/dmsimard/python-cephclient
+ that no longer works in Ceph mimic because Ceph REST API
+ component was removed.
