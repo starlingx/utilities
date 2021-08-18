@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 Wind River Systems, Inc.
+# Copyright (c) 2019-2021 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -70,10 +70,10 @@ class CephClient(object):
         atexit.register(
             self._cleanup_certificate)
 
-    def _refresh_session(self):
+    def _refresh_session(self, force_certificate_refresh=False):
         self.session = requests.Session()
         self.session.auth = (self.username, self.password)
-        if not self.cert_file:
+        if not self.cert_file or force_certificate_refresh:
             self._get_certificate()
             self.session.verify = self.cert_file.name
         else:
@@ -234,8 +234,6 @@ class CephClient(object):
                 LOG.warning('Incorrect password for user \'{}\'. '
                             'Fetch user password via list-keys '
                             'and retry.'.format(self.username))
-                if self.retry_timeout > 0:
-                    time.sleep(self.retry_timeout)
                 self._get_password()
                 self._refresh_session()
             except (requests.ConnectionError,
@@ -246,10 +244,17 @@ class CephClient(object):
                 LOG.warning(
                     'Request error: {}. '
                     'Refresh restful service URL and retry'.format(e))
-                if self.retry_timeout > 0:
-                    time.sleep(self.retry_timeout)
                 self._get_service_url()
                 self._refresh_session()
+            except IOError as e:
+                if not credit:
+                    raise
+                LOG.warning(
+                    'Request error: {}. '
+                    'Recovering TLS CA certificate and retrying'.format(e))
+                self._refresh_session(force_certificate_refresh=True)
+            if self.retry_timeout > 0:
+                time.sleep(self.retry_timeout)
         if format == 'json':
             return self._make_json_result(prefix, result)
         elif format == 'text':
