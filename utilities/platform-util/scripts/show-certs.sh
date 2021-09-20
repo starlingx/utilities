@@ -39,6 +39,7 @@ while getopts "khe:" opt; do
 done
 
 source /etc/platform/platform.conf
+source /etc/platform/openrc
 
 # Gets the name of all secrets used by cert-manager certs
 CERT_MANAGER_SECRETS=$(kubectl --kubeconfig /etc/kubernetes/admin.conf get cert -A -o yaml | grep secretName: | grep -v f: | awk '{ print $2 }')
@@ -208,6 +209,53 @@ CleanUp () {
 }
 
 
+PrintCertInfo-for-OIDC-Certificates () {
+    NAMESPACE="kube-system"
+    # OIDC certificates - Tries to get secret names from helm overrides. If not found, uses default values
+    OIDC_CLIENT_OVERRIDES=$(system helm-override-show oidc-auth-apps oidc-client $NAMESPACE 2> /dev/null)
+
+    OIDC_CLIENT_CERT=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep tlsName: | grep -oP ": \K.+\s")
+    if [ -z "$OIDC_CLIENT_CERT" ]; then
+        OIDC_CLIENT_CERT="local-dex.tls"
+    fi
+
+    PrintCertInfo-fromTlsSecret "OIDC" $NAMESPACE $OIDC_CLIENT_CERT
+
+    OIDC_CA_CERT=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep issuer_root_ca_secret: | grep -oP ": \K.+\s")
+    OIDC_CA_CERT_FILE=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep issuer_root_ca: | grep -oP ": \K.+\s" | grep -o "[^/]*$")
+    if [ -z "$OIDC_CA_CERT" ] || [ -z "$OIDC_CA_CERT_FILE" ]; then
+        OIDC_CA_CERT="dex-client-secret"
+        OIDC_CA_CERT_FILE="dex-ca.pem"
+    fi
+
+    PrintCertInfo-fromGenericSecret "OIDC CA" $NAMESPACE $OIDC_CA_CERT $OIDC_CA_CERT_FILE
+
+    DEX_OVERRIDES=$(system helm-override-show oidc-auth-apps dex $NAMESPACE 2> /dev/null)
+
+    WAD_CA_CERTS=$(echo "$DEX_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep secretName: | grep -oP ": \K.+\s")
+    WAD_CA_CERT_FILES=$(echo "$DEX_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep rootCA: | grep -oP ": \K.+\s" | grep -o "[^/]*$")
+
+    # supports multiple WAD CAS, based on the assumption that secrets for WAD has only one file (key inside secret)
+    # which is supported by documented process: 'kubectl create secret generic wadcert --from-file=ssl/AD_CA.cer -n kube-system'
+    for secret in $WAD_CA_CERTS; do
+        for secret_file_name in $WAD_CA_CERT_FILES; do
+            kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system get secret $secret --template="{{ index .data \"$secret_file_name\" | len }}" &> /dev/null
+            if [ $? -eq 0 ]; then
+                PrintCertInfo-fromGenericSecret "OIDC WAD CA" $NAMESPACE $secret $secret_file_name
+                break
+            fi
+        done
+    done
+
+    if [ -z "$WAD_CA_CERTS" ] || [ -z "$WAD_CA_CERT_FILES" ]; then
+        WAD_CA_CERT="wadcert"
+        WAD_CA_CERT_FILE="AD_CA.cer"
+        PrintCertInfo-fromGenericSecret "OIDC WAD CA" $NAMESPACE $WAD_CA_CERT $WAD_CA_CERT_FILE
+    fi
+
+}
+
+
 # ALL TLS Certificates
 
 if [ "$KUBERNETES_SECRETS_MODE" = "YES" ]; then
@@ -309,11 +357,8 @@ PrintCertInfo-fromFile "etcd apiserver client certificate" "/etc/etcd/apiserver-
 PrintCertInfo-fromFile "openstack" "/etc/ssl/private/openstack/cert.pem" "${RED}Manual${RESET}"
 PrintCertInfo-fromFile "openstack CA" "/etc/ssl/private/openstack/ca-cert.pem" "${RED}Manual${RESET}"
 
-# OIDC certificates
-PrintCertInfo-fromTlsSecret "OIDC" "kube-system" "local-dex.tls"
-PrintCertInfo-fromGenericSecret "OIDC CA" "kube-system" "dex-client-secret" "dex-ca.pem"
-PrintCertInfo-fromGenericSecret "OIDC WAD CA" "kube-system" "wadcert" "AD_CA.cer"
-
+# OIDC
+PrintCertInfo-for-OIDC-Certificates
 
 PrintCertInfo-fromGenericSecret "" "monitor" "mon-elastic-services-secrets" "ca.crt"
 PrintCertInfo-fromGenericSecret "" "monitor" "mon-elastic-services-secrets" "ext-ca.crt"
