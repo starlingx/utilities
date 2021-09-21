@@ -21,13 +21,13 @@ class CephManagerException(Exception):
         self.kwargs = kwargs
         if not message:
             try:
-                message = self.message % kwargs
+                message = self.message % kwargs  # pylint: disable=W1645
             except TypeError:
                 LOG.warn(_LW('Exception in string format operation'))
                 for name, value in kwargs.items():
                     LOG.error("%s: %s" % (name, value))
                 # at least get the core message out if something happened
-                message = self.message
+                message = self.message  # pylint: disable=W1645
         super(CephManagerException, self).__init__(message)
 
 

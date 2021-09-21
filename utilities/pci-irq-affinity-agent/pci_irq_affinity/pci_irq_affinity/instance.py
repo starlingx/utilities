@@ -54,9 +54,9 @@ class instance:
     def update(self, domain):
         cells = set()
         for node_id in domain['nodelist']:
-            cell = numa_cell(node_id, range(domain['nr_vcpus']), domain['cpu_pinning'])
+            cell = numa_cell(node_id, list(range(domain['nr_vcpus'])), domain['cpu_pinning'])
             LOG.debug("cell_id=%s, vcpuset=%s, cpu_pinning=%s"
-                      % (node_id, range(domain['nr_vcpus']), domain['cpu_pinning']))
+                      % (node_id, list(range(domain['nr_vcpus'])), domain['cpu_pinning']))
             cells.update([cell])
 
         self.numa_topology = numa_topology(self.uuid, cells)
