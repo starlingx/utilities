@@ -254,6 +254,9 @@ do
       "cert-mon")
          process_list=(${process_list[@]} "sm:cert-mon:cert-mon:controller:/var/run/cert-mon.pid:0")
          ;;
+      "cert-alarm")
+         process_list=(${process_list[@]} "sm:cert-alarm:cert-alarm:controller:/var/run/cert-alarm.pid:0")
+         ;;
 
       *)
          echo "Unknown process:${process}"
