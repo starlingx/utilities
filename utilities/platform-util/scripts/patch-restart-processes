@@ -251,6 +251,9 @@ do
       "collectd")
          process_list=(${process_list[@]} "pmon:collectd:collectd:all:/var/run/collectd.pid:0")
          ;;
+      "cert-mon")
+         process_list=(${process_list[@]} "sm:cert-mon:cert-mon:controller:/var/run/cert-mon.pid:0")
+         ;;
 
       *)
          echo "Unknown process:${process}"
