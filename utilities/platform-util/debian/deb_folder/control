@@ -1,0 +1,47 @@
+Source: platform-util
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13),
+ dh-python,
+ python3-setuptools,
+ python3-wheel,
+ python3-all
+Build-Depends-Indep: python3-stevedore
+Standards-Version: 4.4.1
+
+Package: platform-util
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3-platform-util
+Description: Controller platform utilities - scripts
+ Controller platform utilities
+
+Package: python3-platform-util
+Architecture: all
+Section: python
+Depends: ${python3:Depends}, ${misc:Depends}, python3-stevedore
+Description: Controller platform utilities - python
+ Controller platform utilities
+ .
+ This package contains the core python bits
+
+Package: platform-util-controller
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3-platform-util, genisoimage
+Description: Controller platform utilities
+ Platform utilities installed only on controllers
+
+Package: platform-util-noncontroller
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3-platform-util
+Description: Noncontroller platform utilities
+ Platform utilities that don't get packaged on controller hosts
+ Platform utilities installed only on controllers
+
+Package: platform-util-wheel
+Architecture: all
+Depends: ${misc:Depends}, python3-wheel
+Description: Controller platform utilities - wheel
+ Controller platform utilities
+ .
+ This package contains the python3 wheels

@@ -1,0 +1,4 @@
+scripts/gen-bootloader-iso.sh usr/local/bin
+scripts/show-certs.sh usr/local/bin
+scripts/stx-iso-utils.sh usr/local/bin
+scripts/update-iso.sh usr/local/bin

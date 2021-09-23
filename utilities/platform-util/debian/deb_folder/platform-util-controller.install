@@ -1,0 +1,4 @@
+/usr/local/bin/gen-bootloader-iso.sh
+/usr/local/bin/show-certs.sh
+/usr/local/bin/stx-iso-utils.sh
+/usr/local/bin/update-iso.sh
