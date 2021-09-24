@@ -118,8 +118,12 @@ PrintCertInfo-fromTlsSecret () {
 
         kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o yaml | fgrep tls.crt | fgrep -v "f:tls.crt" | awk '{print $2}' | base64 --decode > $TMP_SECRET_SECRET_FILE
 
+        if [ ! -z "$NAME" ]; then
+            NAME=$(echo $NAME " / ")
+        fi
+
         echo
-        echo "$BOLD" $NAMESPACE " / " $SECRET " CERTIFICATE:" "$RESET"
+        echo "$BOLD" $NAME $NAMESPACE " / " $SECRET " CERTIFICATE:" "$RESET"
         echo "$BOLD" "------------------------------------------" "$RESET"
 
         echo -e '\t' "Renewal    \t: " $RENEWAL
@@ -162,10 +166,14 @@ PrintCertInfo-fromGenericSecret () {
             fi
         fi
 
+        if [ ! -z "$NAME" ]; then
+            NAME=$(echo $NAME " / ")
+        fi
+
         echo "$SECRET_VALUE" | base64 --decode > $TMP_GEN_SECRET_FILE
 
         echo
-        echo "$BOLD" $NAMESPACE " / " $SECRET " / " $SECRETFILE " CERTIFICATE:" "$RESET"
+        echo "$BOLD" $NAME $NAMESPACE " / " $SECRET " / " $SECRETFILE " CERTIFICATE:" "$RESET"
         echo "$BOLD" "------------------------------------------" "$RESET"
 
         echo -e '\t' "Renewal    \t: " "${RENEWAL}"
@@ -272,16 +280,16 @@ if [ "$KUBERNETES_SECRETS_MODE" = "YES" ]; then
         SECRET="$(echo $line | cut -d' ' -f2)"
         # As number of subclouds may be high, it filters out subcloud certificates and saves it to a file.
         if [[ $SECRET == *"-adminep-ca-certificate"* && $NAMESPACE == "dc-cert" ]]; then
-            TEXT=$( PrintCertInfo-fromTlsSecret " " $NAMESPACE $SECRET )
+            TEXT=$( PrintCertInfo-fromTlsSecret "" $NAMESPACE $SECRET )
             echo "$TEXT" | grep "Renewal\|Namespace\|Secret\|Residual Time" | cut -d ':' -f2 | tr '\n' ' ' >> $TMP_SUBCLOUD_SECRETS_FILE
             echo >> $TMP_SUBCLOUD_SECRETS_FILE
             HAS_SUBCLOUD_CERTS=1
         else
-            PrintCertInfo-fromTlsSecret " " $NAMESPACE $SECRET
+            PrintCertInfo-fromTlsSecret "" $NAMESPACE $SECRET
         fi
     done < $TMP_TLS_SECRETS_FILE
 
-# ALL OPAQUE SECRETS MATCHING WELL_KNOWN_CERT_KEY_PATTERNS
+    # ALL OPAQUE SECRETS MATCHING WELL_KNOWN_CERT_KEY_PATTERNS
 
     echo
     echo "$BOLD" "---------------------------------------------------------------------" "$RESET"
@@ -305,7 +313,7 @@ if [ "$KUBERNETES_SECRETS_MODE" = "YES" ]; then
         echo "$MATCHES" > $TMP_GEN_SECRETS_FILE
         while read line; do
             KEY_FOUND=$(echo $line | cut -d':' -f1)
-            PrintCertInfo-fromGenericSecret " " $NAMESPACE $SECRET $KEY_FOUND
+            PrintCertInfo-fromGenericSecret "" $NAMESPACE $SECRET $KEY_FOUND
         done < $TMP_GEN_SECRETS_FILE
 
     done
@@ -360,9 +368,10 @@ PrintCertInfo-fromFile "openstack CA" "/etc/ssl/private/openstack/ca-cert.pem" "
 # OIDC
 PrintCertInfo-for-OIDC-Certificates
 
-PrintCertInfo-fromGenericSecret "" "monitor" "mon-elastic-services-secrets" "ca.crt"
-PrintCertInfo-fromGenericSecret "" "monitor" "mon-elastic-services-secrets" "ext-ca.crt"
-PrintCertInfo-fromGenericSecret "" "monitor" "mon-elastic-services-secrets" "kibana.crt"
+# analytics certificates
+PrintCertInfo-fromGenericSecret "Internal Analytics CA Certificate" "monitor" "mon-elastic-services-secrets" "ca.crt"
+PrintCertInfo-fromGenericSecret "External Analytics CA Certificate" "monitor" "mon-elastic-services-secrets" "ext-ca.crt"
+PrintCertInfo-fromGenericSecret "External Kibana Certificate" "monitor" "mon-elastic-services-secrets" "kibana.crt"
 
 # Kubernetes Certificates
 echo
@@ -371,7 +380,14 @@ echo "$BOLD" "------------------------------------------" "$RESET"
 echo "Note: 'CERTIFICATES'            are Renewal: ${GREEN}Automatic${RESET}"
 echo "Note: 'CERTIFICATE AUTHORITIES' are Renewal: ${RED}Manual${RESET}"
 echo
-kubeadm alpha certs check-expiration
+
+# works with stable and experimenal certs subcommand
+kubeadm certs &> /dev/null
+if [ $? -eq 0 ]; then
+    kubeadm certs check-expiration
+else
+    kubeadm alpha certs check-expiration
+fi
 echo
 CleanUp
 exit 0
