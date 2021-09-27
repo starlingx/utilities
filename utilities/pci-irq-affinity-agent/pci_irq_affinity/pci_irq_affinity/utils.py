@@ -227,6 +227,7 @@ def set_irq_affinity(set_bitmap, irqs, cpulist):
         try:
             with open(irq_aff_path, 'w') as f:
                 f.write(cpulist)
+                LOG.info("PCI IRQ %s pinned to CPUS: %s" % (irq, cpulist))
             _irqs.update([irq])
         except Exception as e:
             LOG.warning("Failed to write pci affine file:%(F)s, irq:%(I)s, "
@@ -286,6 +287,7 @@ def set_irqs_affinity_by_pci_address(pci_addr, extra_spec=None,
         return (irqs, msi_irqs, numa_node, cpulist)
 
     # Set IRQ affinity, but do not treat errors as fatal.
+    LOG.debug("Setting affinity %s for irqs: %s and msi_irqs: %s" % (cpulist, _irqs, _msi_irqs))
     irqs = set_irq_affinity(False, _irqs, cpulist)
     msi_irqs = set_irq_affinity(False, _msi_irqs, cpulist)
     return (irqs, msi_irqs, numa_node, cpulist)
