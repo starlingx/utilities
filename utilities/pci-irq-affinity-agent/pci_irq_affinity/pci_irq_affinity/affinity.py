@@ -10,14 +10,18 @@
 #
 
 """ Define pci_irq_affinity_provider class"""
+import os
 
 import pci_irq_affinity.utils as pci_utils
 from pci_irq_affinity.driver import AffinePciIrqDriver
 from pci_irq_affinity.nova_provider import novaClient
 from pci_irq_affinity.log import LOG
 
+COMPUTE_IRQ = os.getenv("COMPUTE_IRQ", default="/proc/irq/")
+
 
 class pci_irq_affinity_provider:
+
     def __init__(self):
         self.affinePciIrqDriver = AffinePciIrqDriver()
         self.inst_dict = {}
@@ -28,6 +32,7 @@ class pci_irq_affinity_provider:
         The instance has already been deleted or
         related PCI not used by it anymore.
         """
+
         if irqs or msi_irqs:
             # reset irq affinity for specified irqs
             _irqs = irqs
@@ -42,7 +47,7 @@ class pci_irq_affinity_provider:
             return
 
         try:
-            with open('/proc/irq/default_smp_affinity') as f:
+            with open('%s/default_smp_affinity' % COMPUTE_IRQ) as f:
                 cpulist = f.readline().strip()
             LOG.debug("default smp affinity bitmap:%s" % cpulist)
 

@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 StarlingX.
+# Copyright (c) 2019-2021 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -195,7 +195,7 @@ def process_main():
         sys.exit(200)
 
     finally:
-        LOG.error("proces_main finalized!!!")
+        LOG.error("process_main finalized!!!")
         if openstack_enabled == 'true':
             novaClient.close_libvirt_connect()
             audit_srv.tg.stop()

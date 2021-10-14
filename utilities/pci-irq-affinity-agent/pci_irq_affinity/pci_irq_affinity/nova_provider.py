@@ -18,9 +18,9 @@ import keyring
 from novaclient import client
 from keystoneauth1 import loading
 from keystoneauth1 import session
+import os
 import socket
 from pci_irq_affinity.log import LOG
-from pci_irq_affinity.config import CONF
 from pci_irq_affinity.config import sysconfig
 from pci_irq_affinity import instance
 from pci_irq_affinity import guest
@@ -31,11 +31,12 @@ class NovaProvider:
     def __init__(self):
         self._creds = self._get_keystone_creds()
         self._auth = self._get_auth(self._creds)
+        self._cacert = self._get_cacert()
         self._hostname = self.get_hostname()
         self._conn = None
 
     def get_hostname(self):
-        return socket.gethostname()
+        return os.getenv("COMPUTE_HOSTNAME", default=socket.gethostname())
 
     def _get_keystone_creds(self):
         creds = {}
@@ -57,16 +58,23 @@ class NovaProvider:
         return creds
 
     def _get_auth(self, creds):
-
         if creds is not None:
             loader = loading.get_plugin_loader('password')
             auth = loader.load_from_options(**creds)
             return auth
         return None
 
+    def _get_cacert(self):
+        if (
+            sysconfig.has_option('openstack', 'cacert')
+            and len(sysconfig.get('openstack', 'cacert'))
+        ):
+            return sysconfig.get('openstack', 'cacert')
+        return None
+
     def get_nova(self):
         try:
-            sess = session.Session(auth=self._auth)
+            sess = session.Session(auth=self._auth, verify=self._cacert)
             nova = client.Client('2.1', session=sess)
             return nova
         except Exception as e:

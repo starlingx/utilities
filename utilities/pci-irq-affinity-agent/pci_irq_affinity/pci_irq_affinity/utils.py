@@ -19,6 +19,10 @@ from pci_irq_affinity.log import LOG
 import pci_irq_affinity.instance
 
 
+COMPUTE_PCI_DEVICES = os.getenv("COMPUTE_PCI_DEVICES", default="/sys/bus/pci/devices")
+COMPUTE_IRQ = os.getenv("COMPUTE_IRQ", default="/proc/irq")
+
+
 def list_to_range(input_list=None):
     """Convert a list into a string of comma separate ranges.
 
@@ -123,7 +127,7 @@ def get_irqs_by_pci_address(pci_addr):
     irqs = set()
     msi_irqs = set()
 
-    dev_path = "/sys/bus/pci/devices/%s" % (pci_addr)
+    dev_path = "%s/%s" % (COMPUTE_PCI_DEVICES, pci_addr)
     if not os.path.isdir(dev_path):
         raise Exception("PciDeviceNotFoundById id = %r" % pci_addr)
 
@@ -160,11 +164,11 @@ def get_irqs_by_pci_address(pci_addr):
 
     # Return only configured irqs, ignore any that are missing.
     for irq in _irqs:
-        irq_path = "/proc/irq/%s" % (irq)
+        irq_path = "%s/%s" % (COMPUTE_IRQ, irq)
         if os.path.isdir(irq_path):
             irqs.update([irq])
     for irq in _msi_irqs:
-        irq_path = "/proc/irq/%s" % (irq)
+        irq_path = "%s/%s" % (COMPUTE_IRQ, irq)
         if os.path.isdir(irq_path):
             msi_irqs.update([irq])
     return (irqs, msi_irqs)
@@ -223,7 +227,7 @@ def set_irq_affinity(set_bitmap, irqs, cpulist):
         filename = 'smp_affinity_list'
 
     for irq in irqs:
-        irq_aff_path = "/proc/irq/%s/%s" % (irq, filename)
+        irq_aff_path = "%s/%s/%s" % (COMPUTE_IRQ, irq, filename)
         try:
             with open(irq_aff_path, 'w') as f:
                 f.write(cpulist)
@@ -262,7 +266,7 @@ def set_irqs_affinity_by_pci_address(pci_addr, extra_spec=None,
     LOG.debug("pci: %s, irqs: %s, msi_irqs: %s" % (pci_addr, _irqs, _msi_irqs))
 
     # Obtain physical numa_node for this pci addr
-    numa_path = "/sys/bus/pci/devices/%s/numa_node" % (pci_addr)
+    numa_path = "%s/%s/numa_node" % (COMPUTE_PCI_DEVICES, pci_addr)
     try:
         with open(numa_path) as f:
             numa_node = [int(x) for x in f.readline().split()][0]
