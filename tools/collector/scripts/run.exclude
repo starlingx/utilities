@@ -11,3 +11,4 @@
 /var/run/neutron/metadata_proxy
 /var/run/.vswitch
 /var/run/containerd
+/var/run/nvidia
