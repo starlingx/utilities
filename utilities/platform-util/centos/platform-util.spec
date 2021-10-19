@@ -65,6 +65,7 @@ install -m 555 %{_buildsubdir}/scripts/update-iso.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/gen-bootloader-iso.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/stx-iso-utils.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/show-certs.sh %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/update_docker_registry_auth.sh %{buildroot}%{local_bindir}
 
 install -d %{buildroot}%{local_etc_initd}
 install %{_buildsubdir}/scripts/log_functions.sh %{buildroot}%{local_etc_initd}
@@ -115,6 +116,7 @@ systemctl enable opt-platform.service
 %{local_bindir}/gen-bootloader-iso.sh
 %{local_bindir}/stx-iso-utils.sh
 %{local_bindir}/show-certs.sh
+%{local_bindir}/update_docker_registry_auth.sh
 
 %files noncontroller
 %defattr(-,root,root,-)
