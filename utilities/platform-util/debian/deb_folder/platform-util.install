@@ -1,0 +1,11 @@
+usr/bin/verify-license
+scripts/tc_setup.sh usr/local/bin
+scripts/remotelogging_tc_setup.sh usr/local/bin
+scripts/log_functions.sh etc/init.d
+
+/usr/local/bin/set_keystone_user_option.sh
+/usr/local/bin/connectivity_test
+/usr/local/bin/is-rootdisk-device.sh
+/usr/local/sbin/patch-restart-mtce
+/usr/local/sbin/patch-restart-processes
+/usr/local/sbin/patch-restart-haproxy

@@ -1,0 +1,2 @@
+scripts/opt-platform.mount lib/systemd/system
+scripts/opt-platform.service lib/systemd/system

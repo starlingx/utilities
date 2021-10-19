@@ -1,0 +1,5 @@
+executable-is-not-world-readable
+non-standard-executable-perm
+file-in-usr-local
+dir-in-usr-local
+no-manual-page
