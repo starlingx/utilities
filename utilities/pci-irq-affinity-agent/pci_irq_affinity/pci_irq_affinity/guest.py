@@ -228,18 +228,37 @@ def get_guest_domain_info(dom):
         nodeset.update(nodes)
     d_nodelist = list(sorted(nodeset))
 
-    # Get pci info.
     pci_addrs = set()
-    for interface in dom_xml.findall('./devices/interface'):
-        if interface.find('driver').get('name').startswith('vfio'):
-            addr_tag = interface.find('source/address')
-            if addr_tag.get('type') == 'pci':
-                pci_addr = "%04x:%02x:%02x.%01x" % (
-                    addr_tag.get('domain'),
-                    addr_tag.get('bus'),
-                    addr_tag.get('slot'),
-                    addr_tag.get('function'))
-                pci_addrs.update([pci_addr])
+
+    # Get pci info.
+    def find_and_fill_pci_addrs(dom_xml, device_type):
+        LOG.debug("Finding pci_addrs for %s devices" % device_type)
+
+        def parse_pci_addr(tag):
+            return "%04x:%02x:%02x.%01x" % (
+                int(tag.get('domain'), base=16),
+                int(tag.get('bus'), base=16),
+                int(tag.get('slot'), base=16),
+                int(tag.get('function'), base=16))
+
+        for node in dom_xml.findall('./devices/' + device_type):
+            for driver in node.findall('driver'):
+                if driver.get('name').startswith('vfio'):
+                    addr_tag = node.find('source/address')
+                    if (addr_tag.get('type') == 'pci' or
+                            node.get('type') == 'pci'):
+                        pci_addr = parse_pci_addr(addr_tag)
+                        LOG.debug("Add pci device: %s" % pci_addr)
+                        pci_addrs.update([pci_addr])
+
+    # Use <interface> allows specifying a MAC address and <virtualport> for
+    # the passed-through device. If these capabilities  are not required, if
+    # you have a standard single-port PCI, PCIe, or USB  network card that
+    # doesn't support SR-IOV, or if you are using a version of libvirt older
+    # than  0.9.11, you should use standard <hostdev> to assign the device to
+    # the guest instead of <interface type='hostdev'/>.
+    find_and_fill_pci_addrs(dom_xml, 'interface')
+    find_and_fill_pci_addrs(dom_xml, 'hostdev')
 
     # Update dictionary with per-domain information
     domain = {
