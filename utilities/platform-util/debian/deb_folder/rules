@@ -34,6 +34,7 @@ override_dh_auto_install:
 	install -m 555 scripts/stx-iso-utils.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/show-certs.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/update_docker_registry_auth.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/change_system_private_registry.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/is-rootdisk-device.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 755 scripts/connectivity_test $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/set_keystone_user_option.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
@@ -47,5 +48,5 @@ override_dh_auto_install:
 
 override_dh_fixperms:
 	dh_fixperms -Xupdate-iso.sh -Xgen-bootloader-iso.sh -Xstx-iso-utils.sh \
-	-Xshow-certs.sh -Xupdate_docker_registry_auth.sh -Xis-rootdisk-device.sh \
-	-Xpatch-restart-* -Xconnectivity_test -Xset_keystone_user_option.sh
+	-Xshow-certs.sh -Xupdate_docker_registry_auth.sh -Xchange_system_private_registry.sh \
+        -Xis-rootdisk-device.sh -Xpatch-restart-* -Xconnectivity_test -Xset_keystone_user_option.sh
