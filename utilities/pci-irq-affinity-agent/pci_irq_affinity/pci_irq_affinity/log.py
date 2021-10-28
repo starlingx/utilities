@@ -14,6 +14,8 @@
 import logging
 import logging.handlers
 
+from pci_irq_affinity.config import CONF
+
 _syslog_facility = 'local1'
 
 
@@ -25,4 +27,4 @@ handler = logging.handlers.SysLogHandler(address='/dev/log',
                                          facility=_syslog_facility)
 handler.setFormatter(formatter)
 LOG.addHandler(handler)
-LOG.setLevel(logging.INFO)
+LOG.setLevel(CONF.log_level)
