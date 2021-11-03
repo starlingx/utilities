@@ -1,0 +1,57 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+
+export ROOT = debian/tmp
+export SYSCONFDIR = $(ROOT)/etc
+export SBINDIR = $(ROOT)/usr/sbin
+
+%:
+	dh $@
+
+
+override_dh_auto_install:
+
+	install -m 755 -d $(SYSCONFDIR)/collect.d
+	install -m 755 -d $(SYSCONFDIR)/collect
+	install -m 755 -d $(ROOT)/usr/local/sbin
+	install -m 755 -d $(ROOT)/usr/local/bin
+	install -m 755 -d $(SBINDIR)
+
+	install -m 755 -p collect $(ROOT)/usr/local/sbin/collect
+	install -m 755 -p collect_host $(ROOT)/usr/local/sbin/collect_host
+	install -m 755 -p collect_date $(ROOT)/usr/local/sbin/collect_date
+	install -m 755 -p collect_utils $(ROOT)/usr/local/sbin/collect_utils
+	install -m 755 -p collect_parms $(ROOT)/usr/local/sbin/collect_parms
+	install -m 755 -p collect_mask_passwords $(ROOT)/usr/local/sbin/collect_mask_passwords
+	install -m 755 -p expect_done $(ROOT)/usr/local/sbin/expect_done
+	install -m 755 -p mariadb-cli.sh $(ROOT)/usr/local/sbin/mariadb-cli
+
+	install -m 755 -p collect_sysinv.sh $(SYSCONFDIR)/collect.d/collect_sysinv
+	install -m 755 -p collect_psqldb.sh $(SYSCONFDIR)/collect.d/collect_psqldb
+	install -m 755 -p collect_mariadb.sh $(SYSCONFDIR)/collect.d/collect_mariadb
+	install -m 755 -p collect_openstack.sh $(SYSCONFDIR)/collect.d/collect_openstack
+	install -m 755 -p collect_networking.sh $(SYSCONFDIR)/collect.d/collect_networking
+	install -m 755 -p collect_ceph.sh $(SYSCONFDIR)/collect.d/collect_ceph
+	install -m 755 -p collect_sm.sh $(SYSCONFDIR)/collect.d/collect_sm
+	install -m 755 -p collect_tc.sh $(SYSCONFDIR)/collect.d/collect_tc
+	install -m 755 -p collect_nfv_vim.sh $(SYSCONFDIR)/collect.d/collect_nfv_vim
+	install -m 755 -p collect_ovs.sh $(SYSCONFDIR)/collect.d/collect_ovs
+	install -m 755 -p collect_patching.sh $(SYSCONFDIR)/collect.d/collect_patching
+	install -m 755 -p collect_coredump.sh $(SYSCONFDIR)/collect.d/collect_coredump
+	install -m 755 -p collect_crash.sh $(SYSCONFDIR)/collect.d/collect_crash
+	install -m 755 -p collect_ima.sh $(SYSCONFDIR)/collect.d/collect_ima
+	install -m 755 -p collect_fm.sh $(SYSCONFDIR)/collect.d/collect_fm
+	install -m 755 -p collect_containerization.sh $(SYSCONFDIR)/collect.d/collect_containerization
+	install -m 755 -p collect_dc.sh $(SYSCONFDIR)/collect.d/collect_dc
+	install -m 755 -p collect_disk.sh $(SYSCONFDIR)/collect.d/collect_disk
+	install -m 755 -p collect_interfaces.sh $(SYSCONFDIR)/collect.d/collect_interfaces
+
+	install -m 755 -p etc.exclude $(SYSCONFDIR)/collect/etc.exclude
+	install -m 755 -p run.exclude $(SYSCONFDIR)/collect/run.exclude
+	install -m 755 -p varlog.exclude $(SYSCONFDIR)/collect/varlog.exclude
+
+	ln -sf /usr/local/sbin/collect $(SBINDIR)/collect
+	ln -sf /usr/local/sbin/collect $(ROOT)/usr/local/bin/collect
+
+override_dh_usrlocal:
+	echo "do nothing"

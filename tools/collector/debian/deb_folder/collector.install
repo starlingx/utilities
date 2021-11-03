@@ -1,0 +1,5 @@
+etc/collect/* /etc/collect
+etc/collect.d/* /etc/collect.d
+usr/local/sbin/* /usr/local/sbin
+usr/local/bin/collect /usr/local/bin
+usr/sbin/collect /usr/sbin
