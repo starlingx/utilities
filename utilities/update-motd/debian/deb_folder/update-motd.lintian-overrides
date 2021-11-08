@@ -1,0 +1,1 @@
+update-motd: bad-permissions-for-etc-cron.d-script etc/cron.d/motd-update 0600 != 0644
