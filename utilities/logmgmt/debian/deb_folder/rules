@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=logmgmt
+
+export ROOT = $(CURDIR)/debian/tmp
+export LOCAL_BINDIR = $(ROOT)/usr/bin
+export LOCAL_ETC_INITD = $(ROOT)/etc/init.d
+export LOCAL_ETC_PMOND = $(ROOT)/etc/pmon.d
+export UNIT_DIR = $(ROOT)/usr/lib/systemd/system
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_install:
+	python3 setup.py install -f --install-layout=deb --root=$(ROOT)
+
+	python3 setup.py bdist_wheel \
+		--universal \
+		-d $(CURDIR)/debian/logmgmt-wheels/usr/share/python3-wheels
+
+	install -d -m 755 $(LOCAL_BINDIR)
+	install -p -D -m 700 scripts/bin/logmgmt $(LOCAL_BINDIR)/logmgmt
+	install -p -D -m 700 scripts/bin/logmgmt_postrotate $(LOCAL_BINDIR)/logmgmt_postrotate
+	install -p -D -m 700 scripts/bin/logmgmt_prerotate $(LOCAL_BINDIR)/logmgmt_prerotate
+
+	install -d -m 755 $(LOCAL_ETC_INITD)
+	install -p -D -m 700 scripts/init.d/logmgmt $(LOCAL_ETC_INITD)/logmgmt
+
+	install -d -m 755 $(LOCAL_ETC_PMOND)
+	install -p -D -m 644 scripts/pmon.d/logmgmt $(LOCAL_ETC_PMOND)/logmgmt
+
+	install -p -D -m 644 scripts/etc/systemd/system/logmgmt.service $(UNIT_DIR)/logmgmt.service
+
+	dh_install
+
+override_dh_python3:
+	dh_python3 --shebang=/usr/bin/python3
+
+# Prevents dh_fixperms from changing the permissions defined from 700 to 755
+override_dh_fixperms:
+	dh_fixperms -Xlogmgmt*
