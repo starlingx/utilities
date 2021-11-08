@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+export ROOT = debian/tmp
+
+%:
+	dh $@
+
+override_dh_install:
+	install -d -m 755 $(ROOT)/usr/bin
+	install -m 755 -p -D nfscheck.sh $(ROOT)/usr/bin
+
+	install -d -m 755 $(ROOT)/usr/lib/systemd/system
+	install -m 664 -p -D nfscheck.service $(ROOT)/usr/lib/systemd/system
+
+	dh_install
+
+override_dh_fixperms:
+	dh_fixperms -Xnfscheck.service
