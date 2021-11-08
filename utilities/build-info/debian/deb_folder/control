@@ -1,0 +1,21 @@
+Source: build-info
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper (>= 13),
+ git,
+Standards-Version: 4.1.2
+Homepage: https://www.starlingx.io
+
+Package: build-info
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: StarlingX build information package
+ This package handles Build Info
+
+Package: build-info-dev
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Build Info - Development files
+ This package contains symbolic links, header files,
+ and related items necessary for software development.

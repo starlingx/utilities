@@ -11,7 +11,7 @@ centOSBuildRoot=".."
 jenkinsBuildFileName="BUILD"
 jenkinsBuildFile="$root/$jenkinsBuildFileName"
 jenkinsBuildFileCentOS="$centOSBuildRoot/$jenkinsBuildFileName"
-releaseInfoFile="../release-info.inc"
+releaseInfoFile=${1:-../release-info.inc}
 destFile="build.info"
 destH="build_info.h"
 

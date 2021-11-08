@@ -1,0 +1,9 @@
+---
+debname: build-info
+debver: 1.0-1
+src_path: build-info-1.0
+src_files:
+ - release-info.inc
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true
