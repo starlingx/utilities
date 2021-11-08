@@ -1,3 +1,12 @@
 ceph/python-cephclient
-utilities/platform-util
+tools/collector
+tools/engtools/hostdata-collectors
 utilities/build-info
+utilities/logmgmt
+utilities/namespace-utils
+utilities/nfscheck
+utilities/pci-irq-affinity-agent
+utilities/platform-util
+utilities/stx-extensions
+utilities/update-motd
+utilities/worker-utils
