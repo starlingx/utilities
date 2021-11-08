@@ -180,7 +180,7 @@ class Topology(object):
         '''
 
         cpu_list = self.topology_idx.keys()
-        cpu_list.sort()
+        list(cpu_list).sort()
         total_memory_GiB = self.total_memory_MiB/1024.0
 
         print('TOPOLOGY:')
