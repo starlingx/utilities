@@ -1,0 +1,7 @@
+---
+debname: namespace-utils
+debver: 1.0-1
+src_path: namespace-utils
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true
