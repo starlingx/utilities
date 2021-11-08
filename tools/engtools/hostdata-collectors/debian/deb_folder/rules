@@ -1,0 +1,59 @@
+#!/usr/bin/make -f
+#export DH_VERBOSE = 1
+
+export ROOT = debian/tmp
+export BINDIR = $(ROOT)/usr/local/bin
+export INITDIR = $(ROOT)/etc/init.d
+export CONFDIR = $(ROOT)/etc/engtools
+export SYSTEMDDIR = $(ROOT)/etc/systemd/system
+
+%:
+	dh $@
+
+
+override_dh_auto_build:
+	echo "do nothing"
+
+override_dh_auto_install:
+
+	install -d 755 $(BINDIR)
+	# Installing additional tools, memtop, occtop and schedtop are already in the image
+	install -m 755 buddyinfo.py $(BINDIR)
+	install -m 755 chewmem $(BINDIR)
+	# Installing data collection scripts
+	install -m 755 ceph.sh $(BINDIR)
+	install -m 755 cleanup-engtools.sh $(BINDIR)
+	install -m 755 collect-engtools.sh $(BINDIR)
+	install -m 755 diskstats.sh $(BINDIR)
+	install -m 755 engtools_util.sh $(BINDIR)
+	install -m 755 filestats.sh $(BINDIR)
+	install -m 755 iostat.sh $(BINDIR)
+	install -m 755 linux_benchmark.sh $(BINDIR)
+	install -m 755 memstats.sh $(BINDIR)
+	install -m 755 netstats.sh $(BINDIR)
+	install -m 755 postgres.sh $(BINDIR)
+	install -m 755 rabbitmq.sh $(BINDIR)
+	install -m 755 remote/rbzip2-engtools.sh $(BINDIR)
+	install -m 755 remote/rstart-engtools.sh $(BINDIR)
+	install -m 755 remote/rstop-engtools.sh $(BINDIR)
+	install -m 755 remote/rsync-engtools-data.sh $(BINDIR)
+	install -m 755 slab.sh $(BINDIR)
+	install -m 755 ticker.sh $(BINDIR)
+	install -m 755 top.sh $(BINDIR)
+	install -m 755 vswitch.sh $(BINDIR)
+	install -m 755 live_stream.py $(BINDIR)
+	# Installing conf file
+	install -d 755 $(CONFDIR)
+	install -m 644 -p -D cfg/engtools.conf $(CONFDIR)
+	# Installing init script
+	install -d 755 $(INITDIR)
+	install -m 755 init.d/collect-engtools.sh $(INITDIR)
+	# Installing service file
+	install -d 755 $(SYSTEMDDIR)
+	install -m 644 -p -D collect-engtools.service $(SYSTEMDDIR)
+
+override_dh_installsystemd:
+	dh_installsystemd --name collect-engtools
+
+override_dh_usrlocal:
+	echo 'do nothing'
