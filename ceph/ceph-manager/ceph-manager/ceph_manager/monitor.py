@@ -386,7 +386,7 @@ class Monitor(HandleUpgradesMixin):
             return 0
         else:
             try:
-                quota_gib = int(quota["output"]["quota_max_bytes"]) / (1024**3)
+                quota_gib = int(quota["output"]["quota_max_bytes"]) // (1024**3)
                 return quota_gib
             except IOError:
                 return 0
@@ -475,7 +475,7 @@ class Monitor(HandleUpgradesMixin):
                     if (chassis_size == 0 or
                             chassis_size > host['kb']):
                         chassis_size = host['kb']
-                tier_size += chassis_size / (1024**2)
+                tier_size += chassis_size // (1024**2)
             tier_sizes[tier['name']] = tier_size
 
         return tier_sizes

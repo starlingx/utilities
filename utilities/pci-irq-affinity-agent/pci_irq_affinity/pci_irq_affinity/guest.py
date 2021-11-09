@@ -32,7 +32,7 @@ def range_to_list(csv_range=None):
     """
     if not csv_range:
         return []
-    xranges = [(lambda L: range(L[0], L[-1] + 1))(map(int, r.split('-')))
+    xranges = [(lambda L: list(range(L[0], L[-1] + 1)))(list(map(int, r.split('-'))))
                for r in csv_range.split(',')]
     return [y for x in xranges for y in x]
 
