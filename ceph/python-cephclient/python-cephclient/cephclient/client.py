@@ -5823,3 +5823,7 @@ class CephClient(object):
 
         kwargs['num'] = num
         return self._request('config reset', **kwargs)
+
+    def enable_msgr2(self, timeout=None):
+        """Enable msgr2"""
+        return self._request('mon enable-msgr2', timeout=timeout)
