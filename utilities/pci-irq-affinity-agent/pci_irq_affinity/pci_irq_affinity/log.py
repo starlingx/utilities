@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 StarlingX.
+# Copyright (c) 2019-2021 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -12,19 +12,15 @@
 """ Define Logger class for this agent"""
 
 import logging
-import logging.handlers
-
+import sys
 from pci_irq_affinity.config import CONF
-
-_syslog_facility = 'local1'
 
 
 LOG = logging.getLogger("pci-interrupt-affinity")
 formatter = logging.Formatter("%(asctime)s %(threadName)s[%(process)d] "
                               "%(name)s.%(pathname)s.%(lineno)d - %(levelname)s "
                               "%(message)s")
-handler = logging.handlers.SysLogHandler(address='/dev/log',
-                                         facility=_syslog_facility)
+handler = logging.StreamHandler(stream=sys.stdout)
 handler.setFormatter(formatter)
 LOG.addHandler(handler)
 LOG.setLevel(CONF.log_level)

@@ -12,6 +12,7 @@ Source0: %{name}-%{version}.tar.gz
 Requires:   python-novaclient
 BuildRequires: python-setuptools
 BuildRequires: systemd-devel
+BuildRequires: python2-wheel
 
 %description
 StarlingX PCI Interrupt Affinity Agent Package
@@ -29,6 +30,7 @@ rm -rf *.egg-info
 
 %build
 %{__python} setup.py build
+%{__python} setup.py bdist_wheel
 
 %install
 %{__python} setup.py install --root=%{buildroot} \
@@ -36,6 +38,9 @@ rm -rf *.egg-info
                              --prefix=/usr \
                              --install-data=/usr/share \
                              --single-version-externally-managed
+
+mkdir -p $RPM_BUILD_ROOT/wheels
+%{__install}  -m 644 dist/*.whl $RPM_BUILD_ROOT/wheels/
 
 %{__install}  -d -m 755 %{buildroot}%{local_etc_initd}
 %{__install}  -p -D -m 755 pci-irq-affinity-agent %{buildroot}%{local_etc_initd}/pci-irq-affinity-agent
@@ -68,3 +73,12 @@ rm -rf $RPM_BUILD_ROOT
 %{_bindir}/pci-irq-affinity-agent
 %{_bindir}/nova-sriov
 %config(noreplace) %{_sysconfdir}/pci_irq_affinity/config.ini
+
+%package wheels
+Summary: %{name} wheels
+
+%description wheels
+Contains python wheels for %{name}
+
+%files wheels
+/wheels/*
