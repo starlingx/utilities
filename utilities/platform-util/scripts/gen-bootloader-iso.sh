@@ -526,21 +526,21 @@ function extract_shared_files {
         exit 1
     fi
 
-    local pxeboot_files_dir=${MNTDIR}/pxeboot
+    local kickstart_files_dir=${MNTDIR}/
     if [ ${PATCHES_FROM_HOST} = "yes"  ]; then
-        extract_pkg_to_workdir 'platform-kickstarts-pxeboot'
+        extract_pkg_to_workdir 'platform-kickstarts'
 
-        local patched_pxeboot_files_dir=${WORKDIR}/pxeboot
-        if [ -f ${patched_pxeboot_files_dir}/pxeboot_controller.cfg ]; then
-            # Use the patched pxeboot files
-            pxeboot_files_dir=${patched_pxeboot_files_dir}
+        local patched_kickstart_files_dir=${WORKDIR}/www/pages/feed/rel-${ISO_VERSION}
+        if [ -f ${patched_kickstart_files_dir}/miniboot_controller_ks.cfg ]; then
+            # Use the patched kickstart files
+            kickstart_files_dir=${patched_kickstart_files_dir}
         fi
     fi
 
-    mkdir ${SHARED_DIR}/pxeboot/
-    rsync -a ${pxeboot_files_dir}/pxeboot_*.cfg ${SHARED_DIR}/pxeboot/
+    mkdir ${SHARED_DIR}/kickstart/
+    rsync -a ${kickstart_files_dir}/miniboot_*.cfg ${SHARED_DIR}/kickstart
     if [ $? -ne 0 ]; then
-        log_error "Failed to copy pxeboot files from ${pxeboot_files_dir}"
+        log_error "Failed to copy kickstart files from ${kickstart_files_dir}"
         exit 1
     fi
 
@@ -654,7 +654,7 @@ function extract_node_files {
     implantisomd5 ${OUTPUT_ISO}
 
     # Setup the kickstart
-    local ksfile=${SHARED_DIR}/pxeboot/pxeboot_${KS_NODETYPE}.cfg
+    local ksfile=${SHARED_DIR}/kickstart/miniboot_${KS_NODETYPE}_ks.cfg
 
     cp ${ksfile} ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg
     if [ $? -ne 0 ]; then
