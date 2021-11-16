@@ -266,7 +266,3 @@ class CephWrapper(CephClient):
     def osd_set_key(self, key, sure=None, body='json', timeout=None):
         """set <key> """
         return self.osd_set(key, sure=sure, body=body, timeout=timeout)
-
-    def enable_msgr2(self, timeout=None):
-        """Enable msgr2"""
-        return super(CephWrapper, self).enable_msgr2(timeout=timeout)
