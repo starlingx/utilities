@@ -13,8 +13,10 @@
 
 import six
 import json
+import os
 import sys
 import signal
+import socket
 import re
 import eventlet
 import threading
@@ -84,9 +86,16 @@ def audits_initialize():
 
 class InstCreateNotificationEp(object):
     filter_rule = oslo_messaging.NotificationFilter(
-        event_type=EventType.CREATE)
+        event_type=EventType.CREATE
+    )
 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
+        instance_host = payload.get('host', None)
+        current_host = os.getenv("COMPUTE_HOSTNAME", default=socket.gethostname())
+        if instance_host != current_host:
+            LOG.debug("Requeue notification: instance_host=%s != current_host=%s" % (
+                instance_host, current_host))
+            return oslo_messaging.NotificationResult.REQUEUE
         uuid = payload.get('instance_id', None)
         self.instance_create_handler(uuid)
 
@@ -98,9 +107,16 @@ class InstCreateNotificationEp(object):
 
 class InstResizeNotificationEp(object):
     filter_rule = oslo_messaging.NotificationFilter(
-        event_type=EventType.RESIZE)
+        event_type=EventType.RESIZE
+    )
 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
+        instance_host = payload.get('host', None)
+        current_host = os.getenv("COMPUTE_HOSTNAME", default=socket.gethostname())
+        if instance_host != current_host:
+            LOG.debug("Requeue notification: instance_host=%s != current_host=%s" % (
+                instance_host, current_host))
+            return oslo_messaging.NotificationResult.REQUEUE
         uuid = payload.get('instance_id', None)
         self.instance_resize_handler(uuid)
 
@@ -112,9 +128,16 @@ class InstResizeNotificationEp(object):
 
 class InstDelNotificationEp(object):
     filter_rule = oslo_messaging.NotificationFilter(
-        event_type=EventType.DELETE)
+        event_type=EventType.DELETE
+    )
 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
+        instance_host = payload.get('host', None)
+        current_host = os.getenv("COMPUTE_HOSTNAME", default=socket.gethostname())
+        if instance_host != current_host:
+            LOG.debug("Requeue notification: instance_host=%s != current_host=%s" % (
+                instance_host, current_host))
+            return oslo_messaging.NotificationResult.REQUEUE
         uuid = payload.get('instance_id', None)
         self.instance_delete_handler(uuid)
 
@@ -162,7 +185,7 @@ def start_rabbitmq_client():
                  InstDelNotificationEp()]
 
     server = oslo_messaging.get_notification_listener(transport, [target],
-                                                      endpoints, "threading")
+                                                      endpoints, "threading", allow_requeue=True)
     thread = threading.Thread(target=rpc_work, args=(server,))
     thread.start()
     LOG.info("Rabbitmq Client Started!")
