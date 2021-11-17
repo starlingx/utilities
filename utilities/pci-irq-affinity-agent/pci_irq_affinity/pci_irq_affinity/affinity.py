@@ -88,7 +88,8 @@ class pci_irq_affinity_provider:
         # audit instance PCI devices periodically
         filters = {'vm_state': 'active',
                    'task_state': None,
-                   'deleted': False}
+                   'deleted': False,
+                   'all_tenants': True}
         instances = novaClient.get_instances(filters)
         for inst in instances:
             self.affine_pci_dev_instance(inst, wait_for_irqs=False)
