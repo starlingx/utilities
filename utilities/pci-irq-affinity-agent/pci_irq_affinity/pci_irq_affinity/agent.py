@@ -23,11 +23,12 @@ from oslo_service import periodic_task
 from oslo_service import service
 import oslo_messaging
 
-from pci_irq_affinity.affinity import pciIrqAffinity
+from pci_irq_affinity import affinity
 from pci_irq_affinity.config import CONF
 from pci_irq_affinity.log import LOG
-from pci_irq_affinity.nova_provider import novaClient
-import pci_irq_affinity.utils as pci_utils
+from pci_irq_affinity import nova_provider
+from pci_irq_affinity import utils as pci_utils
+
 
 stay_on = True
 
@@ -44,7 +45,8 @@ def process_signal_handler(signum, frame):
 
 def get_inst(instance_uuid, callback):
     # get instance info from nova
-    inst = novaClient.get_instance(instance_uuid)
+    nova_client = nova_provider.get_nova_client()
+    inst = nova_client.get_instance(instance_uuid)
     if inst is not None:
         LOG.debug("inst:%s" % inst)
         callback(inst)
@@ -52,12 +54,12 @@ def get_inst(instance_uuid, callback):
 
 def query_instance_callback(inst):
     LOG.debug("query inst:%s" % inst)
-    pciIrqAffinity.affine_pci_dev_instance(inst)
+    affinity.pci_irq_affinity.affine_pci_dev_instance(inst)
 
 
 @periodic_task.periodic_task(spacing=CONF.parameters.pci_affine_interval)
 def audit_affinity(self, context):
-    pciIrqAffinity.audit_pci_irq_affinity()
+    affinity.pci_irq_affinity.audit_pci_irq_affinity()
 
 
 def audit_work(srv, callback):
@@ -150,7 +152,7 @@ class InstanceOfflineNotificationEndpoint(BaseInstanceEndpoint):
         if instance_uuid:
             LOG.info("Instance offline: uuid=%s, instance_host=%s, event_type=%s" % (
                 instance_uuid, instance_host, event_type))
-            pciIrqAffinity.reset_irq_affinity(instance_uuid)
+            affinity.pci_irq_affinity.reset_irq_affinity(instance_uuid)
 
 
 def rpc_work(srv):
@@ -194,11 +196,12 @@ def process_main():
 
     LOG.info("Enter PCIInterruptAffinity Agent")
 
+    nova_client = nova_provider.get_nova_client()
     try:
         signal.signal(signal.SIGTSTP, process_signal_handler)
         openstack_enabled = CONF.openstack.openstack_enabled
         if openstack_enabled:
-            novaClient.open_libvirt_connect()
+            nova_client.open_libvirt_connect()
             audit_srv = audits_initialize()
             rabbit_client = start_rabbitmq_client()
 
@@ -216,7 +219,7 @@ def process_main():
     finally:
         LOG.error("process_main finalized!!!")
         if openstack_enabled:
-            novaClient.close_libvirt_connect()
+            nova_client.close_libvirt_connect()
             audit_srv.tg.stop()
             rabbit_client.stop()
 
