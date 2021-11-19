@@ -31,12 +31,25 @@ function common_cleanup {
 
 function common_check_requirements {
     local -a required_utils=(
-        rsync
-        mkisofs
-        isohybrid
+        awk
+        grep
         implantisomd5
+        isohybrid
+        mkisofs
+        mktemp
+        rm
+        rmdir
+        rsync
+        sed
     )
-    if [ $UID -ne 0 ]; then
+    if [ $UID -eq 0 ]; then
+        required_utils+=(
+            losetup
+            mount
+            mountpoint
+            umount
+        )
+    else
         # If running as non-root user, additional utils are required
         required_utils+=(
             guestmount
@@ -44,6 +57,8 @@ function common_check_requirements {
             udisksctl
         )
     fi
+
+    required_utils+=( $@ )
 
     local -i missing=0
 
@@ -75,6 +90,30 @@ function check_required_param {
         log_error "Required parameter ${param} is not set"
         exit 1
     fi
+}
+
+function check_files_exist {
+    for value in "$@"; do
+        if [ ! -f "${value}" ]; then
+            log_error "file path '${value}' is invalid"
+            exit 1
+        fi
+    done
+}
+
+function check_files_size {
+    local file_size
+
+    # Aprox 4 GB file size limit for iso file systems.
+    local file_size_limit=4000000000
+
+    for value in "$@"; do
+        file_size=$(stat --printf="%s" ${value})
+        if [ ${file_size} -gt ${file_size_limit} ]; then
+            log_error "file size of '${value}' exceeds 4 GB limit"
+            exit 1
+        fi
+    done
 }
 
 function mount_iso {
