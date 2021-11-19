@@ -41,15 +41,19 @@ class NovaProvider:
     def _get_keystone_creds(self):
         creds = {}
         openstackSession = 'openstack'
-        options = ['username', 'user_domain_name', 'project_name',
+        options = ['username', 'password', 'user_domain_name', 'project_name',
                    'project_domain_name', 'keyring_service', 'auth_url']
 
         try:
             for option in options:
-                creds[option] = sysconfig.get(openstackSession, option)
+                value = sysconfig.get(openstackSession, option)
+                if value:
+                    creds[option] = value
 
-            creds['password'] = keyring.get_password(creds.pop('keyring_service'),
-                                                     creds['username'])
+            if 'password' not in creds:
+                creds['password'] = keyring.get_password(creds['keyring_service'],
+                                                         creds['username'])
+            creds.pop('keyring_service')
 
         except Exception as e:
             LOG.error("Could not get keystone creds configuration! Err=%s" % e)
