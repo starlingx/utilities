@@ -1082,6 +1082,10 @@ function check_host_reachable()
 {
     local hostname=${1}
 
+    if [ "${hostname}" == "${HOSTNAME}" ] ; then
+        return ${PASS}
+    fi
+
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
@@ -1109,6 +1113,15 @@ function check_host_reachable()
             exit ${FAIL_UNREACHABLE}
         }
         "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Network is unreachable" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Connection refused" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Connection timed out" {
             exit ${FAIL_UNREACHABLE}
         }
         timeout { exit ${FAIL_TIMEOUT} }
@@ -2291,6 +2304,12 @@ function collect_host_clean()
 function collect_subcloud_clean()
 {
     local subcloud="${1}"
+
+    check_host_reachable "${subcloud}"
+    if [ ${?} -ne ${PASS} ] ; then
+        report_error "cannot clean ${subcloud}" ${FAIL_UNREACHABLE}
+        return ${FAIL_UNREACHABLE}
+    fi
 
     echo -n "cleaning subcloud $subcloud:${COLLECT_BASE_DIR} ... "
 
