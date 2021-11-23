@@ -1,0 +1,8 @@
+etc/pci_irq_affinity/config.ini
+etc/init.d/pci-irq-affinity-agent
+etc/pmon.d/pci-irq-affinity-agent.conf
+lib/systemd/system/pci-irq-affinity-agent.service
+usr/bin/nova-sriov
+usr/bin/pci-irq-affinity-agent
+usr/lib/python3/dist-packages/pci_irq_affinity/*.py
+usr/lib/python3/dist-packages/pci_irq_affinity_agent-1.0.0.egg-info/*

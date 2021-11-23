@@ -1,0 +1,5 @@
+pci-irq-affinity-agent (1.0-1) unstable; urgency=medium
+
+  * Initial release.
+
+ -- Fabricio Henrique Ramos <fabriciohenrique.ramos@windriver.com>  Tue, 09 Nov 2021 19:23:50 -0300
