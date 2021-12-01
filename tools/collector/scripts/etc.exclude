@@ -38,3 +38,4 @@
 /etc/systemd/system/ctrl-alt-del.target
 /etc/ssl
 /etc/mtc/tmp
+/etc/kubernetes/pki
