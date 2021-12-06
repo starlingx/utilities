@@ -118,7 +118,8 @@ class CephWrapper(CephClient):
            and 'output' in _body:
             node_map = {}
             root_nodes = []
-            for node in _body['output']:
+            nodes = _body['output']['nodes']
+            for node in nodes:
                 node_map[node['id']] = node
                 if node['type'] == 'root':
                     root_nodes.append(node)
