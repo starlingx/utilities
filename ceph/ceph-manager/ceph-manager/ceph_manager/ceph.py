@@ -13,58 +13,6 @@ from oslo_log import log as logging
 LOG = logging.getLogger(__name__)
 
 
-def osd_pool_set_quota(ceph_api, pool_name, max_bytes=0, max_objects=0):
-    """Set the quota for an OSD pool_name
-
-    Setting max_bytes or max_objects to 0 will disable that quota param
-    :param pool_name:         OSD pool_name
-    :param max_bytes:    maximum bytes for OSD pool_name
-    :param max_objects:  maximum objects for OSD pool_name
-    """
-
-    # Update quota if needed
-    prev_quota = osd_pool_get_quota(ceph_api, pool_name)
-    if prev_quota["max_bytes"] != max_bytes:
-        resp, b = ceph_api.osd_set_pool_quota(pool_name, 'max_bytes',
-                                              max_bytes, body='json')
-        if resp.ok:
-            LOG.info(_LI("Set OSD pool_name quota: "
-                         "pool_name={}, max_bytes={}").format(
-                             pool_name, max_bytes))
-        else:
-            e = exception.CephPoolSetQuotaFailure(
-                pool=pool_name, name='max_bytes',
-                value=max_bytes, reason=resp.reason)
-            LOG.error(e)
-            raise e
-    if prev_quota["max_objects"] != max_objects:
-        resp, b = ceph_api.osd_set_pool_quota(pool_name, 'max_objects',
-                                              max_objects,
-                                              body='json')
-        if resp.ok:
-            LOG.info(_LI("Set OSD pool_name quota: "
-                         "pool_name={}, max_objects={}").format(
-                             pool_name, max_objects))
-        else:
-            e = exception.CephPoolSetQuotaFailure(
-                pool=pool_name, name='max_objects',
-                value=max_objects, reason=resp.reason)
-            LOG.error(e)
-            raise e
-
-
-def osd_pool_get_quota(ceph_api, pool_name):
-    resp, quota = ceph_api.osd_get_pool_quota(pool_name, body='json')
-    if not resp.ok:
-        e = exception.CephPoolGetQuotaFailure(
-            pool=pool_name, reason=resp.reason)
-        LOG.error(e)
-        raise e
-    else:
-        return {"max_objects": quota["output"]["quota_max_objects"],
-                "max_bytes": quota["output"]["quota_max_bytes"]}
-
-
 def osd_pool_exists(ceph_api, pool_name):
     response, body = ceph_api.osd_pool_get(
         pool_name, "pg_num", body='json')

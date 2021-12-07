@@ -5090,54 +5090,6 @@ class CephClient(object):
             kwargs['force'] = force
         return self._request('osd pool set', **kwargs)
 
-    OSD_POOL_SET_QUOTA_FIELD_VALUES = ['max_objects', 'max_bytes']
-
-    def osd_pool_set_quota(self, pool, field, val,
-                           body='json', timeout=None):
-        """set object or byte limit on pool"""
-        kwargs = dict(body=body, timeout=timeout)
-        if not isinstance(pool, six.string_types):
-            raise CephClientTypeError(
-                name='pool',
-                actual=type(pool),
-                expected=six.string_types)
-
-        kwargs['pool'] = pool
-        if not isinstance(field, six.string_types):
-            raise CephClientTypeError(
-                name='field',
-                actual=type(field),
-                expected=six.string_types)
-        supported = CephClient.OSD_POOL_SET_QUOTA_FIELD_VALUES
-        if field not in supported:
-            raise CephClientInvalidChoice(
-                function='osd_pool_set_quota',
-                option='field',
-                value=field,
-                supported=', '.join(supported))
-
-        kwargs['field'] = field
-        if not isinstance(val, six.string_types):
-            raise CephClientTypeError(
-                name='val',
-                actual=type(val),
-                expected=six.string_types)
-
-        kwargs['val'] = val
-        return self._request('osd pool set-quota', **kwargs)
-
-    def osd_pool_get_quota(self, pool, body='json', timeout=None):
-        """obtain object or byte limits for pool"""
-        kwargs = dict(body=body, timeout=timeout)
-        if not isinstance(pool, six.string_types):
-            raise CephClientTypeError(
-                name='pool',
-                actual=type(pool),
-                expected=six.string_types)
-
-        kwargs['pool'] = pool
-        return self._request('osd pool get-quota', **kwargs)
-
     OSD_POOL_APPLICATION_ENABLE_FORCE_VALUES = ['--yes-i-really-mean-it']
 
     def osd_pool_application_enable(
