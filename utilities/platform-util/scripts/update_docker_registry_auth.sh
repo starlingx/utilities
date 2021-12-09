@@ -59,10 +59,15 @@ for REGISTRY in docker-registry quay-registry elastic-registry gcr-registry \
     SECRET_REF=$(openstack secret list | fgrep ${SECRET_UUID} |\
         awk '{print $2}')
     echo -n "."
-    SECRET_VALUE=$(openstack secret get ${SECRET_REF} --payload -f value)
-    echo -n "."
-    openstack secret delete ${SECRET_REF} > /dev/null
-    echo -n "."
+    if [ -z "$SECRET_REF" ]; then
+        echo "No $REGISTRY entry in openstack secret list"
+    else
+        SECRET_VALUE=$(openstack secret get ${SECRET_REF} --payload -f value)
+        echo -n "."
+        openstack secret delete ${SECRET_REF} > /dev/null
+        echo -n "."
+    fi
+
     NEW_SECRET_VALUE=$NEW_CREDS
     openstack secret store -n ${REGISTRY}-secret -p "${NEW_SECRET_VALUE}" \
         >/dev/null
