@@ -1,0 +1,5 @@
+ceph-manager (1.0-1) unstable; urgency=medium
+
+  * Initial release.
+
+ -- Ramon Gazoni Lacerda <Ramon.GazoniLacerda@windriver.com>  Fri, 10 Dec 2021 09:41:06 -0300

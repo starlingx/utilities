@@ -1,0 +1,3 @@
+etc/logrotate.d
+usr/lib/python3/dist-packages/ceph_manager
+usr/lib/python3/dist-packages/ceph_manager-1.0.0.egg-info
