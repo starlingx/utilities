@@ -11,13 +11,10 @@
 
 """ Pci interrupt affinity agent daemon entry"""
 
-import six
-import json
 import os
 import sys
 import signal
 import socket
-import re
 import eventlet
 import threading
 import time
@@ -26,19 +23,14 @@ from oslo_service import periodic_task
 from oslo_service import service
 import oslo_messaging
 
+from pci_irq_affinity.affinity import pciIrqAffinity
 from pci_irq_affinity.config import CONF
 from pci_irq_affinity.config import sysconfig
-from pci_irq_affinity.nova_provider import novaClient
-from pci_irq_affinity.affinity import pciIrqAffinity
 from pci_irq_affinity.log import LOG
+from pci_irq_affinity.nova_provider import novaClient
+import pci_irq_affinity.utils as pci_utils
 
 stay_on = True
-
-
-class EventType:
-    CREATE = 'compute.instance.create.end'
-    DELETE = 'compute.instance.delete.end'
-    RESIZE = 'compute.instance.resize.confirm.end'
 
 
 def process_signal_handler(signum, frame):
@@ -84,9 +76,9 @@ def audits_initialize():
     return srv
 
 
-class InstCreateNotificationEp(object):
+class InstanceOnlineNotificationEndpoint(object):
     filter_rule = oslo_messaging.NotificationFilter(
-        event_type=EventType.CREATE
+        event_type=pci_utils.get_event_type_regexp(pci_utils.ONLINE_EVENT_TYPES)
     )
 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
@@ -96,18 +88,17 @@ class InstCreateNotificationEp(object):
             LOG.debug("Requeue notification: instance_host=%s != current_host=%s" % (
                 instance_host, current_host))
             return oslo_messaging.NotificationResult.REQUEUE
-        uuid = payload.get('instance_id', None)
-        self.instance_create_handler(uuid)
 
-    def instance_create_handler(self, instance_uuid):
-        if instance_uuid is not None:
-            LOG.info("instance_created: uuid=%s." % instance_uuid)
+        instance_uuid = payload.get('instance_id', None)
+        if instance_uuid:
+            LOG.info("Instance online: uuid=%s, instance_host=%s, event_type=%s" % (
+                instance_uuid, instance_host, event_type))
             eventlet.spawn(get_inst, instance_uuid, query_instance_callback).wait()
 
 
-class InstResizeNotificationEp(object):
+class InstanceOfflineNotificationEndpoint(object):
     filter_rule = oslo_messaging.NotificationFilter(
-        event_type=EventType.RESIZE
+        event_type=pci_utils.get_event_type_regexp(pci_utils.OFFLINE_EVENT_TYPES)
     )
 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
@@ -117,33 +108,11 @@ class InstResizeNotificationEp(object):
             LOG.debug("Requeue notification: instance_host=%s != current_host=%s" % (
                 instance_host, current_host))
             return oslo_messaging.NotificationResult.REQUEUE
-        uuid = payload.get('instance_id', None)
-        self.instance_resize_handler(uuid)
 
-    def instance_resize_handler(self, instance_uuid):
-        if instance_uuid is not None:
-            LOG.info("instance_resized: uuid=%s." % instance_uuid)
-            eventlet.spawn(get_inst, instance_uuid, query_instance_callback).wait()
-
-
-class InstDelNotificationEp(object):
-    filter_rule = oslo_messaging.NotificationFilter(
-        event_type=EventType.DELETE
-    )
-
-    def info(self, ctxt, publisher_id, event_type, payload, metadata):
-        instance_host = payload.get('host', None)
-        current_host = os.getenv("COMPUTE_HOSTNAME", default=socket.gethostname())
-        if instance_host != current_host:
-            LOG.debug("Requeue notification: instance_host=%s != current_host=%s" % (
-                instance_host, current_host))
-            return oslo_messaging.NotificationResult.REQUEUE
-        uuid = payload.get('instance_id', None)
-        self.instance_delete_handler(uuid)
-
-    def instance_delete_handler(self, instance_uuid):
-        if instance_uuid is not None:
-            LOG.info("instance_deleted: uuid=%s." % instance_uuid)
+        instance_uuid = payload.get('instance_id', None)
+        if instance_uuid:
+            LOG.info("Instance offline: uuid=%s, instance_host=%s, event_type=%s" % (
+                instance_uuid, instance_host, event_type))
             pciIrqAffinity.reset_irq_affinity(instance_uuid)
 
 
@@ -180,9 +149,10 @@ def start_rabbitmq_client():
     target = oslo_messaging.Target(exchange="nova", topic="notifications", server="info",
                                    version="2.1", fanout=True)
     transport = oslo_messaging.get_notification_transport(CONF, url=rabbit_url)
-    endpoints = [InstCreateNotificationEp(),
-                 InstResizeNotificationEp(),
-                 InstDelNotificationEp()]
+    endpoints = [
+        InstanceOnlineNotificationEndpoint(),
+        InstanceOfflineNotificationEndpoint(),
+    ]
 
     server = oslo_messaging.get_notification_listener(transport, [target],
                                                       endpoints, "threading", allow_requeue=True)
