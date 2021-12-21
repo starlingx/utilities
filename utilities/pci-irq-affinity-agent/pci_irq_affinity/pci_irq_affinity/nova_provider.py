@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 StarlingX.
+# Copyright (c) 2019-2022 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,14 +14,16 @@ This class wraps novaclient access interface and expose get_instance() and
 get_instances() to other agent classes.
 """
 
-import keyring
-from novaclient import client
-from keystoneauth1 import loading
-from keystoneauth1 import session
 import os
 import socket
+import keyring
+
+from keystoneauth1 import loading
+from keystoneauth1 import session
+from novaclient import client
+
 from pci_irq_affinity.log import LOG
-from pci_irq_affinity.config import sysconfig
+from pci_irq_affinity.config import CONF
 from pci_irq_affinity import instance
 from pci_irq_affinity import guest
 
@@ -40,13 +42,13 @@ class NovaProvider:
 
     def _get_keystone_creds(self):
         creds = {}
-        openstackSession = 'openstack'
-        options = ['username', 'password', 'user_domain_name', 'project_name',
-                   'project_domain_name', 'keyring_service', 'auth_url']
+        openstack_options = CONF.openstack
+        creds_options = ['username', 'password', 'user_domain_name', 'project_name',
+                         'project_domain_name', 'keyring_service', 'auth_url']
 
         try:
-            for option in options:
-                value = sysconfig.get(openstackSession, option)
+            for option in creds_options:
+                value = openstack_options[option]
                 if value:
                     creds[option] = value
 
@@ -69,12 +71,7 @@ class NovaProvider:
         return None
 
     def _get_cacert(self):
-        if (
-            sysconfig.has_option('openstack', 'cacert')
-            and len(sysconfig.get('openstack', 'cacert'))
-        ):
-            return sysconfig.get('openstack', 'cacert')
-        return None
+        return CONF.openstack.cacert
 
     def get_nova(self):
         try:
@@ -145,7 +142,7 @@ class NovaProvider:
         return instances
 
 
-if sysconfig.get('openstack', 'openstack_enabled') == 'true':
+if CONF.openstack.openstack_enabled:
     novaClient = NovaProvider()
 else:
     novaClient = None

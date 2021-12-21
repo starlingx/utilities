@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 StarlingX.
+# Copyright (c) 2019-2022 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #

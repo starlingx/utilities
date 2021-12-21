@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 StarlingX.
+# Copyright (c) 2019-2022 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,8 +13,8 @@
 
 from oslo_service import loopingcall
 from oslo_concurrency import lockutils
+
 import pci_irq_affinity.utils as pci_utils
-import pci_irq_affinity.instance
 from pci_irq_affinity.config import CONF
 from pci_irq_affinity.log import LOG
 from pci_irq_affinity.nova_provider import novaClient
@@ -47,26 +47,24 @@ class AffinePciIrqDriver:
                     LOG.error('_wait_for_msi_irqs: pci_addr=%(A)s, error=%(E)s' %
                               {'A': addr, 'E': e})
                 self._msi_irq_count[addr] = len(msi_irqs)
-                self._msi_irq_elapsed[addr] += \
-                    CONF.msi_irq_check_interval
+                self._msi_irq_elapsed[addr] += CONF.parameters.msi_irq_check_interval
                 if _prev[addr] == self._msi_irq_count[addr]:
-                    self._msi_irq_since[addr] += \
-                        CONF.msi_irq_check_interval
+                    self._msi_irq_since[addr] += CONF.parameters.msi_irq_check_interval
                 else:
                     self._msi_irq_since[addr] = 0
 
             # Done when msi irq counts have not changed for some time
             if all((self._msi_irq_count[k] > 0) and
-                   (self._msi_irq_since[k] >= CONF.msi_irq_since)
+                   (self._msi_irq_since[k] >= CONF.parameters.msi_irq_since)
                    for k in addrs):
                 raise loopingcall.LoopingCallDone()
 
             # Abort due to timeout
-            if all(self._msi_irq_elapsed[k] >= CONF.msi_irq_timeout
+            if all(self._msi_irq_elapsed[k] >= CONF.parameters.msi_irq_timeout
                    for k in addrs):
                 msg = ("reached %(timeout)s seconds timeout, waiting for "
                        "msi irqs of pci_addrs: %(addrs)s") % {
-                           'timeout': CONF.msi_irq_timeout,
+                           'timeout': CONF.parameters.msi_irq_timeout,
                            'addrs': list(addrs)}
                 LOG.warning(msg)
                 raise loopingcall.LoopingCallDone()
@@ -86,7 +84,7 @@ class AffinePciIrqDriver:
         if wait_for_irqs:
             timer = loopingcall.FixedIntervalLoopingCall(
                 _wait_for_msi_irqs, self, inst)
-            timer.start(interval=CONF.msi_irq_check_interval).wait()
+            timer.start(interval=CONF.parameters.msi_irq_check_interval).wait()
 
         @synchronized(inst.uuid)
         def do_affine_pci_dev_instance(refresh_need):

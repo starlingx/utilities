@@ -1,6 +1,6 @@
 #! /bin/sh
 #
-# Copyright (c) 2019 StarlingX.
+# Copyright (c) 2019-2022 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -46,7 +46,7 @@ case "$1" in
         fi
 
         echo -n "Starting pci-irq-affinity-agent: "
-        /bin/sh -c "${AFFINITYAGENT}"' >> /dev/null 2>&1 & echo $!' > ${daemon_pidfile}
+        /bin/sh -c "${AFFINITYAGENT} --config-file=/etc/pci_irq_affinity/config.ini"' >> /var/log/platform.log 2>&1 & echo $!' > ${daemon_pidfile}
         RETVAL=$?
         if [ $RETVAL -eq 0 ] ; then
             echo "OK"
