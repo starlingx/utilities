@@ -40,6 +40,7 @@ amqp_opts = [
     cfg.StrOpt("user_id"),
     cfg.StrOpt("password"),
     cfg.StrOpt("virt_host"),
+    cfg.StrOpt("topic"),
 ]
 
 parameters_opts = [
