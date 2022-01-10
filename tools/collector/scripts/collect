@@ -658,10 +658,11 @@ while [[ ${#} -gt 0 ]] ; do
 
         -a|--all|all)
         if [ "${ACTIVE}" = false ] ; then
-            report_error "can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
-            collect_exit ${FAIL_INACTIVE}
+            wlog "collect with '${key}' option is only supported on an active controller ; defaulting to local collect"
+        else
+            ALLHOSTS=true
         fi
-        ALLHOSTS=true
+
         HOSTLIST=(${HOSTNAME})
         HOSTS=1
         clear_variable_args
@@ -977,7 +978,17 @@ if [ ! -z ${COLLECT_NAME} ] ; then
     if [ "${DCROLE}" == "${DCROLE_SUBCLOUD}" -a "${pw}" != "" ] ; then
         dlog "date override ${NOWDATE} to ${COLLECT_NAME: -15}"
         NOWDATE=${COLLECT_NAME: -15}
+        ilog "Orchestrated collect"
         ORCHESTRATED_COLLECT=true
+    elif [ "${DCROLE}" == "" -a "${ACTIVE}" == false -a "${pw}" != "" ]; then
+        wlog "Subcloud has not been properly configured."
+        ERROR_DCROLE=$(cat /etc/platform/platform.conf | grep distributed_cloud_role | cut -d '=' -f 2)
+        if [ "${ERROR_DCROLE}" = "subcloud" ]; then
+            dlog "date override ${NOWDATE} to ${COLLECT_NAME: -15}"
+            NOWDATE=${COLLECT_NAME: -15}
+            ilog "Orchestrated Collect"
+            ORCHESTRATED_COLLECT=true
+        fi
     fi
 
 elif [ "${ALLHOSTS}" = true ] ; then
@@ -1240,6 +1251,8 @@ EOF
 #
 # Parameters: $1 - remote hostname
 #             $2 - dir or file with full path
+#             $3 - expected login prompt
+#             $4 - alternative login prompt (optional)
 #
 ###########################################################################
 
@@ -1248,7 +1261,16 @@ function delete_remote_dir_or_file()
     local remote_hostname=${1}
     local dir_or_file=${2}
     local login_prompt="${3}"
-
+    
+    # alt_login_prompt is optional. Used when the actual prompt does not
+    # match the expected login_prompt (as contained in $login_prompt)
+    local alt_login_prompt="${4}"
+    
+    # if ${4} is empty, use $login_prompt instead.
+    if test -z "${4}";
+    then 
+        alt_login_prompt=${login_prompt};
+    fi
 
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
@@ -1260,21 +1282,21 @@ function delete_remote_dir_or_file()
         "assword:" {
             send "${pw}\r"
             expect {
-                "${login_prompt}" {
-                    set timeout 10
-                    expect -re $
-                    send "sudo rm -rf ${dir_or_file} ; cat ${cmd_done_file}\n"
-                    expect {
-                        "assword:" { send -- "${pw}\r" ; exp_continue }
-                        "${cmd_done_sig}" { exit ${PASS} }
-                        "${cmd_done_file}: No such file or directory" { exit ${PASS} }
-                        "annot remove"    { exit ${FAIL_CLEANUP}   }
-                        "${pw_error}"     { exit ${FAIL_PASSWORD}  }
-                        "${ac_error}"     { exit ${FAIL_PERMISSION_SKIP}}
-                        timeout           { exit ${FAIL_TIMEOUT3}  }
-                    }
-                }
                 timeout { exit ${FAIL_TIMEOUT1} }
+                "${login_prompt}" {}
+                "${alt_login_prompt}" {}
+            }
+            set timeout 10
+            expect -re $
+            send "sudo rm -rf ${dir_or_file} ; cat ${cmd_done_file}\n"
+            expect {
+                "assword:" { send -- "${pw}\r" ; exp_continue }
+                "${cmd_done_sig}" { exit ${PASS} }
+                "${cmd_done_file}: No such file or directory" { exit ${PASS} }
+                "annot remove"    { exit ${FAIL_CLEANUP}   }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                "${ac_error}"     { exit ${FAIL_PERMISSION_SKIP}}
+                timeout           { exit ${FAIL_TIMEOUT3}  }
             }
         }
         "(yes/no)?" {
@@ -1863,72 +1885,72 @@ function collect_subcloud_run()
         "assword:" {
             send "${pw}\r"
             expect {
-                "${SUBCLOUD_LOGIN_PROMPT}" {
-                    set timeout ${TIMEOUT}
-                    send "${collect} ${collect_cmd[@]}\n"
-                    expect {
-                        "${collect_done}" {
-                            send "exit\r"
-                            exit ${PASS}
-                        }
-                        "${FAIL_INSUFFICIENT_SPACE_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_INSUFFICIENT_SPACE}
-                        }
-                        "${FAIL_OUT_OF_SPACE_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_OUT_OF_SPACE}
-                        }
-                        "${FAIL_PASSWORD_PROMPT_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_PASSWORD_PROMPT}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_FILE_EMPTY_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_FILE_EMPTY}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_FILE_NOT_FOUND_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_FILE_NOT_FOUND}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_DATE_FORMAT_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_DATE_FORMAT}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_INACTIVE_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_INACTIVE}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_NO_HOSTS_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_NO_HOSTS}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_NO_SUBCLOUDS_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_NO_SUBCLOUDS}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_MISSING_PARAMETER_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_MISSING_PARAMETER}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_NO_FILE_SPECIFIED_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_NO_FILE_SPECIFIED}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_SUBCLOUD_TIMEOUT_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_SUBCLOUD_TIMEOUT}
-                        }
-                        "${COLLECT_ERROR}" {
-                           send "exit\r"
-                           exit ${FAIL}
-                        }
-                        timeout         { exit ${FAIL_TIMEOUT5} }
-                    }
-                }
                 "${pw_error}" { exit ${FAIL_PASSWORD} }
                 "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
                 timeout       { exit ${FAIL_TIMEOUT3} }
+                "${SUBCLOUD_LOGIN_PROMPT}" {}
+                "${subcloud}:" {}
+            }
+            set timeout ${TIMEOUT}
+            send "${collect} ${collect_cmd[@]}\n"
+            expect {
+                "${collect_done}" {
+                    send "exit\r"
+                    exit ${PASS}
+                }
+                "${FAIL_INSUFFICIENT_SPACE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_INSUFFICIENT_SPACE}
+                }
+                "${FAIL_OUT_OF_SPACE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_OUT_OF_SPACE}
+                }
+                "${FAIL_PASSWORD_PROMPT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_PASSWORD_PROMPT}
+                }
+                "${COLLECT_ERROR} ${FAIL_FILE_EMPTY_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_FILE_EMPTY}
+                }
+                "${COLLECT_ERROR} ${FAIL_FILE_NOT_FOUND_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_FILE_NOT_FOUND}
+                }
+                "${COLLECT_ERROR} ${FAIL_DATE_FORMAT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_DATE_FORMAT}
+                }
+                "${COLLECT_ERROR} ${FAIL_INACTIVE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_INACTIVE}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_HOSTS_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_HOSTS}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_SUBCLOUDS_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_SUBCLOUDS}
+                }
+                "${COLLECT_ERROR} ${FAIL_MISSING_PARAMETER_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_MISSING_PARAMETER}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_FILE_SPECIFIED_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_FILE_SPECIFIED}
+                }
+                "${COLLECT_ERROR} ${FAIL_SUBCLOUD_TIMEOUT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_SUBCLOUD_TIMEOUT}
+                }
+                "${COLLECT_ERROR}" {
+                   send "exit\r"
+                   exit ${FAIL}
+                }
+                timeout         { exit ${FAIL_TIMEOUT5} }
             }
         }
         "(yes/no)?" {
@@ -2055,7 +2077,7 @@ function collect_host_complete_remote ()
             # login to subclouds does not show the subcloud name
             # in the login prompt. It will always be one of the controllers
             # so set login prompt to SUBCLOUD_LOGIN_PROMPT
-            delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${tarname}*" "${SUBCLOUD_LOGIN_PROMPT}"
+            delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${tarname}*" "${SUBCLOUD_LOGIN_PROMPT}" "${host}:"
         else
             # hosts always login as host name, use that hostname as login prompt
             delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${tarname}*" "${host}"
@@ -2354,41 +2376,41 @@ function collect_subcloud_clean()
         "assword:" {
             send "${pw}\r"
             expect {
-                "${SUBCLOUD_LOGIN_PROMPT}" {
-                    send "${collect} ${collect_cmd[@]}\n"
-                    expect {
-                        "${collect_done}" {
-                            send "exit\r"
-                            exit ${PASS}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_INACTIVE_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_INACTIVE}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_NO_HOSTS_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_NO_HOSTS}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_MISSING_PARAMETER_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_MISSING_PARAMETER}
-                        }
-                        "${COLLECT_ERROR} ${FAIL_NO_FILE_SPECIFIED_STR}" {
-                           send "exit\r"
-                           exit ${FAIL_NO_FILE_SPECIFIED}
-                        }
-                        "${COLLECT_ERROR}" {
-                           send "exit\r"
-                           exit ${FAIL}
-                        }
-                        timeout {
-                            exit ${FAIL_TIMEOUT5}
-                        }
-                    }
-                }
                 "${pw_error}" { exit ${FAIL_PASSWORD} }
                 "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
                 timeout       { exit ${FAIL_TIMEOUT3} }
+                "${SUBCLOUD_LOGIN_PROMPT}" {}
+                "${subcloud}:" {}
+            }
+            send "${collect} ${collect_cmd[@]}\n"
+            expect {
+                "${collect_done}" {
+                    send "exit\r"
+                    exit ${PASS}
+                }
+                "${COLLECT_ERROR} ${FAIL_INACTIVE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_INACTIVE}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_HOSTS_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_HOSTS}
+                }
+                "${COLLECT_ERROR} ${FAIL_MISSING_PARAMETER_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_MISSING_PARAMETER}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_FILE_SPECIFIED_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_FILE_SPECIFIED}
+                }
+                "${COLLECT_ERROR}" {
+                   send "exit\r"
+                   exit ${FAIL}
+                }
+                timeout {
+                    exit ${FAIL_TIMEOUT5}
+                }
             }
         }
         "(yes/no)?" {
