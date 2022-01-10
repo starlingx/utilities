@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+export LOCAL_ETCDIR = etc
+export LOCAL_INCDIR = usr/include
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	./collect.sh ./release-info.inc
+	dh_auto_install
+
+override_dh_install:
+	install -d -m 755 ${LOCAL_ETCDIR}
+	install -p -m 644 build.info ${LOCAL_ETCDIR}
+	install -d -m 755 ${LOCAL_INCDIR}
+	install -p -m 644 build_info.h ${LOCAL_INCDIR}
+	dh_install
