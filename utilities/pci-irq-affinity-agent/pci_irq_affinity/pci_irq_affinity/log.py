@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019-2021 StarlingX.
+# Copyright (c) 2019-2022 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,6 +13,7 @@
 
 import logging
 import sys
+
 from pci_irq_affinity.config import CONF
 
 
@@ -23,4 +24,4 @@ formatter = logging.Formatter("%(asctime)s %(threadName)s[%(process)d] "
 handler = logging.StreamHandler(stream=sys.stdout)
 handler.setFormatter(formatter)
 LOG.addHandler(handler)
-LOG.setLevel(CONF.log_level)
+LOG.setLevel(CONF.parameters.log_level)

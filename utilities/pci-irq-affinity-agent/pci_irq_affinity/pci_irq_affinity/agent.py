@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019-2021 StarlingX.
+# Copyright (c) 2019-2022 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -25,7 +25,6 @@ import oslo_messaging
 
 from pci_irq_affinity.affinity import pciIrqAffinity
 from pci_irq_affinity.config import CONF
-from pci_irq_affinity.config import sysconfig
 from pci_irq_affinity.log import LOG
 from pci_irq_affinity.nova_provider import novaClient
 import pci_irq_affinity.utils as pci_utils
@@ -56,7 +55,7 @@ def query_instance_callback(inst):
     pciIrqAffinity.affine_pci_dev_instance(inst)
 
 
-@periodic_task.periodic_task(spacing=CONF.pci_affine_interval)
+@periodic_task.periodic_task(spacing=CONF.parameters.pci_affine_interval)
 def audit_affinity(self, context):
     pciIrqAffinity.audit_pci_irq_affinity()
 
@@ -116,24 +115,6 @@ class InstanceOfflineNotificationEndpoint(object):
             pciIrqAffinity.reset_irq_affinity(instance_uuid)
 
 
-def get_rabbit_config():
-    """Get rabbit config info from specific system config file."""
-
-    rabbit_cfg = {}
-    rabbit_session = 'amqp'
-    options = ['host', 'port', 'user_id', 'password',
-               'virt_host']
-    try:
-        for option in options:
-            rabbit_cfg[option] = sysconfig.get(rabbit_session, option)
-
-    except Exception as e:
-        LOG.error("Could not read all required rabbitmq configuration! Err=%s" % e)
-        rabbit_cfg = {}
-
-    return rabbit_cfg
-
-
 def rpc_work(srv):
     srv.start()
     srv.wait()
@@ -141,7 +122,7 @@ def rpc_work(srv):
 
 def start_rabbitmq_client():
     """Start Rabbitmq client to listen instance notifications from Nova"""
-    cfg = get_rabbit_config()
+    cfg = CONF.amqp
     rabbit_url = "rabbit://%s:%s@%s:%s/%s" % (cfg['user_id'], cfg['password'],
                                               cfg['host'], cfg['port'], cfg['virt_host'])
     LOG.info(rabbit_url)
@@ -170,8 +151,8 @@ def process_main():
 
     try:
         signal.signal(signal.SIGTSTP, process_signal_handler)
-        openstack_enabled = sysconfig.get('openstack', 'openstack_enabled')
-        if openstack_enabled == 'true':
+        openstack_enabled = CONF.openstack.openstack_enabled
+        if openstack_enabled:
             novaClient.open_libvirt_connect()
             audit_srv = audits_initialize()
             rabbit_client = start_rabbitmq_client()
@@ -189,7 +170,7 @@ def process_main():
 
     finally:
         LOG.error("process_main finalized!!!")
-        if openstack_enabled == 'true':
+        if openstack_enabled:
             novaClient.close_libvirt_connect()
             audit_srv.tg.stop()
             rabbit_client.stop()
