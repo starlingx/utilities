@@ -1,2 +1,3 @@
 ceph/python-cephclient
 utilities/platform-util
+utilities/build-info
