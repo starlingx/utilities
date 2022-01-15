@@ -22,6 +22,31 @@ import pci_irq_affinity.instance
 COMPUTE_PCI_DEVICES = os.getenv("COMPUTE_PCI_DEVICES", default="/sys/bus/pci/devices")
 COMPUTE_IRQ = os.getenv("COMPUTE_IRQ", default="/proc/irq")
 
+ONLINE_EVENT_TYPES = {
+    'create',
+    'interface_attach',
+    'live_migration.post.dest',
+    'power_on',
+    'reboot',
+    'resize.confirm',
+    'resize.revert',
+    'restore',
+    'resume',
+    'rebuild',
+    'unpause',
+}
+
+OFFLINE_EVENT_TYPES = {
+    'delete',
+    'interface_detach',
+    'live_migration.pre',
+    'pause',
+    'power_off',
+    'resize.prep',
+    'shutdown',
+    'suspend',
+}
+
 
 def list_to_range(input_list=None):
     """Convert a list into a string of comma separate ranges.
@@ -295,3 +320,13 @@ def set_irqs_affinity_by_pci_address(pci_addr, extra_spec=None,
     irqs = set_irq_affinity(False, _irqs, cpulist)
     msi_irqs = set_irq_affinity(False, _msi_irqs, cpulist)
     return (irqs, msi_irqs, numa_node, cpulist)
+
+
+def get_event_type_regexp(event_types):
+    """Returns a regexp to be used by the Rabbit notification
+    listener to filter instance notifications
+
+    :param event_types: instance event types list
+    :return: regexp with all instance notifications to be filtered
+    """
+    return '^.*instance\.(%s)\.end' % '|'.join(event_types)
