@@ -1,0 +1,13 @@
+Source: namespace-utils
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.1.2
+Homepage: https://www.starlingx.io
+
+Package: namespace-utils
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: StarlingX namespace utilities
+ This package handles StarlingX namespace utilities
