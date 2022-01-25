@@ -1,0 +1,10 @@
+---
+debname: ceph-manager
+debver: 1.0-1
+src_path: ceph-manager
+src_files:
+  - files
+  - scripts
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true

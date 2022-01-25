@@ -1,0 +1,24 @@
+Source: ceph-manager
+Section: libs
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13),
+ dh-python,
+ python3-all,
+ python3-setuptools,
+ python3-wheel
+Standards-Version: 4.1.2
+Homepage: https://www.starlingx.io
+
+Package: ceph-manager
+Architecture: any
+Depends: ${python3:Depends}, ${misc:Depends},
+ sysinv
+Description: Handle Ceph API calls and provide status updates via alarms
+ Handle sysinv RPC calls for long running Ceph API operations
+
+Package: ceph-manager-wheels
+Architecture: any
+Depends: ${python3:Depends}, ${misc:Depends}
+Description: Contains python wheels for ceph-manager
+ This package contains python wheels for specific ceph-manager

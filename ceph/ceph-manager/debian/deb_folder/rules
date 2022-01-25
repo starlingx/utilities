@@ -1,0 +1,49 @@
+#!/usr/bin/make -f
+#export DH_VERBOSE = 1
+
+export PYBUILD_NAME = ceph-manager
+export PYBUILD_SYSTEM = distutils
+
+export ROOT = debian/tmp
+
+export LOCAL_ETC_INITD = $(ROOT)/etc/init.d
+export LOCAL_BIN_DIR = $(ROOT)/usr/bin
+export LOCAL_ETC_LOGROTATED = $(ROOT)/etc/logrotate.d
+export UNIT_DIR = $(ROOT)/usr/lib/systemd/system
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_install:
+
+	python3 setup.py install --install-layout=deb \
+							 --root $(ROOT) \
+							 --prefix=/usr \
+							 --install-data=/usr/share \
+							 --single-version-externally-managed
+
+	python3 setup.py bdist_wheel \
+					 --universal \
+					 -d $(ROOT)/wheels/$(PYBUILD_NAME)
+
+	install -d -m 755 $(LOCAL_ETC_INITD)
+	install -p -D -m 700 scripts/init.d/ceph-manager $(LOCAL_ETC_INITD)/ceph-manager
+
+#	Changing to python3 before copying to destination
+	sed -i 's/python/python3/g' scripts/bin/ceph-manager
+
+	install -d -m 755 $(LOCAL_BIN_DIR)
+	install -p -D -m 700 scripts/bin/ceph-manager $(LOCAL_BIN_DIR)/ceph-manager
+
+	install -d -m 755 $(LOCAL_ETC_LOGROTATED)
+	install -p -D -m 644 files/ceph-manager.logrotate $(LOCAL_ETC_LOGROTATED)/ceph-manager.logrotate
+
+	install -d -m 755 $(UNIT_DIR)
+	install -m 644 -p -D files/$(PYBUILD_NAME).service $(UNIT_DIR)/$(PYBUILD_NAME).service
+
+	rm -rf $(ROOT)/usr/lib/python3/dist-packages/ceph_manager/__pycache__
+	dh_install
+
+override_dh_fixperms:
+	dh_fixperms --exclude etc/init.d/ceph-manager  \
+				--exclude usr/bin/ceph-manager
