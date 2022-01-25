@@ -1,0 +1,18 @@
+Source: stx-extensions
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.1.2
+Homepage: https://www.starlingx.io
+
+Package: stx-extensions
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+ systemd,
+ systemd-coredump,
+Description: StarlingX Extensions to thirdparty pkgs
+ The stx-extensions group of packages is intended to allow us to
+ add files to "extend" thirdparty packages, such as by packaging
+ custom systemd files into /etc/systemd to override the originals
+ without modifying or rebuilding the thirdparty package.
