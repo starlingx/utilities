@@ -21,3 +21,4 @@ PIP_PACKAGES="pci-irq-affinity-agent \
     python-novaclient \
     retrying \
     psutil"
+PYTHON3=no
