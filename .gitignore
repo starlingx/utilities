@@ -2,3 +2,5 @@
 *.egg-info
 *.swp
 .idea
+__pycache__
+*.py[cod]

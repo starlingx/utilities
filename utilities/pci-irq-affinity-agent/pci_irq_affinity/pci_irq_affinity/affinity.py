@@ -12,15 +12,15 @@
 """ Define pci_irq_affinity_provider class"""
 import os
 
-import pci_irq_affinity.utils as pci_utils
 from pci_irq_affinity.driver import AffinePciIrqDriver
-from pci_irq_affinity.nova_provider import novaClient
 from pci_irq_affinity.log import LOG
+from pci_irq_affinity import nova_provider
+from pci_irq_affinity import utils as pci_utils
 
 COMPUTE_IRQ = os.getenv("COMPUTE_IRQ", default="/proc/irq/")
 
 
-class pci_irq_affinity_provider:
+class PciIrqAffinityProvider:
 
     def __init__(self):
         self.affinePciIrqDriver = AffinePciIrqDriver()
@@ -90,9 +90,10 @@ class pci_irq_affinity_provider:
                    'task_state': None,
                    'deleted': False,
                    'all_tenants': True}
-        instances = novaClient.get_instances(filters)
+        nova_client = nova_provider.get_nova_client()
+        instances = nova_client.get_instances(filters)
         for inst in instances:
             self.affine_pci_dev_instance(inst, wait_for_irqs=False)
 
 
-pciIrqAffinity = pci_irq_affinity_provider()
+pci_irq_affinity = PciIrqAffinityProvider()

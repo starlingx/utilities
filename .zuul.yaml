@@ -6,12 +6,18 @@
         - stx-tox-pylint
         - utilities-ceph-manager-tox-bandit
         - utilities-ceph-client-tox-bandit
+        - utilities-pci-irq-affinity-agent-tox-py27
+        - utilities-pci-irq-affinity-agent-tox-py39
+        - utilities-pci-irq-affinity-agent-tox-flake8
     gate:
       jobs:
         - openstack-tox-linters
         - stx-tox-pylint
         - utilities-ceph-manager-tox-bandit
         - utilities-ceph-client-tox-bandit
+        - utilities-pci-irq-affinity-agent-tox-py27
+        - utilities-pci-irq-affinity-agent-tox-py39
+        - utilities-pci-irq-affinity-agent-tox-flake8
     post:
       jobs:
         - stx-utilities-upload-git-mirror
@@ -62,6 +68,44 @@
     vars:
       tox_envlist: bandit
       tox_extra_args: -c ./ceph/python-cephclient/python-cephclient/tox.ini
+
+- job:
+    name: utilities-pci-irq-affinity-agent-tox-py27
+    parent: tox
+    description: |
+      Run py27 unittests for utilities/pci-irq-affinity-agent
+    nodeset: ubuntu-bionic
+    files:
+      - ./utilities/pci-irq-affinity-agent/*
+    vars:
+      tox_envlist: py27
+      tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
+
+- job:
+    name: utilities-pci-irq-affinity-agent-tox-py39
+    voting: false
+    parent: tox
+    description: |
+      Run py39 unittests for utilities/pci-irq-affinity-agent
+    nodeset: debian-bullseye
+    files:
+      - ./utilities/pci-irq-affinity-agent/*
+    vars:
+      tox_envlist: py39
+      python_version: 3.9
+      tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
+
+- job:
+    name: utilities-pci-irq-affinity-agent-tox-flake8
+    parent: tox
+    description: |
+      Run flake8 checks for utilities/pci-irq-affinity-agent
+    nodeset: ubuntu-bionic
+    files:
+      - ./utilities/pci-irq-affinity-agent/*
+    vars:
+      tox_envlist: flake8
+      tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
 
 - secret:
     name: stx-utilities-github-secret

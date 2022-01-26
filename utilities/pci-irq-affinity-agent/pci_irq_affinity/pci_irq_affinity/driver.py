@@ -14,10 +14,10 @@
 from oslo_service import loopingcall
 from oslo_concurrency import lockutils
 
-import pci_irq_affinity.utils as pci_utils
 from pci_irq_affinity.config import CONF
 from pci_irq_affinity.log import LOG
-from pci_irq_affinity.nova_provider import novaClient
+from pci_irq_affinity import nova_provider
+from pci_irq_affinity import utils as pci_utils
 
 synchronized = lockutils.synchronized_with_prefix('pci_irq_affinity-')
 
@@ -94,7 +94,8 @@ class AffinePciIrqDriver:
             _msi_irqs = set()
             # refresh instance info.
             if refresh_need:
-                _inst = novaClient.get_instance(inst.uuid)
+                nova_client = nova_provider.get_nova_client()
+                _inst = nova_client.get_instance(inst.uuid)
             if _inst is None:
                 return
 
