@@ -196,12 +196,11 @@ def process_main():
 
     LOG.info("Enter PCIInterruptAffinity Agent")
 
-    nova_client = nova_provider.get_nova_client()
     try:
         signal.signal(signal.SIGTSTP, process_signal_handler)
         openstack_enabled = CONF.openstack.openstack_enabled
         if openstack_enabled:
-            nova_client.open_libvirt_connect()
+            nova_client = nova_provider.get_nova_client()
             audit_srv = audits_initialize()
             rabbit_client = start_rabbitmq_client()
 
@@ -219,7 +218,7 @@ def process_main():
     finally:
         LOG.error("process_main finalized!!!")
         if openstack_enabled:
-            nova_client.close_libvirt_connect()
+            del nova_client
             audit_srv.tg.stop()
             rabbit_client.stop()
 
