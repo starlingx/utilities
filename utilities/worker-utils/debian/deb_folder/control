@@ -1,0 +1,17 @@
+Source: worker-utils
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13),
+ libsystemd-dev
+Standards-Version: 4.1.2
+Homepage: https://www.starlingx.io
+
+Package: worker-utils
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+ perl,
+ systemd
+Description: Initial worker node resource reservation and misc. utilities
+ This package handles initial worker node resource reservation
+ and misc. utilities
