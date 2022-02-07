@@ -31,15 +31,21 @@ TAR_NAME=$(grep '^Name:' PKG-INFO | awk -F ': ' '{print $2}' | sed -e 's/^[[:spa
 CUR_DIR=`pwd`
 BUILD_DIR="$RPMBUILD_BASE"
 
-# Additional files to include in the archive (if they exist).
-EXTRA_FILES="./release-info.inc"
-if [ -f $MY_WORKSPACE/BUILD ]; then
-    EXTRA_FILES+=" $MY_WORKSPACE/BUILD"
+# Jenkins build file
+if [ -f "$MY_WORKSPACE/BUILD" ]; then
+    JENKINS_BUILD_FILE="$MY_WORKSPACE/BUILD"
+elif [ -f $MY_WORKSPACE/../BUILD ]; then
+    JENKINS_BUILD_FILE="$MY_WORKSPACE/../BUILD"
 else
-    if [ -f $MY_WORKSPACE/../BUILD ]; then
-        EXTRA_FILES+=" $MY_WORKSPACE/../BUILD"
-    fi
+    JENKINS_BUILD_FILE=
 fi
+# used by collect.sh
+export JENKINS_BUILD_FILE
+
+# Additional files to include in the archive (if they exist).
+RELEASE_INFO_FILE="./release-info.inc"
+EXTRA_FILES="$RELEASE_INFO_FILE"
+[ x"$JENKINS_BUILD_FILE" = x ] || EXTRA_FILES+=" $JENKINS_BUILD_FILE"
 
 mkdir -p $BUILD_DIR/SRPMS
 
@@ -66,7 +72,7 @@ if [ -f $TAR_PATH/$TAR ]; then
     fi
 
 	# check to see if any of our EXTRA_FILES are newer than the archive
-    for file in "$EXTRA_FILES"; do
+    for file in $EXTRA_FILES ".$SRC_DIR/collect.sh" ; do
 		if [ $file -nt $TAR_PATH/$TAR ]; then
 		    TAR_NEEDED=1
 		fi
@@ -79,15 +85,21 @@ if [ $TAR_NEEDED -gt 0 ]; then
     tar cvf  $TAR_PATH/$TAR_UNCOMPRESSED .$SRC_DIR \
         --exclude '.git*' --exclude 'build' --exclude='.pc' \
         --exclude='patches' --exclude="$DISTRO" --exclude='pbr-*.egg' \
+        --exclude='collect.sh' \
         --transform "s,^\.$SRC_DIR/LICENSE,LICENSE," \
         --transform "s,^\.$SRC_DIR,$TAR_NAME-$VERSION,"
+    # Add generated files
+    mkdir -p "${TAR_PATH}${SRC_DIR}" || exit 1
+    (
+        set -e
+        cd "${TAR_PATH}${SRC_DIR}"
+        RELEASE_INFO_FILE="${CUR_DIR}/${RELEASE_INFO_FILE}"
+        export RELEASE_INFO_FILE
+        "${CUR_DIR}${SRC_DIR}"/collect.sh
+    ) || exit 1
+    tar rvf "$TAR_PATH/$TAR_UNCOMPRESSED" -C "$TAR_PATH" ".${SRC_DIR}" || exit 1
+    rm -rf "${TAR_PATH}${SRC_DIR}"
 fi
-
-for file in $EXTRA_FILES; do
-	if [ -e $file ]; then
-		tar rf $TAR_PATH/$TAR_UNCOMPRESSED -C $(dirname "${file}") $(basename "${file}")
-	fi
-done
 
 $COMPRESS $TAR_PATH/$TAR_UNCOMPRESSED
 
@@ -123,8 +135,3 @@ for SPEC in `ls $BUILD_DIR/SPECS`; do
         rpmbuild -bs $SPEC_PATH --define="%_topdir $BUILD_DIR" --define="_tis_dist .tis"
     fi
 done
-
-
-
-
-

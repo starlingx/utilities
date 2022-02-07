@@ -33,7 +33,6 @@ Build Info  This package contains symbolic links, header files, and related item
 %setup
 
 %build
-./collect.sh
 
 %install
 install -d -m 755 %{buildroot}%{local_etcdir}

@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -ex
+
+PKG_BUILD_NAME="$1"
+PKG_SRC_DIR="$MY_REPO/stx/utilities/utilities/build-info"
+DIST_NAME=build-info-1.0
+
+mkdir "$PKG_BUILD_NAME"
+find "$PKG_SRC_DIR/$DIST_NAME" -mindepth 1 -maxdepth 1 \! -name .\* \! -name collect.sh \
+    -exec cp -r '{}' "$PKG_BUILD_NAME/" \;
+
+(
+    cd $PKG_BUILD_NAME
+    export RELEASE_INFO_FILE="$PKG_SRC_DIR/release-info.inc"
+    JENKINS_BUILD_FILE="$MY_WORKSPACE/BUILD"
+    if [[ -f "$JENKINS_BUILD_FILE" ]] ; then
+        export JENKINS_BUILD_FILE
+    fi
+    "$PKG_SRC_DIR/$DIST_NAME"/collect.sh
+)

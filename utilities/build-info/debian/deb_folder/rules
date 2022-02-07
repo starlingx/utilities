@@ -7,7 +7,6 @@ export LOCAL_INCDIR = usr/include
 	dh $@
 
 override_dh_auto_install:
-	./collect.sh ./release-info.inc
 	dh_auto_install
 
 override_dh_install:
