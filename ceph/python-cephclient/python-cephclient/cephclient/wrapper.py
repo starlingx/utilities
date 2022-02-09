@@ -204,23 +204,6 @@ class CephWrapper(CephClient):
             pool, var, str(val), force=None,
             body=body, timeout=timeout)
 
-    def osd_get_pool_quota(self, pool, body='json', timeout=None):
-        """obtain object or byte limits for pool """
-        return super(CephWrapper, self).osd_pool_get_quota(
-            pool, body=body, timeout=timeout)
-
-    def osd_set_pool_quota(self, pool, field, val, body='json', timeout=None):
-        """set object or byte limit on pool """
-        return super(CephWrapper, self).osd_pool_set_quota(
-            pool, field, str(val), body=body, timeout=timeout)
-
-    def osd_pool_set_quota(self, pool, field, val,
-                           body='json', timeout=None):
-        """set object or byte limit on pool """
-        return super(CephWrapper, self).osd_pool_set_quota(
-            pool=pool, field=field, val=str(val),
-            body=body, timeout=timeout)
-
     def _auth_convert_caps(self, caps):
         if caps:
             if not isinstance(caps, dict):

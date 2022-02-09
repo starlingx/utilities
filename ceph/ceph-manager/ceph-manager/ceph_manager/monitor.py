@@ -183,7 +183,6 @@ class Monitor(HandleUpgradesMixin):
         while True:
             try:
                 self.ceph_poll_status()
-                self.ceph_poll_quotas()
             except Exception:
                 LOG.exception(
                     "Error running periodic monitoring of ceph status, "
@@ -234,71 +233,6 @@ class Monitor(HandleUpgradesMixin):
 
     def filter_health_status(self, health):
         return super(Monitor, self).filter_health_status(health)
-
-    def ceph_poll_quotas(self):
-        self._get_current_alarms()
-        if self.current_quota_alarms:
-            LOG.info(_LI("Current quota alarms %s") %
-                     self.current_quota_alarms)
-
-        # Get current current size of each tier
-        previous_tiers_size = self.tiers_size
-        self.tiers_size = self._get_tiers_size()
-
-        # Make sure any removed tiers have the alarms cleared
-        for t in (set(previous_tiers_size) - set(self.tiers_size)):
-            self._clear_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE,
-                              "{0}.tier={1}".format(
-                                  self.service.entity_instance_id,
-                                  t[:-len(constants.CEPH_CRUSH_TIER_SUFFIX)]))
-
-        # Check the quotas on each tier
-        for tier in self.tiers_size:
-            # Extract the tier name from the crush equivalent
-            tier_name = tier[:-len(constants.CEPH_CRUSH_TIER_SUFFIX)]
-
-            if self.tiers_size[tier] == 0:
-                LOG.info(_LI("'%s' tier cluster size not yet available")
-                         % tier_name)
-                continue
-
-            pools_quota_sum = 0
-            if tier == self.primary_tier_name:
-                for pool in constants.CEPH_POOLS:
-                    if (pool['pool_name'] ==
-                       constants.CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL or
-                       pool['pool_name'] ==
-                       constants.CEPH_POOL_OBJECT_GATEWAY_NAME_HAMMER):
-                        object_pool_name = self._get_object_pool_name()
-                        if object_pool_name is None:
-                            LOG.error("Rados gateway object data pool does "
-                                      "not exist.")
-                        else:
-                            pools_quota_sum += \
-                                self._get_osd_pool_quota(object_pool_name)
-                    else:
-                        pools_quota_sum += self._get_osd_pool_quota(
-                            pool['pool_name'])
-            else:
-                for pool in constants.SB_TIER_CEPH_POOLS:
-                    pool_name = "{0}-{1}".format(pool['pool_name'], tier_name)
-                    pools_quota_sum += self._get_osd_pool_quota(pool_name)
-
-            # Currently, there is only one pool on the addtional tier(s),
-            # therefore allow a quota of 0
-            if (pools_quota_sum != self.tiers_size[tier] and
-                    pools_quota_sum != 0):
-                self._report_fault(
-                    {'tier_name': tier_name,
-                     'tier_eid': "{0}.tier={1}".format(
-                         self.service.entity_instance_id,
-                         tier_name)},
-                    fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE)
-            else:
-                self._clear_fault(
-                    fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE,
-                    "{0}.tier={1}".format(self.service.entity_instance_id,
-                                          tier_name))
 
     # CEPH HELPERS
 
@@ -371,25 +305,6 @@ class Monitor(HandleUpgradesMixin):
                 return self.known_object_pool_name
 
         return self.known_object_pool_name
-
-    def _get_osd_pool_quota(self, pool_name):
-        try:
-            resp, quota = self.service.ceph_api.osd_get_pool_quota(
-                pool_name, body='json')
-        except IOError:
-            return 0
-
-        if not resp.ok:
-            LOG.error(_LE("Getting the quota for "
-                          "%(name)s pool failed:%(reason)s)") %
-                      {"name": pool_name, "reason": resp.reason})
-            return 0
-        else:
-            try:
-                quota_gib = int(quota["output"]["quota_max_bytes"]) // (1024**3)
-                return quota_gib
-            except IOError:
-                return 0
 
     # we have two root nodes 'cache-tier' and 'storage-tier'
     # to calculate the space that is used by the pools, we must only
@@ -778,36 +693,6 @@ class Monitor(HandleUpgradesMixin):
                 self.current_ceph_health = health['health']
                 self.detailed_health_reason = health['detail']
 
-        elif (alarm_id == fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE and
-              not health['tier_eid'] in self.current_quota_alarms):
-
-            quota_reason_text = ("Quota/Space mismatch for the %s tier. The "
-                                 "sum of Ceph pool quotas does not match the "
-                                 "tier size." % health['tier_name'])
-            fault = fm_api.Fault(
-                alarm_id=fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE,
-                alarm_state=fm_constants.FM_ALARM_STATE_SET,
-                entity_type_id=fm_constants.FM_ENTITY_TYPE_CLUSTER,
-                entity_instance_id=health['tier_eid'],
-                severity=fm_constants.FM_ALARM_SEVERITY_MINOR,
-                reason_text=quota_reason_text,
-                alarm_type=fm_constants.FM_ALARM_TYPE_7,
-                probable_cause=fm_constants.ALARM_PROBABLE_CAUSE_75,
-                proposed_repair_action=(
-                    "Update ceph storage pool quotas to use all available "
-                    "cluster space for the %s tier." % health['tier_name']),
-                service_affecting=False)
-
-            alarm_uuid = self.service.fm_api.set_fault(fault)
-            if alarm_uuid:
-                LOG.info(_LI(
-                    "Created storage quota storage alarm %(alarm_uuid)s. "
-                    "Reason: %(reason)s") % {
-                    "alarm_uuid": alarm_uuid, "reason": quota_reason_text})
-            else:
-                LOG.error(_LE("Failed to create quota "
-                              "storage alarm. Reason: %s") % quota_reason_text)
-
     def _clear_fault(self, alarm_id, entity_instance_id=None):
         # Only clear alarm if there is one already raised
         if (alarm_id == fm_constants.FM_ALARM_ID_STORAGE_CEPH and
@@ -816,13 +701,6 @@ class Monitor(HandleUpgradesMixin):
             self.service.fm_api.clear_fault(
                 fm_constants.FM_ALARM_ID_STORAGE_CEPH,
                 self.service.entity_instance_id)
-        elif (alarm_id == fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE and
-              entity_instance_id in self.current_quota_alarms):
-            LOG.info(_LI("Clearing quota alarm with entity_instance_id %s")
-                     % entity_instance_id)
-            self.service.fm_api.clear_fault(
-                fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE,
-                entity_instance_id)
 
     def clear_critical_alarm(self, group_name):
         alarm_list = self.service.fm_api.get_faults_by_id(
@@ -843,10 +721,4 @@ class Monitor(HandleUpgradesMixin):
         self.current_health_alarm = self.service.fm_api.get_fault(
             fm_constants.FM_ALARM_ID_STORAGE_CEPH,
             self.service.entity_instance_id)
-        quota_faults = self.service.fm_api.get_faults_by_id(
-            fm_constants.FM_ALARM_ID_STORAGE_CEPH_FREE_SPACE)
-        if quota_faults:
-            self.current_quota_alarms = [f.entity_instance_id
-                                         for f in quota_faults]
-        else:
-            self.current_quota_alarms = []
+
