@@ -28,14 +28,32 @@ from pci_irq_affinity import instance
 from pci_irq_affinity.log import LOG
 
 
-class NovaProvider:
+class NovaProvider(object):
+
+    _instance = None
 
     def __init__(self):
+        if self._init:
+            return
         self._creds = self._get_keystone_creds()
         self._auth = self._get_auth(self._creds)
         self._cacert = self._get_cacert()
         self._hostname = self.get_hostname()
-        self._conn = None
+        self._conn = guest.connect_to_libvirt()
+        self._init = True
+
+    def __new__(cls):
+        if not cls._instance:
+            cls._instance = super(NovaProvider, cls).__new__(cls)
+            cls._instance.unset_init()
+        return cls._instance
+
+    def __del__(self):
+        if self._conn:
+            self._conn.close()
+
+    def unset_init(self):
+        self._init = False
 
     def get_hostname(self):
         return os.getenv("COMPUTE_HOSTNAME", default=socket.gethostname())
@@ -81,13 +99,6 @@ class NovaProvider:
         except Exception as e:
             LOG.warning("Failed to connect to nova!")
             raise Exception("could not connect nova!")
-
-    def open_libvirt_connect(self):
-        self._conn = guest.connect_to_libvirt()
-        guest.get_host_cpu_topology()
-
-    def close_libvirt_connect(self):
-        self._conn.close()
 
     def get_instance(self, uuid):
         try:
@@ -143,7 +154,4 @@ class NovaProvider:
 
 
 def get_nova_client():
-    if CONF.openstack.openstack_enabled:
-        return NovaProvider()
-    else:
-        return None
+    return NovaProvider()

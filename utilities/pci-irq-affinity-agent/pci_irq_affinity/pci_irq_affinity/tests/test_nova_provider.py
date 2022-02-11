@@ -71,3 +71,9 @@ class TestNovaProvider(unittest.TestCase):
             self.KEYRING_SERVICE,
             self.USERNAME,
         )
+
+    def test__singleton_instantiation(self):
+        nc1 = nova_provider.NovaProvider()
+        nc2 = nova_provider.NovaProvider()
+        nc3 = nova_provider.NovaProvider()
+        self.assertTrue(nc1 is nc2 is nc3)
