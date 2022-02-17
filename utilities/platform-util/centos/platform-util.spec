@@ -32,6 +32,7 @@ Summary: non controller platform utilities
 Platform utilities that don't get packaged on controller hosts
 
 %define local_dir /usr/local
+%define local_share_dir %{local_dir}/share/pkg-lists
 %define local_bindir %{local_dir}/bin
 %define local_sbindir %{local_dir}/sbin
 %define pythonroot /usr/lib64/python2.7/site-packages
@@ -63,6 +64,7 @@ install %{_buildsubdir}/scripts/connectivity_test %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/is-rootdisk-device.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/update-iso.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/gen-bootloader-iso.sh %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/prepare-prestage-packages.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/stx-iso-utils.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/show-certs.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/update_docker_registry_auth.sh %{buildroot}%{local_bindir}
@@ -115,6 +117,7 @@ systemctl enable opt-platform.service
 %defattr(-,root,root,-)
 %{local_bindir}/update-iso.sh
 %{local_bindir}/gen-bootloader-iso.sh
+%{local_bindir}/prepare-prestage-packages.sh
 %{local_bindir}/stx-iso-utils.sh
 %{local_bindir}/show-certs.sh
 %{local_bindir}/update_docker_registry_auth.sh
