@@ -116,7 +116,7 @@ function create_common_package_list {
 function populate_prestage_shared_dir {
     # create the exclude list
     EXCLUDE_LIST=${TEMPDIR}/exclude_list.txt
-    cat ${CURRENT_PACKAGE_LIST_FILE} > ${EXCLUDE_LIST}
+    cat ${RPM_COMMON_LIST} > ${EXCLUDE_LIST}
 
     # add the exclude filter to the files in the exclude list
     sed -i 's/^/- /g' ${EXCLUDE_LIST}
