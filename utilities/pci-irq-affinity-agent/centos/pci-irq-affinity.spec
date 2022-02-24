@@ -33,30 +33,11 @@ rm -rf *.egg-info
 %{__python} setup.py bdist_wheel
 
 %install
-%{__python} setup.py install --root=%{buildroot} \
-                             --install-lib=%{pythonroot} \
-                             --prefix=/usr \
-                             --install-data=/usr/share \
-                             --single-version-externally-managed
-
 mkdir -p $RPM_BUILD_ROOT/wheels
 %{__install}  -m 644 dist/*.whl $RPM_BUILD_ROOT/wheels/
 
-%{__install}  -d -m 755 %{buildroot}%{local_etc_initd}
-%{__install}  -p -D -m 755 pci-irq-affinity-agent %{buildroot}%{local_etc_initd}/pci-irq-affinity-agent
-
-%{__install}  -d -m 755 %{buildroot}%{local_etc_pmond}
-%{__install}  -p -D -m 644 pci-irq-affinity-agent.conf %{buildroot}%{local_etc_pmond}/pci-irq-affinity-agent.conf
-%{__install}  -p -D -m 644 pci-irq-affinity-agent.service %{buildroot}%{_unitdir}/pci-irq-affinity-agent.service
-
 %{__install}  -d  %{buildroot}%{_bindir}
 %{__install}  -p -D -m 755 nova-sriov %{buildroot}%{_bindir}/nova-sriov
-
-%{__install}  -d  %{buildroot}%{_sysconfdir}/pci_irq_affinity
-%{__install}  -p -D -m 600 config.ini %{buildroot}%{_sysconfdir}/pci_irq_affinity/config.ini
-
-%post
-/usr/bin/systemctl enable pci-irq-affinity-agent.service >/dev/null 2>&1
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -64,15 +45,7 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root,-)
 %doc LICENSE
-%{local_etc_initd}/pci-irq-affinity-agent
-%{local_etc_pmond}/pci-irq-affinity-agent.conf
-%{_unitdir}/pci-irq-affinity-agent.service
-%{pythonroot}/pci_irq_affinity/*
-%{pythonroot}/pci_irq_affinity_agent-%{version}*.egg-info
-
-%{_bindir}/pci-irq-affinity-agent
 %{_bindir}/nova-sriov
-%config(noreplace) %{_sysconfdir}/pci_irq_affinity/config.ini
 
 %package wheels
 Summary: %{name} wheels
