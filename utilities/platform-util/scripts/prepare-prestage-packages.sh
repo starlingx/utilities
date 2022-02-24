@@ -34,7 +34,7 @@ declare RPM_LIST=
 declare TEMPDIR=
 
 declare RPM_COMMON_LIST_NAME="common_packages.txt"
-declare RPM_PACKAGE_LIST_DIR="/usr/local/share/pkg-lists"
+declare RPM_PACKAGE_LIST_DIR="/usr/local/share/pkg-list"
 declare PRESTAGE_DIR_PREFIX="/opt/platform/deploy"
 
 function usage {

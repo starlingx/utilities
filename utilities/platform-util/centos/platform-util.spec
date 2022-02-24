@@ -32,7 +32,6 @@ Summary: non controller platform utilities
 Platform utilities that don't get packaged on controller hosts
 
 %define local_dir /usr/local
-%define local_share_dir %{local_dir}/share/pkg-lists
 %define local_bindir %{local_dir}/bin
 %define local_sbindir %{local_dir}/sbin
 %define pythonroot /usr/lib64/python2.7/site-packages
