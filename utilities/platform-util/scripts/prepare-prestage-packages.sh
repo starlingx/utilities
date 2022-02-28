@@ -149,7 +149,7 @@ if [ ! -d ${PRESTAGE_SHARED_DIR} ]; then
     log_error "${PRESTAGE_SHARED_DIR} does not exist. Abort"
 fi
 
-if [ -f "${PRESTAGE_SHARED_DIR}/.prestage_prepation_completed" ]; then
+if [ -f "${PRESTAGE_SHARED_DIR}/.prestage_preparation_completed" ]; then
     log "The prestage shared content has already been created."
     exit 0
 fi
@@ -204,6 +204,6 @@ log "Created the common package list"
 populate_prestage_shared_dir
 log "Prestage shared directory populated"
 
-touch "${PRESTAGE_SHARED_DIR}/.prestage_prepation_completed"
+touch "${PRESTAGE_SHARED_DIR}/.prestage_preparation_completed"
 
 exit 0
