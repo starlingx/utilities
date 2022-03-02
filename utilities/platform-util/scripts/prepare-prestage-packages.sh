@@ -159,25 +159,27 @@ COMPS_FILE="${FEED_DIR}/repodata/*comps.xml"
 
 RPM_DIR="${FEED_DIR}/Packages"
 
-CURRENT_PACKAGE_LIST_FILE=$(ls ${RPM_PACKAGE_LIST_DIR}/*packages_list.txt)
+# The name of the file containing the list of packages in the current release and
+# their checksums is known in advance - ${RELEASE_ID}_packages_list.txt.
+
+CURRENT_PACKAGE_LIST_FILE=${RPM_PACKAGE_LIST_DIR}/${RELEASE_ID}_packages_list.txt
+
+# We do not know the release version on the subcloud.
+# Therefore,by convention, we have "packages_list.txt" as the second substring
+# in its name.
 PREVIOUS_PACKAGE_LIST_FILE=$(ls ${PRESTAGE_SHARED_DIR}/*packages_list.txt)
 
-CURRENT_PACKAGE_LIST_FILE_COUNT=$(echo ${CURRENT_PACKAGE_LIST_FILE} | wc -l)
-if [ ${CURRENT_PACKAGE_LIST_FILE_COUNT} -ne 1 ]; then
-    logger_error "No Unique packages list found at ${RPM_PACKAGE_LIST_DIR}"
+# if either of the files, CURRENT_PACKAGE_LIST_FILE or PREVIOUS_PACKAGE_LIST_FILE,
+# is non-existent or empty, then it will not be possible to compare and get the
+# intersection of the sets of files. Cannot proceed further if this happens.
+# Abort and exit.
+
+if [ ! -f ${CURRENT_PACKAGE_LIST_FILE} ] || [ ! -s ${CURRENT_PACKAGE_LIST_FILE} ]; then
+    log_error "${CURRENT_PACKAGE_LIST_FILE} does not exist or is empty. Abort"
 fi
 
-if [ ! -s ${CURRENT_PACKAGE_LIST_FILE} ]; then
-    log_error "${CURRENT_PACKAGE_LIST_FILE} is empty. Abort"
-fi
-
-PREVIOUS_PACKAGE_LIST_FILE_COUNT=$(echo ${PREVIOUS_PACKAGE_LIST_FILE} | wc -l)
-if [ ${PREVIOUS_PACKAGE_LIST_FILE_COUNT} -ne 1 ]; then
-    logger_error "No Unique packages list found at ${PRESTAGE_SHARED_DIR}"
-fi
-
-if [ ! -s ${PREVIOUS_PACKAGE_LIST_FILE} ]; then
-    logger_error "${PREVIOUS_PACKAGE_LIST_FILE} is empty. Abort"
+if [ ! -f ${PREVIOUS_PACKAGE_LIST_FILE} ] || [ ! -s ${PREVIOUS_PACKAGE_LIST_FILE} ]; then
+    log_error "${PREVIOUS_PACKAGE_LIST_FILE} does not exist or is empty. Abort"
 fi
 
 TEMPDIR=$(mktemp -d -p /scratch package_list_dir_XXXXXX)
