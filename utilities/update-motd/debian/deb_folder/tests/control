@@ -1,0 +1,28 @@
+Tests: show-motd
+# mythtv-status is buggy
+Depends: @,
+         base-files,
+         fortunes-ubuntu-server,
+         freedombox,
+         fwupd [armhf],
+         overlayroot,
+         python3,
+         ubuntu-advantage-tools,
+         ubuntu-release-upgrader-core,
+         unattended-upgrades,
+         update-notifier-common
+
+Tests: update-motd
+# mythtv-status is buggy
+Depends: @,
+         base-files,
+         fortunes-ubuntu-server,
+         freedombox,
+         fwupd [armhf],
+         overlayroot,
+         python3,
+         ubuntu-advantage-tools,
+         ubuntu-release-upgrader-core,
+         unattended-upgrades,
+         update-notifier-common
+Restrictions: needs-root

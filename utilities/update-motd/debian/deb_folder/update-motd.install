@@ -1,4 +1,1 @@
-etc/cron.d/*
-etc/motd.d/*
-etc/motd.head
-usr/sbin/*
+update-motd usr/sbin

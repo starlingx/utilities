@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+
+# If there's any `apt update` running, wait for it to finish. This is an
+# inherently racy thing to do but it might help for some tests.
+
+import ctypes
+import fcntl
+import os
+import struct
+import sys
+
+LOCK_DIR = "/var/lib/apt/lists/lock"
+
+if os.geteuid() != 0:
+    print("Must be root, exiting.", file=sys.stderr)
+    sys.exit(1)
+
+lockdata = struct.pack("hhllhh", fcntl.F_WRLCK, 0, 0, 0, 0, 0)
+
+f = os.open(LOCK_DIR, os.O_RDWR)
+rv = fcntl.fcntl(f, fcntl.F_SETFL, os.O_NDELAY)
+
+if rv == -1:
+    print(f"Unable to set O_NDELAY on {LOCK_DIR}", file=sys.stderr)
+    sys.exit(1)
+
+print(
+    f"Attempting to lock {LOCK_DIR} to wait for any currently running apt updates to finish...",
+    end=" ",
+)
+rv = fcntl.fcntl(f, fcntl.F_SETLKW, lockdata)
+if rv == -1:
+    print(
+        f"Unable to lock {LOCK_DIR}: {os.strerror(ctypes.get_errno())}", file=sys.stderr
+    )
+    sys.exit(1)
+print("locked, exiting.")
+
+os.close(f)
