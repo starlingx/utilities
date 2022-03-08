@@ -530,7 +530,7 @@ function extract_shared_files {
     if [ ${PATCHES_FROM_HOST} = "yes"  ]; then
         extract_pkg_to_workdir 'platform-kickstarts'
 
-        local patched_kickstart_files_dir=${WORKDIR}/www/pages/feed/rel-${ISO_VERSION}
+        local patched_kickstart_files_dir=${WORKDIR}/var/www/pages/feed/rel-${ISO_VERSION}
         if [ -f ${patched_kickstart_files_dir}/miniboot_controller_ks.cfg ]; then
             # Use the patched kickstart files
             kickstart_files_dir=${patched_kickstart_files_dir}
