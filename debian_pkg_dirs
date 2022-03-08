@@ -1,3 +1,4 @@
+ceph/ceph-manager
 ceph/python-cephclient
 tools/collector
 tools/engtools/hostdata-collectors
