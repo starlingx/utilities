@@ -1,14 +1,41 @@
 Source: update-motd
 Section: admin
-Priority: optional
-Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
-Build-Depends: debhelper-compat (= 13)
-Standards-Version: 4.1.2
-Homepage: https://www.starlingx.io
+Priority: extra
+Maintainer: Dustin Kirkland <kirkland@ubuntu.com>
+Build-Depends: debhelper (>= 6)
+Standards-Version: 3.8.0
+Vcs-Git: https://git.launchpad.net/~ubuntu-core-dev/ubuntu/+source/update-motd -b ubuntu/master
+Vcs-Browser: https://git.launchpad.net/~ubuntu-core-dev/ubuntu/+source/update-motd
 
 Package: update-motd
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends},
- cron
-Description: dynamic MOTD generation
- This package handles dynamic MOTD generation
+Architecture: all
+Depends: ${misc:Depends}, libpam-modules (>= 1.0.1-9ubuntu3)
+Description: complements pam_motd in libpam-modules
+ .
+ This package installs a script that immediately dynamically generates
+ a message-of-the-day by running scripts installed in /etc/update-motd.d,
+ in lexical order.
+ .
+ Other packages, or system administrators should symlink scripts into
+ /etc/update-motd.d, pre-pending a 2-digit number to handle ordering.
+ .
+ The functionality formerly provided by this package is now integrated into
+ pam_motd, in libpam-modules.
+
+Package: show-motd
+Architecture: all
+Depends: ${misc:Depends},
+         update-motd (>= 3.6-0ubuntu1.19.10.0)
+Breaks: base-files (<< 11ubuntu2),
+        libpam-modules (<< 1.3.1-5ubuntu1.19.10.0),
+        ubuntu-release-upgrader-core (<< 1:20.04.5),
+        update-notifier-common (<< 3.192.26.1)
+Description: show message of the day in interactive shells
+ .
+ This package installs a script in /etc/profile.d that dynamically
+ generates and shows a message-of-the-day in inteactive shells by
+ running scripts installed in /etc/update-motd.d.
+ .
+ Showing the message-of-the-day in shells is useful when pam_motd does
+ not show it, for example when starting the interactive shell does not
+ require login.

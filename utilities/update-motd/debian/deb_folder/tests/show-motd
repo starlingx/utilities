@@ -1,0 +1,8 @@
+#!/bin/sh
+
+unset MOTD_SHOWN
+
+RET=0
+bash -i -c '. /etc/profile.d/update-motd.sh' 2> stdout || RET=$?
+egrep -v '(bash: cannot set terminal process group|no job control in this shell)' stdout >&2 || true
+exit $RET

@@ -1,5 +1,375 @@
-update-motd (1.0-1) unstable; urgency=medium
+update-motd (3.9) impish; urgency=medium
 
-  * Initial release.
+  * debian/tests/update-motd: Do not check for untested motd snippets anymore.
 
- -- Leonardo Fagundes Luz Serrano <Leonardo.FagundesLuzSerrano@windriver.com>  Fri, 29 Oct 2021 14:33:14 -0300
+ -- Brian Murray <brian@ubuntu.com>  Thu, 10 Jun 2021 11:29:10 -0700
+
+update-motd (3.8) impish; urgency=medium
+
+  * debian/tests/control: Test ubuntu-advantage-tools scripts, too
+    (LP: #1926660)
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Thu, 06 May 2021 17:42:45 +0200
+
+update-motd (3.7) hirsute; urgency=medium
+
+  * debian/source/format: Add as 3.0 (native) The previous version failed
+    because the script wasn't +x.  We're going for native because the upstream
+    is Ubuntu, and also because there were some changes in the diff.gz in the
+    previous upload, showing that the orig tarball isn't that important to
+    update-motd anyway.
+  * Drop ChangeLog file. This was not committed and the same information is in
+    debian/changelog.
+  * show-motd doesn't need to wait for apt update since it's only showing
+    what's there
+
+ -- Iain Lane <iain@orangesquash.org.uk>  Fri, 05 Mar 2021 09:25:07 +0000
+
+update-motd (3.6-0ubuntu9) hirsute; urgency=medium
+
+  * debian/tests/*: Add script debian/tests/wait-for-apt-update-to-finish and
+    call it. One of the integrations we're testing (freedombox) starts doing
+    an `apt update` when it's installed, and this breaks `update-motd`. Wait
+    for this to settle before calling `update-motd`. Perhaps it would be
+    better if this test didn't test external integrations which can break it
+    for reasons not to do with `update-motd` itself, and leave that up to
+    those packages themselves to do.
+
+ -- Iain Lane <iain@orangesquash.org.uk>  Wed, 03 Mar 2021 10:53:23 +0000
+
+update-motd (3.6-0ubuntu8) hirsute; urgency=low
+
+  * debian/control: fix typo compliment -> complement (LP: #1900318)
+
+ -- Koen Beek <koen.beek@gmail.com>  Wed, 16 Dec 2020 00:28:20 +0100
+
+update-motd (3.6-0ubuntu7) groovy; urgency=medium
+
+  [ Jinming Wu, Patrick ]
+  * update-motd.sh: remove an extra "once" (LP: #1886534)
+
+  [ Balint Reczey ]
+  * debian/control: Vcs-* to point to the new packaging repository
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Wed, 12 Aug 2020 19:37:58 +0200
+
+update-motd (3.6-0ubuntu6) focal; urgency=medium
+
+  * debian/tests/update-motd: Print not tested motd snippets
+  * debian/tests/control: Test update-motd.d snippet or fwupd, too
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Thu, 12 Dec 2019 18:57:29 +0100
+
+update-motd (3.6-0ubuntu5) focal; urgency=medium
+
+  * show-motd: Show MOTD from /etc/profile.d snippet in the first shell every
+    day instead of showing it only after 24h is elapsed since showing it
+    last time. (LP: #1855918)
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Tue, 10 Dec 2019 20:21:57 +0100
+
+update-motd (3.6-0ubuntu4) focal; urgency=medium
+
+  * update-motd.sh: Don't source, but run update-motd.
+    This fixes being dropped out of shell when update-motd exits
+    with nonzero value.
+  * update-motd.sh: Don't misleadingly indicate that script is
+    running with set -e
+  * update-motd.sh: Don't set "stamp" and eval_gettext()
+    in /etc/profile.d script
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Sat, 07 Dec 2019 10:25:10 +0100
+
+update-motd (3.6-0ubuntu3) focal; urgency=medium
+
+  * update-motd.sh: Fix space in message about .hushlogin
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Fri, 06 Dec 2019 17:31:18 +0100
+
+update-motd (3.6-0ubuntu2) focal; urgency=medium
+
+  * Show MOTD using an /etc/profile.d snippet when it was not shown
+    by PAM and it was shown more than a day ago. (LP: #1855089)
+    - Add autopkgtest
+    - Set MOTD_SHOWN=update-motd in /etc/profile.d after showing MOTD
+    - Add Breaks: for packages with /etc/update-motd.d snippets failing as
+      a normal user. Also add Breaks: on libpam-modules not setting
+      MOTD_SHOWN=pam.
+    - I18n the message about .hushlogin
+    - Split /etc/profile.d snippet to new show-motd binary package
+      to not change the behaviour of the update-motd package on upgrade.
+    - update-motd.8: Update man page with new update-motd --show-only option
+      and also mention the new show-motd package.
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Fri, 06 Dec 2019 16:52:46 +0100
+
+update-motd (3.6-0ubuntu1) vivid; urgency=low
+
+  * .bzr-builddeb/default.conf:
+    - remove dirty directory
+  * debian/control:
+    - clean up package description
+  * debian/manpages, update-motd.1 => update-motd.8: LP: #907688
+    - move from a .1 to .8 manpage, minor doc updates
+  * debian/preinst, debian/prerm:
+    - deprecate, at these have not been necessary in a very long time
+  * debian/release-build.sh, debian/release.sh:
+    - deprecate, as these are maintained in bikeshed now
+  * debian/rules:
+    - simplify/modernize build
+  * README:
+    - update manpage reference
+  * update-motd:
+    - add a permission denied check, and better error handling
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Tue, 11 Nov 2014 10:48:44 -0600
+
+update-motd (3.5-0ubuntu1) karmic; urgency=low
+
+  * debian/rules: install changelog, LP: #401229
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Sun, 19 Jul 2009 21:21:39 -0500
+
+update-motd (3.4-0ubuntu1) karmic; urgency=low
+
+  * debian/rules: ensure that this package isn't *totally* empty,
+    so install docs, was causing nasty failures on upgrades, LP: #400462
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Fri, 17 Jul 2009 03:27:10 -0500
+
+update-motd (3.3-0ubuntu1) karmic; urgency=low
+
+  [ Dustin Kirkland ]
+  * control, dirs, install, rules: this package is now just a placeholder,
+    depending on libpam-modules which provides pam_motd; empty out the
+    installed contents of this package; leaving the sources in bzr for
+    historical purposes (ah, memories); LP: #399071, #400131
+
+  [ Loïc Minier ]
+  * Call dh_installchangelogs to install debian/changelog in /usr/share/doc.
+  * Drop references to build-stamp, configure-stamp and the configure target
+    ase these aren't used.
+  * Call dh_* with -i in binary-indep.
+  * Strip boilerplate from rules.
+  * Drop useless dirs from debian/dirs.
+  * Drop unused/bogus po-debconf from build-deps.
+  * Use debian/manpages instead of args to dh_installman for consistency.
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Thu, 16 Jul 2009 17:33:44 -0500
+
+update-motd (3.2-0ubuntu1) karmic; urgency=low
+
+  * update-motd.sh: respect ~/.hushlogin, LP: #399738
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Wed, 15 Jul 2009 22:30:41 -0500
+
+update-motd (3.1-0ubuntu1) karmic; urgency=low
+
+  * debian/prerm: remove /etc/profile.d/update-motd.sh
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Mon, 13 Jul 2009 20:36:22 -0500
+
+update-motd (3.0-0ubuntu1) karmic; urgency=low
+
+  [ update-motd 3.0 major redesign ]
+  NOTE: this release will be very short lived--this entire package
+        should be obsolete when pam_motd assumes this functionality;
+        see Launchpad #399071
+  * update-motd
+    - drop the daemon design, as this was heavily objectionable
+    - drop the cronjob design (actually, this was dropped in 2.0)
+    - instead, make update-motd a script sourced in /etc/profile.d,
+      such that it is *only* run on interactive login, and cpu cycles
+      are not wasted otherwise
+  * update-motd.sh: script installed in /etc/profile.d
+  * update-motd.1: updated accordingly
+  * debian/control: updated description, drop python dependency
+  * debian/dirs, debian/install: only installing in /usr/bin and
+    /etc/profile.d
+  * debian/init, debian/iwatch.xml: dropped entirely (also fixes LP: #398646)
+  * debian/postinst: purge unneeded /etc files
+  * debian/release-build.sh, debian/release.sh: bump major version to '3'
+  * debian/rules: drop init script installation, link /usr/bin/update-motd
+    into /etc/profile.d
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Mon, 13 Jul 2009 20:02:54 -0500
+
+update-motd (2.0-0ubuntu1) karmic; urgency=low
+
+  [ update-motd 2.0 major redesign ]
+  * update-motd:
+    - rewrite update-motd as a python daemon, rather than a series of
+      difficult-to-manage cronjobs
+    - improve locking, LP: #340761
+  * update-motd: manpage updated for daemon re-design
+  * debian/update-motd.cron.d: dropped, no longer needed
+  * debian/rules: added a get-orig-source target, install init, don't
+    install cron
+  * debian/control: updated description for the daemon, depend on python,
+    drop cron dependency
+  * debian/postinst: delete the cron.d file in older installations
+  * ChangeLog: dropped; please use debian/changelog
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Sun, 12 Jul 2009 17:08:55 -0500
+
+update-motd (1.13) jaunty; urgency=low
+
+  [ Jon Bernard <bernardj@gmail.com> ]
+  * debian/install: fix installation path for iwatch.xml
+  * debian/changelog: use Jon's launchpad email address
+  * update-motd:
+    - Fix renice output redirect, LP: #339774
+    - Fix usage() formatting
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Sun, 08 Mar 2009 23:27:56 -0500
+
+update-motd (1.12) jaunty; urgency=low
+
+  * Inotify support
+    - big thanks for Jon Bernard <bernardj@gmail.com> for all his help!
+  * debian/control: suggest iwatch
+  * debian/dirs: add /etc/update-motd directory
+  * debian/install: install /etc/update-motd/iwatch.xml
+  * debian/iwatch.xml: iwatch configuration file
+  * debian/update-motd.cron.d: use the "d" argument for the 10-minute job
+  * update-motd:
+    - default FREQ to "d"
+    - default vars added for inotify
+    - usage statement updated accordingly
+    - ensure that the cronjobs are no-ops, if running in inotify mode
+    - handle starting/stopping inotify via --enable and --disable
+    - move the trap to the top, and make sure the lock is established
+    - do not run the /etc/update-motd.*/ scripts, if in inotify mode
+  * update-motd.1: documentation updated
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Thu, 05 Mar 2009 13:20:14 -0600
+
+update-motd (1.11) jaunty; urgency=low
+
+  * update-motd: don't fail the entire script, if renice/ionice fail,
+    LP: #331921; ionice to 'idle' rather than 'best-effort'
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Thu, 05 Mar 2009 10:51:26 -0600
+
+update-motd (1.10) jaunty; urgency=low
+
+  * debian/update-motd.cron.d: Fix broken crontab entries, LP: #312809
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Mon, 05 Jan 2009 12:51:54 -0600
+
+update-motd (1.9) jaunty; urgency=low
+
+  * update-motd: support other run frequencies, run very "nice" when not
+    --force'd
+  * update-motd.1: document the new run frequencies
+  * debian/dirs: create the additional run frequency directories
+  * debian/update-motd.cron.d: install cronjobs to handle the new run
+    frequencies
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Tue, 11 Nov 2008 00:42:47 +0100
+
+update-motd (1.8) intrepid; urgency=low
+
+  * update-motd: on disable, regenerate a motd that does not have the possibly
+    stale update-motd data in it; on enable, run update-motd immediately
+    (LP: #276539)
+  * update-motd.1: update the manpage accordingly
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Tue, 30 Sep 2008 17:30:34 -0500
+
+update-motd (1.7) intrepid; urgency=low
+
+  * Packaging suggestions (LP: #271848)
+  * debian/postinst: use lt-nl instead of lt
+  * debian/prerm: remove entirely
+  * debian/rules: use dh_installcron
+  * debian/update-motd.cron.d: ensure that the binary exists and is
+    executable when running the cronjob
+  * update-motd.cron: moved to debian/update-motd.cron.d
+  * debian/copyright: GPLv3 only, adhere to Canonical guidelines
+  * debian/control: added VCS-* info to point to upstream bazaar branches
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Fri, 19 Sep 2008 18:13:55 -0500
+
+update-motd (1.6) intrepid; urgency=low
+
+  * ChangeLog: fill in details of the last few releases
+  * debian/config: purge debconf configuration
+  * debian/dirs: purge usr/share/update-motd and etc/default/update-motd
+  * debian/init.d: purge init script
+  * debian/install: install cronjob directly to etc/cron.d
+  * debian/po/*: purge translation of template
+  * debian/postinst: purge debconf configuration, remove init script left by
+    older update-motd version (<1.6)
+  * debian/rules: purge po update, install the cronjob into place, purge init
+    script installation
+  * debian/templates: purge debconf questions
+  * update-motd:
+    - add usage statement
+    - add options for --disable, --enable
+    - adjust error messages
+    - do no execute if the .disabled file exists
+    - write the last-run timestamp to the .lastrun file
+  * update-motd.1: adjust manpage to match new operation
+  * update-motd.cron: adjust header comment to match new operation
+  * update-motd.default: purge etc/default file
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Wed, 17 Sep 2008 21:14:18 -0500
+
+update-motd (1.5) intrepid; urgency=low
+
+  * update-motd: print error messages to stderr, rather than stdout,
+    (LP: #271368).
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Wed, 17 Sep 2008 09:18:54 -0500
+
+update-motd (1.4) intrepid; urgency=low
+
+  * debian/config: validate that 1<=FREQ_IN_MIN<=59, at most 5 times before
+    defaulting to FREQ_IN_MIN=10
+  * debian/templates: valid input is 1 to 59 minutes
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Mon, 15 Sep 2008 21:37:44 -0500
+
+update-motd (1.3) intrepid; urgency=low
+
+  * debian/config: only ask freq-in-min question if update-motd is enabled,
+    set default FREQ_IN_MIN back to 10
+  * debian/postinst: only update FREQ_IN_MIN if update-motd is enabled, remove
+    the cronjob entirely if update-motd is disabled
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Mon, 15 Sep 2008 16:08:37 -0500
+
+update-motd (1.2) intrepid; urgency=low
+
+  * debian/config: extract FREQ_IN_MIN from /etc/cron.d/update-motd
+  * debian/init.d:
+    - check that RUN=yes before starting, and that the cronjob exists
+    - ditto for the status action
+    - touch /var/run/update-motd.enabled if running
+    - use proper log_daemon_msg/log_end_msg for start/stop/refresh
+  * debian/postinst
+    - update the default file on RUN=yes|no
+    - create cronjob from template, using FREQ_IN_MIN debconf selection
+  * update-motd:
+    - check that update-motd is enabled (/var/run/update-motd.enabled)
+    - add argument handling and support for --force
+  * update-motd.1:
+    - added documentation about --force
+    - improved manpage formatting
+  * update-motd.default: remove FREQ_IN_MIN, as it's no longer set here
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Mon, 15 Sep 2008 14:55:18 -0500
+
+update-motd (1.1) intrepid; urgency=low
+
+  * debian/control: Description line was too long (LP: #260441).
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Fri, 22 Aug 2008 17:30:56 +0100
+
+update-motd (1.0) intrepid; urgency=low
+
+  * Initial package creation (LP: #260412)
+
+ -- Dustin Kirkland <kirkland@ubuntu.com>  Fri, 22 Aug 2008 10:36:38 +0100
+

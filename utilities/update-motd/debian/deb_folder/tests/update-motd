@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -e
+
+debian/tests/wait-for-apt-update-to-finish
+
+# generate and show MOTD
+update-motd
