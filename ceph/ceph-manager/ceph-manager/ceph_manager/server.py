@@ -1,6 +1,5 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 #
-# Copyright (c) 2016-2018 Wind River Systems, Inc.
+# Copyright (c) 2016-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -30,6 +29,7 @@ from cephclient import wrapper
 
 from ceph_manager.monitor import Monitor
 from ceph_manager import constants
+from ceph_manager import utils
 
 from ceph_manager.i18n import _LI
 from ceph_manager.i18n import _LW
@@ -133,7 +133,15 @@ class Service(SysinvConductorUpgradeApi, service.Service):
 
     def start(self):
         super(Service, self).start()
-        transport = messaging.get_transport(self.conf)
+
+        # pylint: disable=protected-access
+        sysinv_conf = self.conf._namespace._normalized[0]['DEFAULT']
+        url = "rabbit://{user}:{password}@{host}:{port}"\
+              "".format(user=sysinv_conf['rabbit_userid'][0],
+                        password=sysinv_conf['rabbit_password'][0],
+                        host=utils.ipv6_bracketed(sysinv_conf['rabbit_host'][0]),
+                        port=sysinv_conf['rabbit_port'][0])
+        transport = messaging.get_transport(self.conf, url=url)
         self.sysinv_conductor = messaging.RPCClient(
             transport,
             messaging.Target(
