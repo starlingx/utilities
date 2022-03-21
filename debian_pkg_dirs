@@ -1,5 +1,6 @@
 ceph/ceph-manager
 ceph/python-cephclient
+tools/debian-integration
 tools/collector
 tools/engtools/hostdata-collectors
 utilities/build-info
