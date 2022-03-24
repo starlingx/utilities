@@ -114,27 +114,6 @@ fi
 # BI 25: ignore puppet apply warnings until we fix them
 sed -i 's@Warning|@MMAAAAAAAAAASKED|@g' /usr/local/bin/puppet-manifest-apply.sh
 
-# BI 26: workaround missing pxe
-mkdir -p /opt/platform/config/22.02/pxelinux.cfg
-mkdir -p /var/pxeboot/pxelinux.cfg.files/
-echo 0 > /var/pxeboot/pxelinux.cfg.files/pxe-storage-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/pxe-smallsystem_lowlatency-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/pxe-smallsystem-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/pxe-worker_lowlatency-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/default
-echo 0 > /var/pxeboot/pxelinux.cfg.files/efi-pxe-storage-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/efi-pxe-worker-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/pxe-worker-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/efi-pxe-smallsystem_lowlatency-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/default.static
-echo 0 > /var/pxeboot/pxelinux.cfg.files/pxe-controller-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/grub.cfg.static
-echo 0 > /var/pxeboot/pxelinux.cfg.files/efi-pxe-smallsystem-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/efi-pxe-worker_lowlatency-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/efi-pxe-controller-install-22.02
-echo 0 > /var/pxeboot/pxelinux.cfg.files/grub.cfg
-
-
 # BI 27: workaround remove grubby commands
 bifile='/home/sysadmin/.27'
 if [ ! -f ${bifile} ]; then
@@ -153,9 +132,6 @@ if [ ! -f ${bifile} ]; then
   # workaround rootfs detection, hardcode /dev/sda
   sed -i 's@device_path = out.rstrip()@device_path = out.split("\\n")[0].rstrip()@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/files/populate_initial_config.py
   sed -i 's@"""Cloned from sysinv"""@return "/dev/sda"@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/files/populate_initial_config.py
-  # workaround pxe update, hardcoded based on SW Version
-  echo '#!/bin/bash' > /usr/sbin/pxeboot-update-22.02.sh
-  chmod +x /usr/sbin/pxeboot-update-22.02.sh
 
 cat > /tmp/34_restart_sysinv <<EOF
 
