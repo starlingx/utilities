@@ -96,7 +96,6 @@ fi
 sed -i 's@  \$ha_primary.*= false,@  \$ha_primary     = true,@g' /usr/share/puppet/modules/drbd/manifests/resource.pp
 sed -i 's@  \$ha_primary.*= false,@  \$ha_primary     = true,@g' /usr/share/puppet/modules/platform/manifests/drbd.pp
 sed -i 's@  \$automount.*= false,@  \$automount     = true,@g' /usr/share/puppet/modules/platform/manifests/drbd.pp
-sed -i 's@^RequiresMountsFor@#RequiresMountsFor@g' /lib/systemd/system/postgresql@.service
 systemctl daemon-reload
  
  
