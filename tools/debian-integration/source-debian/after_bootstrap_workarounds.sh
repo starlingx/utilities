@@ -177,6 +177,7 @@ systemctl daemon-reload
 # UAR 50.a ceph
 bifile='/home/sysadmin/.uar_ceph_1'
 if [ ! -f ${bifile} ]; then
+  sed -i 's@pstack \$pid@eu-stack -p \$pid@g' /etc/init.d/ceph-init-wrapper
   sed -i 's@LIBDIR=/usr/lib64/ceph@LIBDIR=/usr/lib/ceph@g' /etc/init.d/ceph-init-wrapper
   sed -i 's@LIBDIR=/usr/lib64/ceph@LIBDIR=/usr/lib/ceph@g' /etc/init.d/ceph
   systemctl disable radosgw   # do we need this ?
