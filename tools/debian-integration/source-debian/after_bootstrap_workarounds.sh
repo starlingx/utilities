@@ -173,11 +173,6 @@ A=$(grep -Rn "reqadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | 
 B=$((A + 0))
 sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/haproxy.pp
 
-# UAR 46:
-sed -i 's@status \$@status_of_proc \$@g' /etc/init.d/fminit
-sed -i 's@status \$@status_of_proc \$@g' /etc/init.d/openldap
-systemctl daemon-reload
-
 # UAR 50.a ceph
 bifile='/home/sysadmin/.uar_ceph_1'
 if [ ! -f ${bifile} ]; then
