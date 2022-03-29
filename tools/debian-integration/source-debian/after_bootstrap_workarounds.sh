@@ -165,9 +165,6 @@ sed -i 's@|/usr/bin/python2)@|/usr/bin/python2|/usr/bin/python3)@g' /usr/lib/ocf
 sed -i 's@|/usr/bin/python2)@|/usr/bin/python2|/usr/bin/python3)@g' /usr/lib/ocf/resource.d/platform/cert-alarm
  
 
-# UAR 37: sm docker-distribution
-sed -i 's@docker-distribution.service@docker-registry.service@g' /usr/share/puppet/modules/platform/files/docker-distribution
- 
 # UAR 43: haproxy
 A=$(grep -Rn "reqadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
 B=$((A + 0))
