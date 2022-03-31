@@ -42,6 +42,7 @@ Usage:
                   [ --param <param>=<value> ]
                   [ --default-boot <default menu option> ]
                   [ --timeout <menu timeout> ]
+                  [ --force-install ]
 
         --input  <file>: Specify input ISO file
         --output <file>: Specify output ISO file
@@ -74,6 +75,9 @@ Usage:
         --timeout <menu timeout>:
                          Specify boot menu timeout, in seconds.  (default 30)
                          A value of -1 will wait forever.
+        --force-install:
+                         Force install the prestaged content even if there is already an
+                         installation on the target.
 ENDUSAGE
 }
 
@@ -416,7 +420,8 @@ function copy_rpm_file_to_iso {
             log_error "Error: copy_rpm_file_to_iso: file '${src}' not found in rpm '$(basename {rpm})'"
             rc=1
         else
-            copy_to_iso "${src}" "${dest}" "${overwrite}"
+            # we do not need an md5 here, so leaving third argument empty
+            copy_to_iso "${src}" "${dest}" "" "${overwrite}"
             rc=$?
         fi
     popd > /dev/null
@@ -478,6 +483,9 @@ function generate_boot_cfg {
     COMMON_ARGS="${COMMON_ARGS} biosdevname=0 usbcore.autosuspend=-1"
     COMMON_ARGS="${COMMON_ARGS} security_profile=standard user_namespace.enable=1"
     COMMON_ARGS="${COMMON_ARGS} inst.stage2=hd:LABEL=${VOLUME_LABEL} inst.ks=hd:LABEL=${VOLUME_LABEL}:/${PRESTAGED_KICKSTART}"
+    if [[ "${FORCE_INSTALL}" == true ]]; then
+        COMMON_ARGS="${COMMON_ARGS} force_install"
+    fi
 
     for f in ${isodir}/isolinux.cfg ${isodir}/syslinux.cfg; do
         cat <<EOF > ${f}
@@ -557,6 +565,7 @@ declare MD5_FILE="container-image.tar.gz.md5"
 declare VOLUME_LABEL="oe_prestaged_iso_boot"
 declare PRESTAGED_KICKSTART="prestaged_installer_ks.cfg"
 declare MENU_NAME="Prestaged Local Installer"
+declare FORCE_INSTALL=false
 
 SHORTOPTS="";    LONGOPTS=""
 SHORTOPTS+="i:"; LONGOPTS+="input:,"
@@ -568,6 +577,7 @@ SHORTOPTS+="K:"; LONGOPTS+="kickstart-patch:,"
 SHORTOPTS+="d:"; LONGOPTS+="default-boot:,"
 SHORTOPTS+="t:"; LONGOPTS+="timeout:,"
 SHORTOPTS+="I:"; LONGOPTS+="images:,"
+SHORTOPTS+="f";  LONGOPTS+="force-install,"
 SHORTOPTS+="h";  LONGOPTS+="help"
 
 OPTS=$(getopt -o "${SHORTOPTS}" --long "${LONGOPTS}" --name "$0" -- "$@")
@@ -645,6 +655,10 @@ while :; do
 
             UPDATE_TIMEOUT="yes"
             shift 2
+            ;;
+        -f | --force-install)
+            FORCE_INSTALL=true
+            shift
             ;;
         --)
             shift
