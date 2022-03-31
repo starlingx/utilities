@@ -158,13 +158,6 @@ sed -i '1 a touch /var/run/worker_goenabled' /etc/goenabled.d/worker-goenabled.s
 # UAR 35.c: sm stuck waiting for goenabled_subf
 systemctl enable config
 
-# UAR bonus 35:
-sed -i 's@|/usr/bin/python2)@|/usr/bin/python2|/usr/bin/python3)@g' /usr/lib/ocf/resource.d/platform/sysinv-api
-sed -i 's@|/usr/bin/python2)@|/usr/bin/python2|/usr/bin/python3)@g' /usr/lib/ocf/resource.d/platform/sysinv-conductor
-sed -i 's@|/usr/bin/python2)@|/usr/bin/python2|/usr/bin/python3)@g' /usr/lib/ocf/resource.d/platform/cert-mon
-sed -i 's@|/usr/bin/python2)@|/usr/bin/python2|/usr/bin/python3)@g' /usr/lib/ocf/resource.d/platform/cert-alarm
- 
-
 # UAR 43: haproxy
 A=$(grep -Rn "reqadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
 B=$((A + 0))
