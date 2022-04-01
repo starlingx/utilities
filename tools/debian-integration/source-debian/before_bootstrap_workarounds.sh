@@ -66,9 +66,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# BI 20 i: only fix first puppet run, puppet is not re-entrant
-sed -i 's@grep -Fxq \${mountpoint}@grep -Fxq -e /var/rootdirs\${mountpoint} -e \${mountpoint}@g' /usr/share/puppet/modules/platform/manifests/filesystem.pp
-
 # BI 20 f:
 sed -i "s@docker-ce@docker.io@g" /usr/share/puppet/modules/platform/manifests/docker.pp
 sed -i "s@python-fmclient@python3-fmclient@g" /usr/share/puppet/modules/fm/manifests/params.pp
