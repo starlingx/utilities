@@ -66,18 +66,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# BI 20 e and n:
-bifile='/home/sysadmin/.bi20e'
-if [ ! -f ${bifile} ]; then
-  for f in /usr/lib/postgresql/13/bin/*
-  do
-    echo "Linked $f"
-    ln -s "$f" /usr/bin
-  done
-  touch ${bifile}
-fi
-
-
 # BI 20 i: only fix first puppet run, puppet is not re-entrant
 sed -i 's@grep -Fxq \${mountpoint}@grep -Fxq -e /var/rootdirs\${mountpoint} -e \${mountpoint}@g' /usr/share/puppet/modules/platform/manifests/filesystem.pp
 
