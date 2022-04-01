@@ -205,20 +205,4 @@ cp /usr/bin/guest* /usr/local/bin/
 mv /etc/pmon.d/pci-irq-affinity-agent.conf /home/sysadmin/
 systemctl disable pci-irq-affinity-agent
 
-# TODO WORKAROUND NETWOKING, UAR 2,6,36
-bifile='/home/sysadmin/.uar2'
-if [ ! -f ${bifile} ]; then
-  A=$(grep -Rn "gateway = get_interface_gateway_address(context, networktype)" /usr/lib/python3/dist-packages/sysinv/puppet/interface.py | tail -n 1 | awk -F':' '{print $1}')
-  if [[ ! -z "$A" ]]; then
-    A=$((A - 1))
-    B=$((A + 6))
-    sed -i ${A}','${B}'d ' /usr/lib/python3/dist-packages/sysinv/puppet/interface.py
-  fi
-  touch ${bifile}
-  systemctl restart sysinv-conductor
-fi
-cp /usr/local/bin/apply_network_config.sh /root
-echo 'exit 0' > /usr/local/bin/apply_network_config.sh
-cp /home/sysadmin/interfaces /etc/network/interfaces
-sed -i "s@create_resources('network_config'@#create_resources('network_config'@g" /usr/share/puppet/modules/platform/manifests/network.pp
  
