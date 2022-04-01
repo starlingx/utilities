@@ -152,16 +152,7 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# BI 37: barbican service
-mkdir -p /var/log/barbican
-chown -R barbican:barbican /var/log/barbican/
-find /usr/share/ansible/stx-ansible/playbooks/ -type f -exec \
-  sed -i 's@name: openstack-barbican-api@name: barbican-api@g' {} +
-
 # BI 40: workaround located at bootstrap section
-
-# BI 41: etcd service override
-sed -i 's@| /usr/bin/forward-journald -tag etcd@@g' /usr/share/puppet/modules/platform/files/etcd-override.conf
 
 # BI 42: intermittent ansible_absent/linux_mv/python_keyring issue, may need to change to 'mkdir + cp /*'
 sed -i '13 a \ \ - name: Wait for 30 seconds to ensure sysinv keyring call\
@@ -170,25 +161,11 @@ sed -i '13 a \ \ - name: Wait for 30 seconds to ensure sysinv keyring call\
 ' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/main.yml
 sed -i 's@command: "mv {{ keyring_workdir }} {{ keyring_permdir }}"@shell: "rm -rf {{ keyring_permdir + '\'/\'' + keyring_workdir | basename }}; cp -r {{ keyring_workdir }} {{ keyring_permdir }}"@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/main.yml
 
-# BI 45: kubelet for kubeadm init
-sed -i 's@/etc/sysconfig/kubelet@/etc/default/kubelet@g' /usr/local/kubernetes/1.21.8/stage2/etc/systemd/system/kubelet.service.d/kubeadm.conf
-sed -i 's@  cgroupRoot: "/k8s-infra"@  cgroupRoot: "/"@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/prepare-env/vars/main.yml
-echo "  cgroupPerQOS: false" >> /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/prepare-env/vars/main.yml
-systemctl daemon-reload
-
 # BI 48: fm service
 sed -i 's@/etc/rc.d/init.d/fm-api@/etc/init.d/fm-api@g' /lib/systemd/system/fm-api.service
 sed -i 's@/etc/rc.d/init.d/fminit@/etc/init.d/fminit@g' /lib/systemd/system/fminit.service
 cp /usr/bin/fm* /usr/local/bin/
 chmod 644 /etc/fm/fm.conf
-systemctl daemon-reload
-
-# BI 49: maintenance services 
-cp -r /usr/bin/mtc* /usr/local/bin/
-cp -r /usr/bin/hbs* /usr/local/bin/
-cp -r /usr/bin/hwmond /usr/local/bin/
-cp -r /usr/bin/lmond /usr/local/bin/
-find /lib/systemd/system/ -type f | xargs -n 1 sed -i 's@/etc/rc.d/init.d/@/etc/init.d/@g'
 systemctl daemon-reload
 
 # BI 50: postgres configuration issue
