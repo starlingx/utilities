@@ -165,13 +165,6 @@ fi
 
 # BI 40: workaround located at bootstrap section
 
-# BI 42: intermittent ansible_absent/linux_mv/python_keyring issue, may need to change to 'mkdir + cp /*'
-sed -i '13 a \ \ - name: Wait for 30 seconds to ensure sysinv keyring call\
-\ \ \ \ wait_for:\
-\ \ \ \ \ \ timeout: 30\
-' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/main.yml
-sed -i 's@command: "mv {{ keyring_workdir }} {{ keyring_permdir }}"@shell: "rm -rf {{ keyring_permdir + '\'/\'' + keyring_workdir | basename }}; cp -r {{ keyring_workdir }} {{ keyring_permdir }}"@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/main.yml
-
 # BI 48: fm service
 sed -i 's@/etc/rc.d/init.d/fm-api@/etc/init.d/fm-api@g' /lib/systemd/system/fm-api.service
 sed -i 's@/etc/rc.d/init.d/fminit@/etc/init.d/fminit@g' /lib/systemd/system/fminit.service
