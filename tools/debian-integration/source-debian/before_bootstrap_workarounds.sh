@@ -79,7 +79,6 @@ fi
 
 # BI 20 f:
 sed -i "s@docker-ce@docker.io@g" /usr/share/puppet/modules/platform/manifests/docker.pp
-sed -i "s@python-fmclient@python3-fmclient@g" /usr/share/puppet/modules/fm/manifests/params.pp
 sed -i "s@python-psycopg2@python3-psycopg2@g" /usr/share/puppet/modules/postgresql/manifests/params.pp
 
 # BI 20.o:
