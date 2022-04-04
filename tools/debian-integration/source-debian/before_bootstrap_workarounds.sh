@@ -66,6 +66,17 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
+# BI 20 e and n:
+bifile='/home/sysadmin/.bi20e'
+if [ ! -f ${bifile} ]; then
+  for f in /usr/lib/postgresql/13/bin/*
+  do
+    echo "Linked $f"
+    ln -s "$f" /usr/bin
+  done
+  touch ${bifile}
+fi
+
 # BI 20 f:
 sed -i "s@docker-ce@docker.io@g" /usr/share/puppet/modules/platform/manifests/docker.pp
 sed -i "s@python-fmclient@python3-fmclient@g" /usr/share/puppet/modules/fm/manifests/params.pp
