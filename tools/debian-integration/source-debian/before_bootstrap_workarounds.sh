@@ -94,13 +94,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# BI 24:
-bifile='/home/sysadmin/.24'
-if [ ! -f ${bifile} ]; then
-  sed -i '27 a \    return' /usr/lib/python3/dist-packages/sysinv/db/sqlalchemy/migrate_repo/versions/110_remove_snmp.py
-  touch ${bifile}
-fi
-
 # BI 25: ignore puppet apply warnings until we fix them
 sed -i 's@Warning|@MMAAAAAAAAAASKED|@g' /usr/local/bin/puppet-manifest-apply.sh
 
