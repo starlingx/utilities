@@ -33,12 +33,6 @@ find /etc/puppet/manifests -type f -exec \
 #find /etc/puppet/manifests -type f -exec \
 #  sed -i 's@include ::platform::ptpinstance@#include ::platform::ptpinstance@g' {} +
  
-# UAR 11: disable
-find /etc/puppet/manifests -type f -exec \
-  sed -i 's@include ::platform::patching@#include ::platform::patching@g' {} +
-#find /etc/puppet/manifests -type f -exec \
-#  sed -i 's@include ::platform::patching::api@#include ::platform::patching::api@g' {} +
- 
 # UAR 12: disable
 find /etc/puppet/manifests -type f -exec \
   sed -i 's@include ::platform::multipath@#include ::platform::multipath@g' {} +
