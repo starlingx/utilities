@@ -188,8 +188,5 @@ sed -i 's@async_retries: 10@async_retries: 40@g' /usr/share/ansible/stx-ansible/
 # BI 60:
 sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
 
-# BI 58: LVM
-sed -i "s/args = \[]/args = \['-y', '-Wy', '-Zy']/g" /usr/share/puppet/modules.available/puppet-lvm/lib/puppet/provider/logical_volume/lvm.rb
-
 # BI 61:
 systemctl stop docker-registry
