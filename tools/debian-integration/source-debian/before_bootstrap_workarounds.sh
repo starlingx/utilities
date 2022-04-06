@@ -78,7 +78,6 @@ if [ ! -f ${bifile} ]; then
 fi
 
 # BI 20 f:
-sed -i "s@docker-ce@docker.io@g" /usr/share/puppet/modules/platform/manifests/docker.pp
 sed -i "s@python-psycopg2@python3-psycopg2@g" /usr/share/puppet/modules/postgresql/manifests/params.pp
 
 # BI 20.o:
@@ -112,33 +111,8 @@ if [ ! -f ${bifile} ]; then
   sed -i 's@device_path = out.rstrip()@device_path = out.split("\\n")[0].rstrip()@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/files/populate_initial_config.py
   sed -i 's@"""Cloned from sysinv"""@return "/dev/sda"@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/files/populate_initial_config.py
 
-cat > /tmp/34_restart_sysinv <<EOF
-
-- name: Restart sysinv
-  shell: |
-    systemctl stop sysinv-agent
-    sleep 3
-    systemctl start sysinv-agent
-    sleep 3
-    systemctl stop sysinv-conductor
-    sleep 10
-    systemctl start sysinv-conductor
-    sleep 10
-
-EOF
-  sed -i '64 {
-    r /tmp/34_restart_sysinv
-    }' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/update_sysinv_database.yml
-
   # .first_boot missing
   touch /etc/platform/.first_boot
-  # workaround slow database interaction, use cached query
-  sed -i 's@def _find_local_mgmt_interface_vlan_id(self):@def _find_local_mgmt_interface_vlan_id(self, interface_list):@g' /usr/lib/python3/dist-packages/sysinv/conductor/manager.py
-  sed -i 's@interface_list = self.dbapi.iinterface_get_all(host_id, expunge=True)@@g' /usr/lib/python3/dist-packages/sysinv/conductor/manager.py
-  sed -i 's@vlan_id = self._find_local_mgmt_interface_vlan_id()@vlan_id = self._find_local_mgmt_interface_vlan_id(iinterfaces)@g' /usr/lib/python3/dist-packages/sysinv/conductor/manager.py
-  # missing /etc/platform/worker_reserved.conf
-cp /usr/share/debian-integration/worker_reserved.conf /etc/platform/worker_reserved.conf
-
 
   touch ${bifile}
 fi
