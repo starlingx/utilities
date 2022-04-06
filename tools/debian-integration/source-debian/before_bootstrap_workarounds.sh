@@ -105,9 +105,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# BI 30: this is based on fixes to generate SOURCES.txt
-sed -i 's@if relative in distribution.files:@if distribution.files and relative in distribution.files:@g' /usr/lib/python3/dist-packages/sysinv/common/utils.py
-
 # BI 34: partial populate_initial_config.py
 bifile='/home/sysadmin/.34'
 if [ ! -f ${bifile} ]; then
@@ -157,13 +154,6 @@ fi
 
 # BI 40: workaround located at bootstrap section
 
-# BI 48: fm service
-sed -i 's@/etc/rc.d/init.d/fm-api@/etc/init.d/fm-api@g' /lib/systemd/system/fm-api.service
-sed -i 's@/etc/rc.d/init.d/fminit@/etc/init.d/fminit@g' /lib/systemd/system/fminit.service
-cp /usr/bin/fm* /usr/local/bin/
-chmod 644 /etc/fm/fm.conf
-systemctl daemon-reload
-
 # BI 50: postgres configuration issue
 sed -i 's@#listen_addresses = '\''localhost'\''@listen_addresses = '\''*'\''@g' /etc/postgresql/13/main/postgresql.conf
 echo "host    all             all             0.0.0.0/0               md5" >> /etc/postgresql/13/main/pg_hba.conf
@@ -171,18 +161,12 @@ echo "host    all             all             0.0.0.0/0               md5" >> /e
 # BI 38.b: slow rpc calls.
 echo "jit = off" >> /etc/postgresql/13/main/postgresql.conf
 
-# BI 52: stevedore + python 3.9
-cp /usr/share/debian-integration/helm.py.patched /usr/lib/python3/dist-packages/sysinv/helm/helm.py
-
 # BI 53: intermittent armada not ready in 30 seconds
 sed -i 's@async_timeout: 30@async_timeout: 120@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/bringup-essential-services/tasks/main.yml
 sed -i 's@async_retries: 10@async_retries: 40@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/bringup-essential-services/tasks/main.yml
 
 # BI 60:
 sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
-
-# BI 61:
-systemctl stop docker-registry
 
 # suppress patch alarm 900.002 after unlock
 # kickstart.sh is not being invoked, so this workaround will exist until then
