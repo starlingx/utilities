@@ -59,6 +59,7 @@ Usage:
                          A patch to replace the prestaged installer kickstart.
                          Not to be included in the runtime patches.
 
+        --setup  <file>: Specify ks-setup.cfg file.
         --addon  <file>: Specify ks-addon.cfg file.
         --param  <p=v>:  Specify boot parameter(s).
                          Can be specified more than once, or provide a comma separated list.
@@ -547,7 +548,8 @@ declare INPUT_ISO=
 declare OUTPUT_ISO=
 declare -a IMAGES
 declare ORIG_PWD=$PWD
-declare ADDON=
+declare KS_SETUP=
+declare KS_ADDON=
 declare -a PARAMS
 declare -a PATCHES
 declare -a KICKSTART_PATCHES
@@ -570,6 +572,7 @@ declare FORCE_INSTALL=false
 SHORTOPTS="";    LONGOPTS=""
 SHORTOPTS+="i:"; LONGOPTS+="input:,"
 SHORTOPTS+="o:"; LONGOPTS+="output:,"
+SHORTOPTS+="s:"; LONGOPTS+="setup:,"
 SHORTOPTS+="a:"; LONGOPTS+="addon:,"
 SHORTOPTS+="p:"; LONGOPTS+="param:,"
 SHORTOPTS+="P:"; LONGOPTS+="patch:,"
@@ -599,8 +602,12 @@ while :; do
             OUTPUT_ISO=$2
             shift 2
             ;;
+        -s | --setup)
+            KS_SETUP=$2
+            shift 2
+            ;;
         -a | --addon)
-            ADDON=$2
+            KS_ADDON=$2
             shift 2
             ;;
         -p | --param)
@@ -682,9 +689,8 @@ check_requirements
 check_required_param "--input" "${INPUT_ISO}"
 check_required_param "--output" "${OUTPUT_ISO}"
 
-check_files_exist ${INPUT_ISO} ${IMAGES[@]} ${PATCHES[@]} ${KICKSTART_PATCHES[@]} ${ADDON}
-
-check_files_size  ${INPUT_ISO} ${IMAGES[@]} ${PATCHES[@]} ${KICKSTART_PATCHES[@]} ${ADDON}
+check_files_exist ${INPUT_ISO} ${IMAGES[@]} ${PATCHES[@]} ${KICKSTART_PATCHES[@]} ${KS_SETUP} ${KS_ADDON}
+check_files_size  ${INPUT_ISO} ${IMAGES[@]} ${PATCHES[@]} ${KICKSTART_PATCHES[@]} ${KS_SETUP} ${KS_ADDON}
 
 if [ -f ${OUTPUT_ISO} ]; then
     log_error "Output file already exists: ${OUTPUT_ISO}"
@@ -801,11 +807,20 @@ if [ "${UPDATE_TIMEOUT}" = "yes" ]; then
     set_timeout ${BUILDDIR}
 fi
 
-if [ -n "${ADDON}" ]; then
-    \rm -f ${BUILDDIR}/ks-addon.cfg
-    \cp ${ADDON} ${BUILDDIR}/ks-addon.cfg
+if [ -n "${KS_SETUP}" ]; then
+    \rm -f ${BUILDDIR}/ks-setup.cfg
+    \cp ${KS_SETUP} ${BUILDDIR}/ks-setup.cfg
     if [ $? -ne 0 ]; then
-        log_error "Error: Failed to copy ${ADDON}"
+        log_error "Error: Failed to copy ${KS_SETUP}"
+        exit 1
+    fi
+fi
+
+if [ -n "${KS_ADDON}" ]; then
+    \rm -f ${BUILDDIR}/ks-addon.cfg
+    \cp ${KS_ADDON} ${BUILDDIR}/ks-addon.cfg
+    if [ $? -ne 0 ]; then
+        log_error "Error: Failed to copy ${KS_ADDON}"
         exit 1
     fi
 fi
