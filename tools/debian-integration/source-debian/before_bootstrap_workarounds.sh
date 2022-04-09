@@ -183,3 +183,9 @@ sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
 
 # BI 61:
 systemctl stop docker-registry
+
+# suppress patch alarm 900.002 after unlock
+# kickstart.sh is not being invoked, so this workaround will exist until then
+INSTALL_UUID=`uuidgen`
+echo ${INSTALL_UUID} > /var/www/pages/feed/rel-22.02/install_uuid
+echo "INSTALL_UUID=${INSTALL_UUID}" >> /etc/platform/platform.conf
