@@ -128,6 +128,11 @@ fi
 
 # BI 40: workaround located at bootstrap section
 
+# BI 48: fm service
+# event suppression script needs to be under /usr/local/bin
+cp /usr/bin/fm_db_sync_event_suppression.py  /usr/local/bin/fm_db_sync_event_suppression.py
+cp /usr/bin/fm_log.py  /usr/local/bin/fm_log.py
+
 # BI 50: postgres configuration issue
 sed -i 's@#listen_addresses = '\''localhost'\''@listen_addresses = '\''*'\''@g' /etc/postgresql/13/main/postgresql.conf
 echo "host    all             all             0.0.0.0/0               md5" >> /etc/postgresql/13/main/pg_hba.conf
