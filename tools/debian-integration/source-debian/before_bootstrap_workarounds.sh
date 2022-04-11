@@ -31,41 +31,6 @@ with open("/etc/resolv.conf", "w") as f:
 EOF
 sudo python /home/sysadmin/correct_dns.py
 
-# BI 17:
-bifile='/home/sysadmin/.bi17'
-if [ ! -f ${bifile} ]; then
-  # 1
-  sed -i '82,86d' /usr/share/puppet/modules/sysinv/manifests/init.pp
-  sed -i '81 a \ \ ensure_packages(["sysinv"], {\
-\ \ \ \ ensure  => \$package_ensure,\
-\ \ \ \ name    => \$::sysinv::params::package_name,\
-\ \ \ \ require => Anchor["sysinv-start"],\
-\ \ })' /usr/share/puppet/modules/sysinv/manifests/init.pp
-  # 2
-  sed -i '193,196d' /usr/share/puppet/modules/sysinv/manifests/api.pp
-  sed -i '192 a \ \ \ \ ensure_packages(["sysinv"], {\
-\ \ \ \ \ \ ensure  => \$package_ensure,\
-\ \ \ \ \ \ name    => \$::sysinv::params::api_package,\
-\ \ \ \ })' /usr/share/puppet/modules/sysinv/manifests/api.pp
-  # 3
-  sed -i '37,40d' /usr/share/puppet/modules/sysinv/manifests/conductor.pp
-  sed -i '36 a \ \ \ \ ensure_packages(["sysinv-conductor"], {\
-\ \ \ \ \ \ ensure => \$package_ensure,\
-\ \ \ \ \ \ name   => \$::sysinv::params::conductor_package,\
-\ \ \ \ })' /usr/share/puppet/modules/sysinv/manifests/conductor.pp
-  # 4
-  sed -i '44,47d' /usr/share/puppet/modules/sysinv/manifests/agent.pp
-  sed -i '43 a \ \ \ \ ensure_packages(["sysinv-agent"], {\
-\ \ \ \ \ \ ensure => \$package_ensure,\
-\ \ \ \ \ \ name   => \$::sysinv::params::agent_package,\
-\ \ \ \ })' /usr/share/puppet/modules/sysinv/manifests/agent.pp
-  # do we need 1, 2 , 3, 4 anymore?
-  sed -i "s@$api_package        = 'sysinv'@$api_package        = false@g" /usr/share/puppet/modules/sysinv/manifests/params.pp
-  sed -i "s@agent_package      = 'sysinv'@agent_package      = false@g" /usr/share/puppet/modules/sysinv/manifests/params.pp
-  sed -i "s@conductor_package  = 'sysinv'@conductor_package  = false@g" /usr/share/puppet/modules/sysinv/manifests/params.pp
-  touch ${bifile}
-fi
-
 # BI 20 e and n:
 bifile='/home/sysadmin/.bi20e'
 if [ ! -f ${bifile} ]; then
