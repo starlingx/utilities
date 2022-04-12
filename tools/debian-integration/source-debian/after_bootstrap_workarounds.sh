@@ -13,13 +13,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# UAR 5: disable
-A=$( grep -Rn 'Mask socket unit as well to make sure' /usr/share/puppet/modules/platform/manifests/lvm.pp | awk -F':' '{print $1}')
-if [[ ! -z "$A" ]]; then
-   B=$((A + 20))
-   sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/lvm.pp
-fi
-
 # UAR 8: nslcd
 sed -i 's@gid ldap@gid openldap@g' /etc/nslcd.conf
  
