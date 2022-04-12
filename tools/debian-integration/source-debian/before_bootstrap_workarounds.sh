@@ -136,6 +136,8 @@ cp /usr/bin/fm_log.py  /usr/local/bin/fm_log.py
 # BI 50: postgres configuration issue
 sed -i 's@#listen_addresses = '\''localhost'\''@listen_addresses = '\''*'\''@g' /etc/postgresql/13/main/postgresql.conf
 echo "host    all             all             0.0.0.0/0               md5" >> /etc/postgresql/13/main/pg_hba.conf
+# ipv6
+echo "host    all             all             ::0/0                   md5" >> /etc/postgresql/13/main/pg_hba.conf
 
 # BI 38.b: slow rpc calls.
 echo "jit = off" >> /etc/postgresql/13/main/postgresql.conf
@@ -146,6 +148,9 @@ sed -i 's@async_retries: 10@async_retries: 40@g' /usr/share/ansible/stx-ansible/
 
 # BI 60:
 sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
+
+# BI 62: kubeadm init issue for ipv6
+sed -i 's@127.0.0.1@\[::1]@g' /etc/kubernetes/config
 
 # suppress patch alarm 900.002 after unlock
 # kickstart.sh is not being invoked, so this workaround will exist until then
