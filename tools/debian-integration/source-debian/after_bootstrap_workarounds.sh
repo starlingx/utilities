@@ -114,9 +114,6 @@ mkdir -p /var/www/dev
 touch /var/www/dev/null
 chmod +777 /var/www/dev/null
  
-# UAR 31: sm etcd
-sed -i 's@/etc/etcd/etcd.conf@/etc/default/etcd@g' /usr/share/puppet/modules/platform/files/etcd
- 
 # UAR 32: sm rabbit
 bifile='/home/sysadmin/.uar32'
 if [ ! -f ${bifile} ]; then
