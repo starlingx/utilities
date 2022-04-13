@@ -111,9 +111,3 @@ sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
 
 # BI 62: kubeadm init issue for ipv6
 sed -i 's@127.0.0.1@\[::1]@g' /etc/kubernetes/config
-
-# suppress patch alarm 900.002 after unlock
-# kickstart.sh is not being invoked, so this workaround will exist until then
-INSTALL_UUID=`uuidgen`
-echo ${INSTALL_UUID} > /var/www/pages/feed/rel-22.02/install_uuid
-echo "INSTALL_UUID=${INSTALL_UUID}" >> /etc/platform/platform.conf
