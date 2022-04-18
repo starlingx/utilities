@@ -1,7 +1,7 @@
 ---
 debname: collector
 debver: 1.0-1
-src_path: scripts
+src_path: debian-scripts
 revision:
   dist: $STX_DIST
   PKG_GITREVCOUNT: true

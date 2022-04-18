@@ -1,0 +1,3101 @@
+#! /bin/bash
+########################################################################
+#
+# Copyright (c) 2014-2021 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Description: The collect tool is used to gather log, config and state
+#              data from one or more hosts or subclouds for the purpose
+#              of off box analysis.
+#
+# The collect tool is implemented as a bash script that executes inline
+# expect scripts and collection commands, some that that require sudo
+# priviledge.
+#
+# The collect tool can be run from any host to collect data for that host.
+#
+# The collect tool must be run from an active controller to collect data
+# from its managed hosts or subclouds.
+#
+# Version 2.2 introduces the following behavioral changes.
+#
+# 1. Default to a 1 month date restricted collect. This only affects what
+#    is collected from /var/log. Only collect log files that contain logs
+#    with a date less than one month old are collected.
+#    Use date options --start-date YYYYMMDD and/or --end-date YYYYMMDD to
+#    specify a more precise date range if only older logs or only more
+#    recent logs are required.
+#
+# 2. Collect for subclouds is added with the --subcloud or -sc option.
+#    With this option specified collect will collect from all the hosts in
+#    the specified subcloud(s).
+#    All the typical scope and naming options like --list or --all or --name
+#    options also apply to subcloud collections with the exception that
+#    collection of a subcloud from the system controller includes all the
+#    hosts in that subcloud.
+#
+# 3. Default to collecting from hosts or subclouds in parallel. Parallel
+#    collect reduces the overall collect time for the specified system.
+#    Collect now launchs host or subcloud collect requests as backgroud
+#    threads and monitors for completion or error before moving on to
+#    create the final tarball collect bundle.
+#
+#    The previous default one-by-one or one-after-the-other mode remains
+#    supported with the introduction and use of the --inline or -in
+#    command option.
+#
+# Typical Usages:
+#
+#  command line                  collect data for function
+#  ---------------------------   -------------------------------------
+# > collect                       - collect current host ; any host
+# > collect <hostname>            - collect from specified host
+# > collect --list host1 host2    - collect from a list of hosts
+# > collect --all                 - collect all hosts in controller context
+# > collect --all --subcloud      - collect all system controller subclouds
+# > collect --subcloud --list ... - collect from a list of subclouds
+# > collect --all --inline        - collect all hosts one after the other
+#
+#   See --help output for a complete list of full and abbreviated
+#   command line options.
+#
+# Example Output for some typical usages:
+#
+# Any single host collect
+#
+# compute-0:~$ collect
+# [sudo] password for sysadmin:
+# collecting data from 1 host(s): compute-0
+# collecting compute-0_20210806.145159 ... done (00:02:23   55M)
+# creating single-node tarball /scratch/compute-0_20210806.145159.tar ... done (00:02:23   55M)
+#
+#
+# An AIO-DX system collect
+#
+# controller-0:~$ collect -a
+# [sudo] password for sysadmin:
+# collecting data from 2 host(s): controller-0 controller-1
+# collected controller-1_20210805.193726 ... done (00:01:35   87M)
+# collected controller-0_20210805.193726 ... done (00:02:53  135M)
+# creating all-nodes tarball /scratch/ALL_NODES_20210805.193726.tar ... done (00:02:53  221M)
+#
+#
+# A parallel collect of a storage system
+#
+# controller-0:~$ collect --all
+# [sudo] password for sysadmin:
+# collecting data from 8 host(s): controller-0 compute-0 compute-1 compute-2 compute-3 controller-1 storage-0 storage-1
+# collected    compute-1_20210714.195247 ... done (00:00:57   14M)
+# collected    compute-2_20210714.195247 ... done (00:00:57   14M)
+# collected controller-1_20210714.195247 ... done (00:01:02   16M)
+# collected    storage-1_20210714.195247 ... done (00:01:05   13M)
+# collected    storage-0_20210714.195247 ... done (00:01:06   13M)
+# collected    compute-3_20210714.195247 ... done (00:02:07   14M)
+# collected controller-0_20210714.195247 ... done (00:02:11   29M)
+# collected    compute-0_20210714.195247 ... done (00:03:02   14M)
+# creating all-nodes tarball /scratch/ALL_NODES_20210714.195247.tar ... done (00:03:02  124M)
+#
+#
+# A parallel collect of all (3) subclouds in a system
+#
+# controller-0:~$ collect --all --subcloud
+# [sudo] password for sysadmin:
+# collecting data from 3 subcloud(s): subcloud1 subcloud2 subcloud3
+# collected subcloud3_20210811.120100 ... done (00:01:47   64M)
+# collected subcloud2_20210811.120100 ... done (00:02:50   71M)
+# collected subcloud1_20210811.120100 ... done (00:03:46   75M)
+# creating all-subclouds tarball /scratch/SUBCLOUDS_20210811.120100.tar ... done (00:03:47  209M)
+#
+#
+# An inline collect of all (3) subclouds in a system
+#
+# controller-0:~$ collect --all --subcloud --inline
+# [sudo] password for sysadmin:
+# collecting data from 3 subcloud(s): subcloud1 subcloud2 subcloud3
+# collecting subcloud1_20210811.140525 ... done (00:02:55   79M)
+# collecting subcloud2_20210811.140525 ... done (00:02:59   74M)
+# collecting subcloud3_20210811.140525 ... done (00:01:47   69M)
+# creating all-subclouds tarball /scratch/SUBCLOUDS_20210811.140525.tar ... done (00:07:41  221M)
+#
+#
+# Collect Output:
+#
+# Collect output is a tar file bundle containing compressed tarballs
+# from each host or subcloud. A default named full system collect
+# looks like this:
+#
+# /scratch/ALL_NODES_20210805.193726.tar
+#
+# or for subcloud(s) collect
+#
+# /scratch/SUBCLOUDS_20210805.192122.tar
+#
+# ssh the tarball bundle off box and extract the bundle to reveal its content.
+#
+# Extract the host tarballs with tar into that bundle's name dir
+#
+#    myhost~$ tar -xvf ALL_NODES_20210805.193726.tar
+#    ALL_NODES_20210805.193726/controller-0_20210805.193726.tgz
+#    ALL_NODES_20210805.193726/controller-1_20210805.193726.tgz
+#
+# For a subcloud tar bundle
+#
+#    myhost~ $ tar -xvf SUBCLOUDS_20210805.192122.tar
+#    SUBCLOUDS_20210805.192122/subcloud1_20210805.192122.tar
+#    SUBCLOUDS_20210805.192122/subcloud2_20210805.192122.tar
+#    SUBCLOUDS_20210805.192122/subcloud3_20210805.192122.tar
+#    SUBCLOUDS_20210805.192122/subcloud4_20210805.192122.tar
+#
+# The subcloud bundles have an additional tar level
+#
+#    myhost SUBCLOUDS_20210805.192122 $ sudo tar -xvf subcloud1_20210805.192122.tar
+#    subcloud1_20210805.192122/controller-0_20210805.192122.tgz
+#    subcloud1_20210805.192122/controller-1_20210805.192122.tgz
+#    subcloud1_20210805.192122/compute-1_20210805.192122.tgz
+#
+# Host tarball content structure
+#
+#     - etc       ... config data
+#     - root      ... root dir content
+#     - var
+#      |- crash   ... crash bundle summary files
+#      |- lib/sm  ... sm flight recorder
+#      |- log     ... the system logs
+#      |- run     ... volatile run dir
+#      |- extra   ... info files produced from /etc/collect.d plugins
+#                 ... area specific configuration and data
+#                 ... all databases in plain text ; except for keystone
+#
+# Exclusions from etc and /var/run, /var/log are in /etc/collect exclude files.
+#
+# Behavior   : See print_help below.
+#
+# Collect can be run to collect local hosts or it can be run to collect
+# subclouds using the --subcloud or -sc option. The tool does not support
+# collecting both in one command.
+#
+# Collect tool produces execution summary logs in /var/log/user.log and
+# more detailed logs in /var/log/collect.log
+#
+# Collect cleans up after itself. Meaning that collected tarballs on
+# remote hosts are removed after they are fetched by the active controller.
+#
+# The script first collects the process, host, memory, filesystem, interrupt
+# and HA information. It then proceeds to calls run-parts against the
+# /etc/collect.d direcory (plugins) which contains service level collectors.
+# Additional plugins can be added to that collect.d directory and will be
+# called automatically.
+#
+# The collector scripts must consider nodetype when deciding
+# which commands to execute where.
+#
+##################################################################
+
+
+TOOL_NAME="collect"
+TOOL_VER=2
+TOOL_REV=2
+
+# only supported username
+UN="sysadmin"
+pw=""
+
+# pull in common utils and environment
+source /usr/local/sbin/collect_utils
+
+declare -i RETVAL=${FAIL}
+function collect_exit()
+{
+    # support accepting the exit code as arg1
+    if [ ${#} -ne 0 ] ; then
+        RETVAL=${1}
+    fi
+    exit ${RETVAL}
+}
+
+# collect must be run as sysadmin
+if [ ${UID} -eq 0 ]; then
+    elog "Cannot run collect as 'root' user"
+    collect_exit
+elif [ "${USER}" != "${UN}" ]; then
+    elog "Can only run collect as '${UN}' user"
+    collect_exit
+fi
+
+source_openrc_if_needed
+
+# used to hold the name of the password file used to pass
+# the sudo password to a subcloud
+TEMPFILE=""
+
+###########################################################################
+#
+#                            Trap Handling
+#
+###########################################################################
+function cleanup()
+{
+    # kill all processes whose parent is this process
+    pkill -P $$
+
+    # remove the tempfile if it somehow still exists
+    if [ "${TEMPFILE}" != "" ]; then
+        rm -f ${TEMPFILE}
+    fi
+    collect_exit
+}
+
+TRAP_RESET_GATE=false
+function cleanup_with_reset()
+{
+    # prevent reset from being called for every trap definition
+    if [ "${TRAP_RESET_GATE}" = false ] ; then
+        $(reset)
+        TRAP_RESET_GATE=true
+    fi
+    cleanup
+    collect_exit
+}
+
+# Handle exit signals
+trap cleanup_with_reset SIGINT    # administrative process termination
+trap cleanup_with_reset SIGTERM   # Control-C
+trap cleanup EXIT                 # clean exit
+
+############################################################################
+
+# static expect log level control ;
+# 0 = hide expect output
+# 1 = show expect outout
+USER_LOG_MODE=0
+
+# limit scp bandwidth to 1MB/s
+# increase limit of scp bandwidth from 1MB/s to 10MB/s
+SCP_CMD="scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -l $((10*8*1000))"
+SCP_TIMEOUT="600"
+SSH_CMD="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+NOWDATE=$(date +"%Y%m%d.%H%M%S")
+COLLECT_BASE_DIR="/scratch"
+collect_host="/usr/local/sbin/collect_host"
+collect="/usr/local/sbin/collect"
+
+
+# This is set true on the subcloud when doing an orchestrated collect
+ORCHESTRATED_COLLECT=false
+
+CURR_DIR=$(pwd)
+
+
+# common permission error strings
+pw_error="orry, try again"
+ac_error="ermission denied"
+
+function print_help()
+{
+    echo ""
+    echo "StarlingX Log Collection Tool, version ${TOOL_VER}.${TOOL_REV}"
+    echo ""
+    echo "Usage: ${TOOL_NAME} [COMMANDS ...] {options}"
+    echo ""
+    echo "StarlingX 'collect' is used to gather system logs, configuration"
+    echo "and state data for off system analysis."
+    echo ""
+    echo "Running collect will collect logs to /scratch/<prefix_date_time.tar>"
+    echo "on the host collect is run from. Use host names to specify which"
+    echo "hosts or subclouds to collect from."
+    echo ""
+    echo "Host data collection scope can be the current host or subcloud,"
+    echo "any single specified hostname or subcloud, a --list of or --all"
+    echo "hosts or subclouds in the system using a single command."
+    echo ""
+    echo "Hosts or subclouds are collected in parallel unless the --inline"
+    echo "or -in option is specified forcing a one after the other collect."
+    echo ""
+    echo "Collect gathers /var/log files that contain logs that are dated"
+    echo "less than a month old so as to limited the size of collect bundles."
+    echo "Optionally specify --start-date and/or --end-date options to refine"
+    echo "the collected date range. Only logs files in /var/log are affected"
+    echo "by these date options."
+    echo ""
+    echo "Optionally specify a --name prefix to rename the final collected"
+    echo "dated tar bundle."
+    echo ""
+    echo "With the command set specified, simply run collect as sysadmin and when"
+    echo "prompted provide the sysadmin sudo password and let collect handle the rest."
+    echo ""
+    echo "Scope Options:"
+    echo ""
+    echo " collect                                        ... collect logs for current host"
+    echo " collect host1                                  ... collect logs for single named host"
+    echo " collect host1 host2 host3                      ... collect logs for stacked host list"
+    echo " collect [--list | -l] host1 host2 host3        ... collect logs for list of named hosts"
+    echo " collect [--all  | -a]                          ... collect logs for all hosts"
+    echo " collect -a                                     ... collect logs for all hosts in parallel"
+    echo " collect -a [--inline | -in]                    ... collect logs for all hosts one after the other"
+    echo ""
+    echo " collect [--subcloud | -sc ] <subcloud>         ... collect logs for subcloud"
+    echo " collect [--subcloud | -sc ] -l subc1 subc2     ... collect logs for subclouds subc1 and subc2"
+    echo " collect -a [--subcloud | -sc ]                 ... collect logs for all subclouds in parallel"
+    echo " collect -a -sc [--inline | -in]                ... collect logs for all subclouds one after the other"
+    echo " collect --subcloud --continue                  ... continue a suspended subcloud collect"
+    echo ""
+    echo "Dated Collect:"
+    echo ""
+    echo "collect [--start-date | -s] YYYYMMDD            ... collection of logs on and  after this date"
+    echo "collect [--end-date   | -e] YYYYMMDD            ... collection of logs on and before this date"
+    echo ""
+    echo "Tarball Prefix:"
+    echo ""
+    echo "collect [--name | -n] name                      ... specify the name prefix of the collect tarball"
+    echo ""
+    echo "Detailed Display:"
+    echo ""
+    echo "collect [--verbose | -v]                        ... print details during collect"
+    echo ""
+    echo "collect [--inventory | -i]                      ... collect inventory by system cli command"
+    echo ""
+    echo "Avoid password and security masking:"
+    echo ""
+    echo "collect [--skip-mask]                           ... skip masking of collect data"
+    echo ""
+    echo "Examples:"
+    echo ""
+    echo "collect                                                      ... all logs for current host"
+    echo "collect --all                                                ... all logs from all hosts in the system"
+    echo "collect --all --subcloud                                     ... all logs from all hosts in all subclouds"
+    echo "collect --all --start-date 20150101                          ... logs dated on and after Jan 1 2015 from all hosts"
+    echo "collect --all --start-date 20151101 --end-date 20160201      ... logs dated between Nov 1, 2015 and Feb 1 2016 from all hosts"
+    echo "collect --list controller-0 worker-0 storage-0               ... all logs from specified host list"
+    echo "collect --list controller-0 worker-1 --end-date 20160201     ... only logs before Nov 1, 2015 for host list"
+    echo "collect --list controller-1 storage-0 --start-date 20160101  ... only logs after Jan 1 2016 for controller-1 and storage-0"
+    echo "collect --start-date 20151101 --end-date 20160201            ... only logs dated between Nov 1, 2015 and Feb 1 2016 for current host"
+    echo "collect --subcloud subcloud1 subcloud2 subcloud3             ... only logs from a list of subclouds"
+    echo ""
+    exit 0
+}
+
+# command line arguement variables ; defaulted
+DEBUG=false
+CLEAN=false
+VERBOSE=false
+SKIP_MASK=false
+INVENTORY=false
+SUBCLOUD_COLLECT=false
+SUBCLOUD_LOGIN_PROMPT="controller-"
+
+# parallel collect mode as default
+PARALLEL_COLLECT_MODE=true
+
+# date variables - default to a 1 month dated collect
+DATE_FORMAT="YYYYMMDD"
+STARTDATE=$(date +%Y%m%d -d "-1 month")
+STARTTIME="any"
+ENDDATE="any"
+ENDTIME="any"
+GETSTARTDATE=false
+GETENDDATE=false
+DCROLE=""
+
+# host selection variables
+LISTING=false
+ALLHOSTS=false
+
+declare -i HOSTS=1
+declare -a HOSTLIST=(${HOSTNAME})
+declare -i SUBCLOUDS=0
+declare -a SUBCLOUDLIST=()
+declare -i DONE_COUNT=0
+declare -i longest_name=0
+
+PLEASE_STANDBY=false
+COLLECT_CONTINUE_MSG_NEEDED=false
+SUBCLOUD_COLLECT_CONTINUE=false
+SUBCLOUD_COLLECT_CONTINUE_LIST_FILE="/tmp/collect_continue.lst"
+
+# overall collect timeout
+TIMEOUT=1000
+SECONDS=0
+let UNTIL=${SECONDS}+${TIMEOUT}
+
+COLLECT_NAME=""
+
+# clear multi option modes
+function clear_variable_args()
+{
+    LISTING=false
+    GETSTARTDATE=false
+    GETENDDATE=false
+}
+
+
+############################################################################
+#
+# Name       : report_error
+#
+# Purpose    : Report error to console and logfile
+#
+# Assumptions: Handles specific cases of invalid password and permission errors
+#              by exiting so as to avoid repeated errors during multi-host
+#              collection.
+#
+# $1 - status string
+# $2 - status code number
+#
+function report_error()
+{
+    local string=${1}
+    local code=${2}
+
+    if [[ "${PARALLEL_COLLECT_MODE}" = true && "${PLEASE_STANDBY}" = true && ${DONE_COUNT} -eq 0 ]] ; then
+        DONE_COUNT=$((DONE_COUNT+1))
+        # send new line to delineate '.' progress
+        echo ""
+        PLEASE_STANDBY=false
+    fi
+
+    if [ ${code} -eq ${FAIL_PASSWORD} ] ; then
+        elog "Invalid password"
+        collect_exit ${code}
+
+    elif [ ${code} -eq ${FAIL_CONTINUE} ] ; then
+        elog "${FAIL_CONTINUE_STR} ; ${string} (reason:${code})"
+        collect_exit ${code}
+
+    elif [ ${code} -eq ${FAIL_INACTIVE} ] ; then
+        elog "${FAIL_INACTIVE_STR} ; ${string} (reason:${code})"
+        collect_exit ${code}
+
+    elif [ ${code} -eq ${FAIL_PERMISSION} ] ; then
+        elog "Permission error ; exiting (${string})"
+
+    elif [ ${code} -eq ${FAIL_UNREACHABLE} ] ; then
+        elog "${string} (reason:${code}:unreachable)"
+
+    elif [ ${code} -eq ${FAIL_PERMISSION_SKIP} ] ; then
+        elog "${string} (reason:${code}:permission error)"
+
+    elif [ ${code} -eq ${FAIL_OUT_OF_SPACE} ] ; then
+        elog "${string} (reason:${code}:${FAIL_NOT_ENOUGH_SPACE_STR}) ; need to increase available space ${COLLECT_BASE_DIR}"
+
+    elif [ ${code} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
+        elog "${string} (reason:${code}:${FAIL_NOT_ENOUGH_SPACE_STR}) ; ${COLLECT_BASE_DIR} usage must be below ${MIN_PERCENT_SPACE_REQUIRED}%"
+
+    elif [ ${code} -ge ${FAIL_TIMEOUT} -a ${code} -le ${FAIL_TIMEOUT9} ] ; then
+        elog "${FAIL_TIMEOUT_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_SUBCLOUD_TIMEOUT} ] ; then
+        elog "${FAIL_SUBCLOUD_TIMEOUT_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_PASSWORD_PROMPT} ] ; then
+        elog "${string} (reason:${code}:failed to learn password)"
+
+    elif [ ${code} -eq ${FAIL_DATE_FORMAT} ] ; then
+        elog "${FAIL_DATE_FORMAT_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_NO_FILE_SPECIFIED} ] ; then
+        elog "${FAIL_NO_FILE_SPECIFIED_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_FILE_NOT_FOUND} ] ; then
+        elog "${FAIL_FILE_NOT_FOUND_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_FILE_EMPTY} ] ; then
+        elog "${FAIL_FILE_EMPTY_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_NO_HOSTS} ] ; then
+        elog "${FAIL_NO_HOSTS_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_NO_SUBCLOUDS} ] ; then
+        elog "${FAIL_NO_SUBCLOUDS_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_MISSING_PARAMETER} ] ; then
+        elog "${FAIL_MISSING_PARAMETER_STR} ; ${string} (reason:${code})"
+
+    else
+        elog "${string} (reason:${code})"
+    fi
+}
+
+###########################################################################
+#
+# Name      : is_valid_host
+#
+# Purpose   : Checks to see if the specified hostname is known
+#             to inventory as a valid provisioned host
+#
+# Parameters: $1 check_hostname
+#
+# Return    : PASS              ... hostname is valid (success path)
+#             FAIL_HOSTNAME     ... hostname is not valid
+#             FAIL_INACTIVE     ... this host is not active
+#
+###########################################################################
+
+function is_valid_host()
+{
+    local check_hostname=${1}
+
+    if [ "${check_hostname}" == "None" ] ; then
+        return ${FAIL_HOSTNAME}
+    elif [ "${check_hostname}" == "${HOSTNAME}" ] ; then
+        return ${PASS}
+    elif [ "${ACTIVE}" = true ] ; then
+        system host-show "${check_hostname}" 2>/dev/null 1>/dev/null
+        if [ ${?} -ne 0 ] ; then
+            return ${FAIL_HOSTNAME}
+        else
+            return ${PASS}
+        fi
+    else
+        report_error "can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
+        collect_exit ${FAIL_INACTIVE}
+    fi
+}
+
+###########################################################################
+#
+# Name      : is_valid_subcloud
+#
+# Purpose   : Checks to see if the specified subcloud name is known
+#             to dcmanager as a valid provisioned subcloud
+#
+# Parameters: $1 check_subcloudname
+#
+# Return    : PASS              ... subcloudname is valid (success path)
+#             FAIL_SUBCLOUDNAME ... subcloudname is not valid
+#             FAIL_INACTIVE     ... this host is not the active controller
+#
+###########################################################################
+
+function is_valid_subcloud()
+{
+    local check_subcloudname=${1}
+
+    if [ "${check_subcloudname}" == "None" ] ; then
+        return ${FAIL_SUBCLOUDNAME}
+    elif [ "${ACTIVE}" = true ] ; then
+        dcmanager subcloud show "${check_subcloudname}" 2>/dev/null 1>/dev/null
+        if [ ${?} -ne 0 ] ; then
+            return ${FAIL_SUBCLOUDNAME}
+        else
+            return ${PASS}
+        fi
+    else
+        report_error "can only run collect for subclouds from the active system controller" ${FAIL_INACTIVE}
+        collect_exit ${FAIL_INACTIVE}
+    fi
+}
+
+function query_and_update_dcrole ()
+{
+    DCROLE=$(system show | grep distributed_cloud_role | cut -d '|' -f 3 | tr -d ' ')
+}
+
+############################################################################
+#                      Parse the command line                              #
+############################################################################
+
+# echo "`date` Debug: collect ${@}"
+
+while [[ ${#} -gt 0 ]] ; do
+
+    key="${1}"
+
+    case $key in
+
+        -h|--help)
+        print_help
+        collect_exit ${PASS}
+        ;;
+
+        -n|--name)
+        if [ "${2}" == "" ] ; then
+            report_error "need to specify a name with the --name option" ${FAIL_MISSING_PARAMETER}
+            collect_exit ${FAIL_MISSING_PARAMETER}
+        fi
+        COLLECT_NAME="${2}"
+        clear_variable_args
+        shift
+        ;;
+
+        -v|--verbose)
+        USER_LOG_MODE=1
+        VERBOSE=true
+        ;;
+
+        --clean)
+        CLEAN=true
+        ;;
+
+        -c|--continue)
+        SUBCLOUD_COLLECT_CONTINUE=true
+        ;;
+
+        -i|--inventory)
+        INVENTORY=true
+        ;;
+
+        -l|--list)
+        if [ "${ALLHOSTS}" = false ] ; then
+            if [[ ${#} -lt  2 ]] ; then
+                report_error "collect exit" ${FAIL_NO_HOSTS}
+                collect_exit ${FAIL_NO_HOSTS}
+            fi
+            if [ "${ACTIVE}" = false ] ; then
+                report_error "can only run collect for remote hosts on active controller" ${FAIL_INACTIVE}
+                collect_exit ${FAIL_INACTIVE}
+            fi
+            HOSTLIST=(${2})
+            HOSTS=1
+            LISTING=true
+            GETSTARTDATE=false
+            GETENDDATE=false
+            shift
+        fi
+        ;;
+
+        -a|--all|all)
+        if [ "${ACTIVE}" = false ] ; then
+            wlog "collect with '${key}' option is only supported on an active controller ; defaulting to local collect"
+        else
+            ALLHOSTS=true
+        fi
+
+        HOSTLIST=(${HOSTNAME})
+        HOSTS=1
+        clear_variable_args
+        ;;
+
+        -s|--start-date)
+        if [ "${2}" == "" ] ; then
+            report_error "need to specify a date with the --start-date option" ${FAIL_MISSING_PARAMETER}
+            collect_exit ${FAIL_MISSING_PARAMETER}
+        elif [ "${2}" != "any" -a ${#2} -ne ${#DATE_FORMAT} ] ; then
+            report_error "start date must be '${DATE_FORMAT}' format" ${FAIL_DATE_FORMAT}
+            collect_exit ${FAIL_DATE_FORMAT}
+        fi
+        STARTDATE="${2}"
+        LISTING=false
+        GETSTARTDATE=true
+        GETENDDATE=false
+        shift
+        ;;
+
+        -e|--end-date)
+        if [ "${2}" == "" ] ; then
+            report_error "need to specify a date with the --end-date option" ${FAIL_MISSING_PARAMETER}
+            collect_exit ${FAIL_MISSING_PARAMETER}
+        elif [ "${2}" != "any" -a ${#2} -ne ${#DATE_FORMAT} ] ; then
+            report_error "end date must be '${DATE_FORMAT}' format" ${FAIL_DATE_FORMAT}
+            collect_exit ${FAIL_DATE_FORMAT}
+        fi
+        ENDDATE="${2}"
+        LISTING=false
+        GETSTARTDATE=false
+        GETENDDATE=true
+        shift
+        ;;
+
+        -sc|--subcloud)
+        SUBCLOUD_COLLECT=true
+        ;;
+
+        -d|--debug)
+        DEBUG=true
+        clear_variable_args
+        ;;
+
+        --skip-mask)
+        SKIP_MASK=true
+        shift
+        ;;
+
+        -in|--inline)
+        # switch to inline ; one-after-the-other (legacy) mode
+        PARALLEL_COLLECT_MODE=false
+        ;;
+
+        -f|--file)
+        TEMPFILE="${2}"
+        if [ "${TEMPFILE}" == "" ]; then
+            report_error "need file path/name to follow --file option" ${FAIL_NO_FILE_SPECIFIED}
+            collect_exit ${FAIL_NO_FILE_SPECIFIED}
+        elif [ ! -e "${TEMPFILE}" ]; then
+            report_error "check path/file: ${TEMPFILE}" ${FAIL_NO_FILE_SPECIFIED}
+            collect_exit ${FAIL_NO_FILE_SPECIFIED}
+        elif [ ! -s "${TEMPFILE}" ] ; then
+            report_error "file:${TEMPFILE}" ${FAIL_FILE_EMPTY}
+            rm -f ${TEMPFILE}
+            collect_exit ${FAIL_FILE_EMPTY}
+        else
+            # read first line in file
+            pw=$(head -n 1 ${TEMPFILE})
+            dlog "pw:${pw}"
+            rm -f ${TEMPFILE}
+            shift
+        fi
+        ;;
+
+        *)
+        if [ "${LISTING}" = true ] ; then
+            HOSTS=$((HOSTS+1))
+            HOSTLIST+=(${key})
+        elif [ "${GETSTARTDATE}" = true ] ; then
+            dlog "accepting but ignoring legacy starttime specification"
+        elif [ "${GETENDDATE}" = true ] ; then
+            dlog "accepting but ignoring legacy endtime specification"
+        else
+            HOSTLIST=(${key})
+            HOSTS=1
+            LISTING=true
+        fi
+        GETSTARTDATE=false
+        GETENDDATE=false
+        ;;
+    esac
+    shift # past argument or value
+done
+
+
+# startup state debug logs
+dlog "${TOOL_NAME} ver ${TOOL_REV}.${TOOL_REV} (pid:$$)"
+dlog "USERNAME  = ${USER}"
+dlog "ACTIVE    = ${ACTIVE}"
+dlog "HOSTNAME  = ${HOSTNAME}"
+dlog "PARALLEL  = ${PARALLEL_COLLECT_MODE}"
+dlog "INVENTORY = ${INVENTORY}"
+dlog "STARTDATE = ${STARTDATE}"
+dlog "ENDDATE   = ${ENDDATE}"
+dlog "SKIPMASK  = ${SKIP_MASK}"
+dlog "ALLHOSTS  = ${ALLHOSTS}"
+dlog "LISTING   = ${LISTING}"
+dlog "CLEAN     = ${CLEAN}"
+dlog "TIMEOUT   = ${TIMEOUT}"
+dlog "SECONDS   = ${SECONDS}"
+dlog "UNTIL     = ${UNTIL}"
+
+# the continue option is only supported for subcloud collect
+if [[ "${SUBCLOUD_COLLECT_CONTINUE}" = true && "${SUBCLOUD_COLLECT}" = false ]] ; then
+    report_error "collect continue is only supported for subclouds" ${FAIL_CONTINUE}
+    collect_exit ${FAIL_CONTINUE}
+fi
+
+# subcloud option only on active SystemController
+if [[ "${ACTIVE}" = false && "${SUBCLOUD_COLLECT}" = true ]] ; then
+    report_error "subcloud collect can only be run from an active systemcontroller" ${FAIL_INACTIVE}
+    collect_exit ${FAIL_INACTIVE}
+fi
+
+# Don't block the clean operation based on avalable space.
+# That would defeat the purpose.
+if [ "${CLEAN}" = false ] ; then
+    space_precheck ${HOSTNAME} ${COLLECT_BASE_DIR}
+fi
+
+#
+# If on the active controller load the DCROLE variable and
+# handle subcloud collect from non SC
+#
+if [ "${ACTIVE}" = true ] ; then
+    query_and_update_dcrole
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        if [ "${DCROLE}" != "${DCROLE_SYSTEMCONTROLLER}" ] ; then
+            report_error "must run subcloud collect from the systemcontroller" ${FAIL_NOT_SYSTEMCONTROLLER}
+            collect_exit ${FAIL_NOT_SYSTEMCONTROLLER}
+        fi
+    fi
+fi
+
+#
+# if the user specified the '--all' option then override
+# the current list and add them all from inventory.
+#
+if [ "${ALLHOSTS}" = true ] ; then
+    HOSTLIST=()
+    HOSTS=0
+    SUBCLOUDLIST=()
+    SUBCLOUDS=0
+    if [ "${SUBCLOUD_COLLECT}" = false ]; then
+        HOSTLIST=(${HOSTNAME})
+        HOSTS=1
+        for foreign_host in $(system host-list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' ' | grep -v ${HOSTNAME}); do
+            if [ "${foreign_host}" != "None" ] ; then
+                HOSTS=$((HOSTS+1))
+                HOSTLIST+=(${foreign_host})
+            fi
+        done
+
+    else
+        for foreign_host in $(dcmanager subcloud list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' '); do
+            if [ "${foreign_host}" != "None" ] ; then
+                SUBCLOUDS=$((SUBCLOUDS+1))
+                SUBCLOUDLIST+=(${foreign_host})
+            fi
+        done
+    fi
+else
+    # This host path
+    # Filter default or user specified host list through temp_hostlist
+    # This drops rather than deletes invalid or duplicate hosts.
+    temp_hostlist=(${HOSTLIST[@]})
+    temp_hosts=${HOSTS}
+    HOSTLIST=()
+    HOSTS=0
+    SUBCLOUDLIST=()
+    SUBCLOUDS=0
+
+    # check for and handle collect --continue
+    if [ "${SUBCLOUD_COLLECT_CONTINUE}" = true ] ; then
+        if [ -f "${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}" ] && \
+            [ -s "${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}" ] ; then
+            SUBCLOUDLIST=($( cat ${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}))
+            SUBCLOUDS=${#SUBCLOUDLIST[@]}
+            dlog "continuing collect for remaining ${SUBCLOUDS} subclouds: ${SUBCLOUDLIST[@]}"
+        else
+            report_error "the ${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE} file is empty or missing" ${FAIL_CONTINUE}
+        fi
+
+    elif [ "${SUBCLOUD_COLLECT}" = false ] ; then
+        if [ ${temp_hosts} -eq 0 ] ; then
+            report_error "no hosts specified" ${FAIL_NO_HOSTS}
+            collect_exit ${FAIL_NO_HOSTS}
+        else
+            for host in "${temp_hostlist[@]}" ; do
+                is_valid_host ${host}
+                if [ ${?} -eq 0 ] ; then
+                    # don't add duplicates
+                    drop=false
+                    for tmp in "${HOSTLIST[@]}" ; do
+                        if [ "${host}" == "${tmp}" ] ; then
+                            drop=true
+                            break
+                        fi
+                    done
+                    if [ "${drop}" = false ] ; then
+                        # add this host
+                        HOSTS=$((HOSTS+1))
+                        HOSTLIST+=("${host}")
+                    fi
+                else
+                    report_error "cannot collect data from unknown host '${host}'" ${WARN_HOSTNAME}
+                fi
+            done
+        fi
+    else
+        if [ ${temp_hosts} -eq 0 ] ; then
+            report_error "no subclouds specified" ${FAIL_NO_SUBCLOUDS}
+            collect_exit ${FAIL_NO_SUBCLOUDS}
+        # don't query a large number of subclouds individually,
+        # that can take a long time. Instead get the full list and
+        # validate the specified list from the full list
+        elif [ ${temp_hosts} -gt 10 ] ; then
+            SUBCLOUDLIST_TEMP=()
+            # reuse HOSTS and HOSTLIST vars for this operation
+            for foreign_host in $(dcmanager subcloud list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' '); do
+                if [ "${foreign_host}" != "None" ] ; then
+                    SUBCLOUDLIST_TEMP+=(${foreign_host})
+                fi
+            done
+            # validate the subcloud names
+            for subcloud in "${temp_hostlist[@]}" ; do
+                for temp in "${SUBCLOUDLIST_TEMP[@]}" ; do
+                    found=false
+                    if [ "${temp}" == "${subcloud}" ] ; then
+                        # don't add duplicates
+                        drop=false
+                        for tmp in "${SUBCLOUDLIST[@]}" ; do
+                            if [ "${subcloud}" == "${tmp}" ] ; then
+                                drop=true
+                                break
+                            fi
+                        done
+                        if [ "${drop}" = false ] ; then
+                            SUBCLOUDS=$((SUBCLOUDS+1))
+                            SUBCLOUDLIST+=(${subcloud})
+                            found=true
+                            break
+                        fi
+                    fi
+                done
+                if [ "${found}" = false ] ; then
+                    is_valid_subcloud ${subcloud}
+                    if [ ${?} -eq 0 ] ; then
+                        # don't add duplicates
+                        drop=false
+                        for tmp in "${SUBCLOUDLIST[@]}" ; do
+                            if [ "${subcloud}" == "${tmp}" ] ; then
+                                drop=true
+                                break
+                            fi
+                        done
+                        if [ "${drop}" = false ] ; then
+                            # add this subcloud
+                            SUBCLOUDS=$((SUBCLOUDS+1))
+                            SUBCLOUDLIST+=("${subcloud}")
+                        fi
+                    else
+                        report_error "cannot collect data from unknown subcloud '${subcloud}'" ${WARN_SUBCLOUD}
+                    fi
+                fi
+            done
+        else
+            # validate subclouds one by one through dcmanager
+            for subcloud in "${temp_hostlist[@]}" ; do
+                is_valid_subcloud ${subcloud}
+                if [ ${?} -eq 0 ] ; then
+                    # don't add duplicates
+                    drop=false
+                    for tmp in "${SUBCLOUDLIST[@]}" ; do
+                        if [ "${subcloud}" == "${tmp}" ] ; then
+                            drop=true
+                            break
+                        fi
+                    done
+                    if [ "${drop}" = false ] ; then
+                        # add this subcloud
+                        SUBCLOUDS=$((SUBCLOUDS+1))
+                        SUBCLOUDLIST+=("${subcloud}")
+                    fi
+                else
+                    report_error "cannot collect data from unknown subcloud '${subcloud}'" ${WARN_SUBCLOUD}
+                fi
+            done
+        fi
+    fi
+fi
+
+if [ ! -z ${COLLECT_NAME} ] ; then
+
+    # User specified tarname
+    #
+    # This is the only case for system controller initiated subcloud collect
+    COLLECT_TYPE="user-named"
+
+    # Subcloud collect with a password at this point must be orchestrated
+    # ... with collect date specified by the system controller.
+    if [ "${DCROLE}" == "${DCROLE_SUBCLOUD}" -a "${pw}" != "" ] ; then
+        dlog "date override ${NOWDATE} to ${COLLECT_NAME: -15}"
+        NOWDATE=${COLLECT_NAME: -15}
+        ilog "Orchestrated collect"
+        ORCHESTRATED_COLLECT=true
+    elif [ "${DCROLE}" == "" -a "${ACTIVE}" == false -a "${pw}" != "" ]; then
+        wlog "Subcloud has not been properly configured."
+        ERROR_DCROLE=$(cat /etc/platform/platform.conf | grep distributed_cloud_role | cut -d '=' -f 2)
+        if [ "${ERROR_DCROLE}" = "subcloud" ]; then
+            dlog "date override ${NOWDATE} to ${COLLECT_NAME: -15}"
+            NOWDATE=${COLLECT_NAME: -15}
+            ilog "Orchestrated Collect"
+            ORCHESTRATED_COLLECT=true
+        fi
+    fi
+
+elif [ "${ALLHOSTS}" = true ] ; then
+
+    # All hosts/subclouds bundle
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        COLLECT_NAME="ALL_SUBCLOUDS"
+        COLLECT_TYPE="all-subclouds"
+    else
+        COLLECT_NAME="ALL_NODES"
+        COLLECT_TYPE="all-nodes"
+    fi
+
+elif [ "${SUBCLOUD_COLLECT}" = false -a ${HOSTS} -eq 1 ] ; then
+
+    # Single host bundle
+    COLLECT_NAME="${HOSTLIST[0]}"
+    COLLECT_TYPE="single-node"
+
+elif [ "${SUBCLOUD_COLLECT}" = true -a ${SUBCLOUDS} -eq 1 ] ; then
+
+    # Single host bundle
+    COLLECT_NAME="${SUBCLOUDLIST[0]}"
+    COLLECT_TYPE="single-subcloud"
+
+else
+
+    # Otherwise its a multi host bundle
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        COLLECT_NAME="SELECT_SUBCLOUDS"
+        COLLECT_TYPE="selected-subcloud"
+    else
+        COLLECT_NAME="SELECT_NODES"
+        COLLECT_TYPE="selected-node"
+    fi
+
+fi
+
+if [ "${ORCHESTRATED_COLLECT}" = false ] ; then
+    COLLECT_NAME+="_${NOWDATE}"
+fi
+COLLECT_DIR="${COLLECT_BASE_DIR}/${COLLECT_NAME}"
+TARBALL_NAME="${COLLECT_DIR}.tar"
+
+# learned state debug logs
+if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+    dlog "SUBCLOUDLIST = ${SUBCLOUDS}:${SUBCLOUDLIST[@]}"
+else
+    dlog "HOSTLIST     = ${HOSTS}:${HOSTLIST[@]}"
+fi
+if [ "${DCROLE}" != "" ] ;  then
+    dlog "DCROLE       = ${DCROLE}"
+fi
+dlog "COLLECT_TYPE = ${COLLECT_TYPE}"
+dlog "COLLECT_NAME = ${COLLECT_NAME}"
+dlog "COLLECT_DIR  = ${COLLECT_DIR}"
+dlog "TARBALL_NAME = ${TARBALL_NAME}"
+
+############################################################################
+#
+# Password handling
+#
+# If the password is not learned by other means by this time
+# then prompt the user to enter it.
+#
+# The password is used for expect driven requests.
+#
+############################################################################
+# dlog "password coming in is:$pw"
+
+if [ -z "${pw}" ] ; then
+    read -s -p "[sudo] password for ${USER}:" pw
+    echo ""
+fi
+
+# When the pw is used locally for expect requests ...
+#
+# Although bash 'read' will handle sanitizing the password
+# input for the purposes of storing it in ${pw}, expect
+# will need certain special characters to be backslash
+# delimited
+pw=${pw/\\/\\\\} # replace '\' with '\\'
+pw=${pw/\]/\\\]} # replace ']' with '\]'
+pw=${pw/\[/\\\[} # replace '[' with '\['
+pw=${pw/$/\\$}   # replace '$' with '\$'
+pw=${pw/\"/\\\"} # replace '"' with '\"'
+
+
+###########################################################################
+#
+# Name       : check_host_reachable
+#
+# Purpose    : Verify a host is reachable before trying to collect from it
+#
+# Description: ls the content of the scratch dir
+# Parameters : $1 - remote hostname
+#             $2 - dir or file with full path
+#
+###########################################################################
+
+function check_host_reachable()
+{
+    local hostname=${1}
+
+    if [ "${hostname}" == "${HOSTNAME}" ] ; then
+        return ${PASS}
+    fi
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    expect -re $
+    set timeout 60
+    send "${SSH_CMD} ${UN}@${hostname} cat ${cmd_done_file}\n"
+    expect {
+        "assword:" {
+            expect -re $
+            send "${pw}\r"
+            expect {
+                "assword:" { send -- "${pw}\r" ; exp_continue }
+                "${cmd_done_sig}" { exit ${PASS} }
+                "No such file or directory" { exit ${FAIL_FILE_NOT_FOUND} }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                "${ac_error}"     { exit ${FAIL_PERMISSION_SKIP}}
+                timeout           { exit ${FAIL_TIMEOUT3}  }
+            }
+        }
+        "(yes/no)?" {
+            send "yes\r"
+            exp_continue
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Network is unreachable" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Connection refused" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Connection timed out" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    return ${?}
+}
+
+
+###########################################################################
+#
+# Name      : clean_scratch_dir_local
+#
+# Purpose   : remove contents of the local /scratch directory
+#
+# Parameters: $1 - this hostname
+#             $2 - specified directory (always $COLLECT_BASE_DIR)
+#
+###########################################################################
+
+function clean_scratch_dir_local ()
+{
+    local this_hostname=${1}
+    local directory=${2}
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 60
+    expect -re $
+    send -- "sudo rm -rf ${directory}/*_????????.??????* ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT}    }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "clean_scratch_dir_local ${this_hostname} failed" ${rc}
+    fi
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name      : clean_scratch_dir_remote
+#
+# Purpose   : remove contents of the specified host's /scratch directory
+#
+# Parameters: $1 - host
+#             $2 - specified directory (always $COLLECT_BASE_DIR)
+#
+###########################################################################
+
+function clean_scratch_dir_remote()
+{
+    local this_hostname=${1}
+    local directory=${2}
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    expect -re $
+    set timeout 60
+    send "${SSH_CMD} ${UN}@${this_hostname}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${this_hostname}" {
+                    set timeout 30
+                    expect -re $
+                    send "sudo rm -rf ${directory}/*_????????.??????* ; cat ${cmd_done_file}\n"
+                    expect {
+                        "assword:" { send -- "${pw}\r" ; exp_continue }
+                        "${cmd_done_sig}" { exit ${PASS} }
+                        "${cmd_done_file}: No such file or directory" { exit ${PASS} }
+                        "annot remove"    { exit ${FAIL_CLEANUP}   }
+                        "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                        "${ac_error}"     { exit ${FAIL_PERMISSION_SKIP}}
+                        timeout           { exit ${FAIL_TIMEOUT3}  }
+                    }
+                }
+                timeout { exit ${FAIL_TIMEOUT1} }
+            }
+        }
+        "(yes/no)?" {
+            send "yes\r"
+            exp_continue
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to clean ${this_hostname}:${directory}" ${rc}
+    fi
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name      : delete_remote_dir_or_file
+#
+# Purpose   : Deletes a remote directory or file
+#
+# Parameters: $1 - remote hostname
+#             $2 - dir or file with full path
+#             $3 - expected login prompt
+#             $4 - alternative login prompt (optional)
+#
+###########################################################################
+
+function delete_remote_dir_or_file()
+{
+    local remote_hostname=${1}
+    local dir_or_file=${2}
+    local login_prompt="${3}"
+    
+    # alt_login_prompt is optional. Used when the actual prompt does not
+    # match the expected login_prompt (as contained in $login_prompt)
+    local alt_login_prompt="${4}"
+    
+    # if ${4} is empty, use $login_prompt instead.
+    if test -z "${4}";
+    then 
+        alt_login_prompt=${login_prompt};
+    fi
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    expect -re $
+    set timeout 60
+    send "${SSH_CMD} ${UN}@${remote_hostname}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                timeout { exit ${FAIL_TIMEOUT1} }
+                "${login_prompt}" {}
+                "${alt_login_prompt}" {}
+            }
+            set timeout 10
+            expect -re $
+            send "sudo rm -rf ${dir_or_file} ; cat ${cmd_done_file}\n"
+            expect {
+                "assword:" { send -- "${pw}\r" ; exp_continue }
+                "${cmd_done_sig}" { exit ${PASS} }
+                "${cmd_done_file}: No such file or directory" { exit ${PASS} }
+                "annot remove"    { exit ${FAIL_CLEANUP}   }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                "${ac_error}"     { exit ${FAIL_PERMISSION_SKIP}}
+                timeout           { exit ${FAIL_TIMEOUT3}  }
+            }
+        }
+        "(yes/no)?" {
+            send "yes\r"
+            exp_continue
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        dlog "delete_remote_dir_or_file parms=${remote_hostname}:${login_prompt}:${dir_or_file}"
+        report_error "failed to delete ${dir_or_file} on ${remote_hostname} (${login_prompt})" ${rc}
+    fi
+    return ${rc}
+}
+
+############################################################################
+#
+# Name      : get_file_from_host
+#
+# Purpose   : Fetch a file from a remote host
+#
+# Parameters: $1 - remote hostname
+#             $2 - remote source path/filename
+#             $3 - local path destination
+#
+############################################################################
+
+function get_file_from_host()
+{
+    local remote_hostname=${1}
+    local remote_file=${2}
+    local local_dest=${3}
+
+    remove_file_local ${HOST_COLLECT_ERROR_LOG}
+
+    dlog "get_file_from_host: ${UN}@${remote_hostname}:${COLLECT_BASE_DIR}/${remote_file} ${local_dest}"
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout ${SCP_TIMEOUT}
+    expect -re $
+    send "${SCP_CMD} ${UN}@${remote_hostname}:${COLLECT_BASE_DIR}/${remote_file} ${local_dest} 2>>${HOST_COLLECT_ERROR_LOG}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "100%"        { exit ${PASS} }
+                "${pw_error}" { exit ${FAIL_PASSWORD}  }
+                "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
+                timeout       { exit ${FAIL_TIMEOUT1}  }
+            }
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to get file from ${remote_hostname}" ${rc}
+    else
+        # Look for "No space left on device" error
+        grep -q "${FAIL_OUT_OF_SPACE_STR}" ${HOST_COLLECT_ERROR_LOG}
+        if [ "$?" == "0" ] ; then
+            remove_file_local "${local_dest}/${remote_file}"
+            rc=${FAIL_OUT_OF_SPACE}
+        fi
+    fi
+
+    remove_file_local ${HOST_COLLECT_ERROR_LOG}
+
+    return ${rc}
+}
+
+############################################################################
+#
+# Name      : copy_file_to_host
+#
+# Purpose   : Copy a file to a remote host
+#
+# Parameters: $1 - local path/file
+#             $2 - remote hostname
+#             $3 - remote destination directory
+#
+############################################################################
+
+function copy_file_to_host()
+{
+    local local_path_file_name="${1}"
+    local remote_hostname="${2}"
+    local remote_dir="${3}"
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout ${SCP_TIMEOUT}
+    expect -re $
+    send "${SCP_CMD} ${local_path_file_name} ${UN}@${remote_hostname}:${remote_dir} 2>>${HOST_COLLECT_ERROR_LOG}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "100%"        { exit ${PASS} }
+                "${pw_error}" { exit ${FAIL_PASSWORD}  }
+                "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
+                timeout       { exit ${FAIL_TIMEOUT1}  }
+            }
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "${FAIL_FILE_COPY_STR} ${local_path_file_name} to ${remote_hostname}:${remote_dir}" ${rc}
+    fi
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name       : create_collect_dir_local
+#
+# Purpose    : Create the local dated collect dir where all
+#              the tarballs for this collect will get put.
+#
+# Assumptions: Permissions are set to make it easy to copy
+#              tarballs from remote host into
+#
+# Parameters: $1 - the fill dir
+#
+###########################################################################
+
+function create_collect_dir_local()
+{
+    local dir=${1}
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 10
+    expect -re $
+    send "sudo mkdir -m 775 -p ${dir} ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${cmd_done_sig}" { exit ${PASS}           }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                "${ac_error}"     { exit ${FAIL_PERMISSION}}
+                timeout           { exit ${FAIL_TIMEOUT1}  }
+            }
+        }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "${ac_error}"     { exit ${FAIL_PERMISSION}}
+        timeout           { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to create_collect_dir_local for ${dir}" ${rc}
+        collect_exit ${rc}
+    fi
+    return ${rc}
+}
+
+############################################################################
+#
+# Create the local collect dir where the tarball(s) will temporarily stored
+#
+# Note: Catches the password error case
+#
+############################################################################
+
+create_collect_dir_local "${COLLECT_DIR}"
+
+##########################################################################
+#
+# Name      : remove_file_local
+#
+# Purpose   : Delete the specified file using sudo
+#
+# Parameters: $1 - the file to be delete with full path specified
+#
+###########################################################################
+
+function remove_file_local()
+{
+    local local_file=${1}
+    local rc=${PASS}
+
+    if [ -e ${local_file} ] ; then
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 10
+    expect -re $
+    send -- "sudo rm -f ${local_file} ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send -- "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT}    }
+    }
+EOF
+        rc=${?}
+        if [ ${rc} -ne ${PASS} ] ; then
+            report_error "failed to remove_file_local ${local_file}" ${rc}
+        fi
+    fi
+    return ${rc}
+}
+
+##########################################################################
+#
+# Name      : remove_dir_local
+#
+# Purpose   : Delete the specified file using sudo
+#
+# Parameters: $1 - the directory to be removed with full path specified
+#
+###########################################################################
+
+function remove_dir_local()
+{
+    local dir=${1}
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 10
+    expect -re $
+    send -- "sudo rm -rf ${dir} ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send -- "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT}    }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to remove_dir_local ${dir}" ${rc}
+        dlog "remove_dir_local failed: ${dir}"
+    fi
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name      : move_file_local
+#
+# Purpose   : Move a file and change permissions using sudo
+#
+# Parameters: $1 - src  path/file
+#             $2 - dest path/file
+#
+###########################################################################
+
+function move_file_local()
+{
+    local src=${1}
+    local dst=${2}
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 10
+    expect -re $
+    send -- "sudo mv ${src} ${dst} ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send -- "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT}    }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to move_file_local ${src} to ${dst}" ${rc}
+    fi
+    return ${rc}
+}
+
+
+###########################################################################
+
+
+###########################################################################
+function scratch_full()
+{
+    avail=$(df -k ${COLLECT_BASE_DIR} | grep -v Available | awk '{ print $4 }')
+    if [ ${avail} -lt ${COLLECT_BASE_DIR_FULL_THRESHOLD} ] ; then
+        return ${FAIL}
+    else
+        return ${PASS}
+    fi
+}
+
+###########################################################################
+#
+# Name       : echo_stats
+#
+# Purpose    : print collect data and/or stats
+#
+# Description: Append the echoed collect done with collect stats
+#              Produce a user log that duplicates the console output
+#              in both parallel and inline collect modes.
+#
+# Parameters : $1 - seconds
+#              $2 - label for control flow
+#              $3 - path/file name to get the size of
+#
+##########################################################################
+
+function echo_stats()
+{
+    local secs=${1}
+    local label="${2}"
+    local file="${3}"
+    local MSG=""
+    local stats=""
+
+    MSG="collected "
+    len=${#label}
+
+    for ((i=len;i<longest_name+16;i++)) ; do
+        MSG+=" "
+    done
+
+    if [ "${label}" == "stats-only" ] ; then
+        MSG+="${file} ... done"
+    else
+        MSG+="${label} ... done"
+    fi
+
+    stats=" ($(date -d@${secs} -u +%H:%M:%S)"
+    if [ -e ${file} ] ; then
+        avail=$(df -h --output=pcent ${COLLECT_BASE_DIR}  | grep -v Use)
+        size=$(du -h ${file} | cut -f 1 2>/dev/null)
+        if [ $? -eq 0 ] ; then
+            if [ "${label}" == "stats-only" ] ; then
+                printf "%s %5s %3s)\n" "${stats}" "${size}" "${avail}"
+                log "${MSG} $stats ${size} ${avail})"
+            else
+                if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
+                    printf "%s %s %5s %3s)\n" "${MSG}" "${stats}" "${size}" "${avail}"
+                else
+                    printf "%s %5s %3s)\n" "${stats}" "${size}" "${avail}"
+                fi
+                log "${MSG} $stats ${size} ${avail})"
+            fi
+            return
+        fi
+    fi
+    printf "stats error)\n"
+}
+
+############################################################################
+#
+# Name       : collect_host_run
+#
+# Purpose    : Run collect host in selected mode
+#
+# Description: Run collect_host as a background task for each host if
+#              parallel option is specified. Otherwise, run collect in
+#              forground (legacy mode) for each host one after the other.
+#
+############################################################################
+
+function collect_host_run()
+{
+    local host="${1}"
+    local rc=${PASS}
+
+    if [ "${PARALLEL_COLLECT_MODE}" = false ] ; then
+        local MSG="collecting"
+        # line up the host names
+        len=${#host}
+        for ((i=len;i<longest_name;i++)) ; do
+            MSG+=" "
+        done
+        MSG+=" ${TARNAME} ... "
+        echo -n "$MSG"
+    fi
+
+    # Save current user log level
+    local save=${USER_LOG_MODE}
+    if [ "${VERBOSE}" = true ] ; then
+        USER_LOG_MODE=1
+    fi
+
+    if [ "${host}" == "${HOSTNAME}" ] ;  then
+
+/usr/bin/expect << EOF
+        trap exit {SIGINT SIGTERM}
+        log_user ${USER_LOG_MODE}
+        spawn bash -i
+
+        set timeout ${TIMEOUT}
+        send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
+        expect {
+            "assword:" {
+                send "${pw}\r"
+                expect {
+                    "${FAIL_INSUFFICIENT_SPACE_STR}" { exit ${FAIL_INSUFFICIENT_SPACE}}
+                    "${FAIL_OUT_OF_SPACE_STR}" { exit ${FAIL_OUT_OF_SPACE}}
+                    "${collect_done}"          { exit ${PASS}             }
+                    "${pw_error}" { exit ${FAIL_PASSWORD}  }
+                    "${ac_error}" { exit ${FAIL_PERMISSION}}
+                    timeout       { exit ${FAIL_TIMEOUT}   }
+                }
+            }
+            timeout { exit ${FAIL_TIMEOUT} }
+        }
+        exit { ${FAIL} }
+EOF
+        rc=${?}
+    # otherwise the host is remote
+    else
+
+/usr/bin/expect << EOF
+        trap exit {SIGINT SIGTERM}
+        log_user ${USER_LOG_MODE}
+        spawn bash -i
+        set timeout 30
+        expect -re $
+        send "${SSH_CMD} ${UN}@${host}\n"
+        expect {
+            "assword:" {
+                send "${pw}\r"
+                expect {
+                    "${host}:" {
+                        set timeout 600
+                        send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
+                        expect {
+                            "assword:" {
+                                send "${pw}\r"
+                                expect {
+                                    "${FAIL_INSUFFICIENT_SPACE_STR}" {
+                                       send "exit\r"
+                                       exit ${FAIL_INSUFFICIENT_SPACE}
+                                    }
+                                    "${FAIL_OUT_OF_SPACE_STR}" {
+                                       send "exit\r"
+                                       exit ${FAIL_OUT_OF_SPACE}
+                                    }
+                                    "${collect_done}" {
+                                        send "exit\r"
+                                        exit ${PASS}
+                                    }
+                                    "${pw_error}"   { exit ${FAIL_PASSWORD} }
+                                    "${ac_error}"   { exit ${FAIL_PERMISSION_SKIP}}
+                                    timeout         { exit ${FAIL_TIMEOUT5} }
+                                }
+                            }
+                            timeout { exit ${FAIL_TIMEOUT4} }
+                        }
+                    }
+                    "${pw_error}" { exit ${FAIL_PASSWORD} }
+                    "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
+                    timeout       { exit ${FAIL_TIMEOUT3} }
+                }
+            }
+            "(yes/no)?" {
+                send "yes\r"
+                exp_continue
+            }
+            "No route to host" {
+                exit ${FAIL_UNREACHABLE}
+            }
+            "Could not resolve hostname" {
+                exit ${FAIL_UNREACHABLE}
+            }
+            "Host key verification failed" {
+                send "rm -f /home/${UN}/.ssh/known_hosts\n"
+                exit ${FAIL}
+            }
+            timeout { exit ${FAIL_TIMEOUT} }
+        }
+        exit { $FAIL }
+EOF
+        rc=${?}
+    fi
+    USER_LOG_MODE=${save}
+    return ${rc}
+}
+
+############################################################################
+#
+# Name       : collect_subcloud_run
+#
+############################################################################
+
+function collect_subcloud_run()
+{
+    local subcloud="${1}"
+    local tarname="${2}"
+    local -i rc=${PASS}
+
+    if [ "${PARALLEL_COLLECT_MODE}" = false ] ; then
+        local MSG="collecting"
+        # line up the subclouds names
+        len=${#subcloud}
+        for ((i=len;i<longest_name;i++)) ; do
+            MSG+=" "
+        done
+        MSG+=" ${tarname} ... "
+        echo -n "$MSG"
+    fi
+
+    # build the command starting with the final tarball name prefix
+    collect_cmd=("-n ${tarname}")
+
+    # all hosts in a subcloud are collected
+    collect_cmd+=("-a")
+
+    # all subcloud hosts are collected in parallel unless legacy more is specified
+    if [ "${PARALLEL_COLLECT_MODE}" = false ] ; then
+        collect_cmd+=("-in") ;
+    fi
+    if [ "${DEBUG}" = true ] ; then
+        collect_cmd+=("-d")
+    fi
+    if [ "${VERBOSE}" = true ] ; then
+        collect_cmd+=("-v")
+    fi
+
+    collect_cmd+=("--start-date ${STARTDATE}")
+    collect_cmd+=("--end-date $ENDDATE")
+
+    # copy the pw file to the subcloud and then cleanup
+    TEMPFILE=$(mktemp)
+    echo "${pw}" > ${TEMPFILE}
+    copy_file_to_host "${TEMPFILE}" "${subcloud}" "/tmp"
+    rc=${?}
+    remove_file_local ${TEMPFILE}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to copy '${TEMPFILE}' to ${subcloud}/tmp" ${FAIL_FILE_COPY}
+        collect_exit ${FAIL_FILE_COPY}
+    fi
+
+    # tell the remote subcloud the name of the password file
+    collect_cmd+=("-f ${TEMPFILE}")
+
+    # Save current user log level
+    local save=${USER_LOG_MODE}
+    if [ "${VERBOSE}" = true ] ; then
+        USER_LOG_MODE=1
+    fi
+
+    # echo "Subcloud Collect: ${subcloud} ${collect_cmd[@]}"
+/usr/bin/expect << EOF
+    trap exit {SIGINT SIGTERM}
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 30
+    expect -re $
+    send "${SSH_CMD} ${UN}@${subcloud}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${pw_error}" { exit ${FAIL_PASSWORD} }
+                "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
+                timeout       { exit ${FAIL_TIMEOUT3} }
+                "${SUBCLOUD_LOGIN_PROMPT}" {}
+                "${subcloud}:" {}
+            }
+            set timeout ${TIMEOUT}
+            send "${collect} ${collect_cmd[@]}\n"
+            expect {
+                "${collect_done}" {
+                    send "exit\r"
+                    exit ${PASS}
+                }
+                "${FAIL_INSUFFICIENT_SPACE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_INSUFFICIENT_SPACE}
+                }
+                "${FAIL_OUT_OF_SPACE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_OUT_OF_SPACE}
+                }
+                "${FAIL_PASSWORD_PROMPT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_PASSWORD_PROMPT}
+                }
+                "${COLLECT_ERROR} ${FAIL_FILE_EMPTY_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_FILE_EMPTY}
+                }
+                "${COLLECT_ERROR} ${FAIL_FILE_NOT_FOUND_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_FILE_NOT_FOUND}
+                }
+                "${COLLECT_ERROR} ${FAIL_DATE_FORMAT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_DATE_FORMAT}
+                }
+                "${COLLECT_ERROR} ${FAIL_INACTIVE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_INACTIVE}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_HOSTS_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_HOSTS}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_SUBCLOUDS_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_SUBCLOUDS}
+                }
+                "${COLLECT_ERROR} ${FAIL_MISSING_PARAMETER_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_MISSING_PARAMETER}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_FILE_SPECIFIED_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_FILE_SPECIFIED}
+                }
+                "${COLLECT_ERROR} ${FAIL_SUBCLOUD_TIMEOUT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_SUBCLOUD_TIMEOUT}
+                }
+                "${COLLECT_ERROR}" {
+                   send "exit\r"
+                   exit ${FAIL}
+                }
+                timeout         { exit ${FAIL_TIMEOUT5} }
+            }
+        }
+        "(yes/no)?" {
+            send "yes\r"
+            exp_continue
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Host key verification failed" {
+            send "rm -f /home/${UN}/.ssh/known_hosts\n"
+            exit ${FAIL}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+    exit { $FAIL }
+EOF
+    rc=${?}
+    USER_LOG_MODE=${save}
+    return ${rc}
+}
+
+############################################################################
+#
+# Name       : collect_host_complete_local
+#
+# Description: Perform collect host complete operations for a
+#              local collect host.
+#
+#              1. Get the tarball
+#              2. Handle errors
+#                 - report
+#                 - cleanup
+#
+############################################################################
+
+function collect_host_complete_local()
+{
+    local tarname="${1}"
+    local rc=${PASS}
+
+    # create the dir again just to handle the case where we are
+    # collecting on ourself and have removed the collect_dir
+    # directory in collect_host above.
+    create_collect_dir_local "${COLLECT_DIR}"
+
+    # move the tarball into the collect dir
+    # only applies to the local collect since the remote
+    # collect scp's it directly into the collect dir.
+    move_file_local "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
+    rc=${?}
+    if [ ${rc} -eq ${PASS} ] ; then
+        log "collect ${COLLECT_BASE_DIR}/${tarname}.tgz succeeded"
+    else
+        if [ ${rc} -eq ${FAIL_INSUFFICIENT_SPACE} ] ; then
+
+            report_error "${FAIL_INSUFFICIENT_SPACE_STR}" ${rc}
+
+            echo ""
+            wlog "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
+            echo ""
+
+            remove_dir_local ${COLLECT_DIR}
+
+            collect_exit ${FAIL_INSUFFICIENT_SPACE}
+
+        elif [ ${rc} -eq ${FAIL_OUT_OF_SPACE} ] ; then
+
+            report_error "${FAIL_OUT_OF_SPACE_STR}" ${rc}
+
+            echo ""
+            wlog "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
+            echo ""
+
+            # Remove the corrupt file and exit
+            remove_file_local ${COLLECT_ERROR_LOG}
+            remove_file_local ${COLLECT_BASE_DIR}/${tarname}.tgz
+            remove_dir_local ${COLLECT_BASE_DIR}/${tarname}
+            remove_dir_local ${COLLECT_BASE_DIR}/${COLLECT_NAME}
+
+            collect_exit ${FAIL_OUT_OF_SPACE}
+
+        else
+            report_error "failed to collect from ${HOSTNAME} [host complete]" ${rc}
+            dlog "collect_host_complete_local failure: ${COLLECT_DIR}:${tarname}:${rc}"
+        fi
+    fi
+    return ${rc}
+}
+
+############################################################################
+#
+# Name       : collect_host_complete_remote
+#
+# Description: Perform collect host complete operations for a
+#              remote host collect.
+#
+#              1. Fetch the tarball
+#              2. Remove tarball from remote host
+#              2. Handle errors
+#                 - report
+#                 - cleanup
+#
+############################################################################
+
+function collect_host_complete_remote ()
+{
+    local host="${1}"
+    local tarname="${2}"
+
+    if [ "${SUBCLOUD_COLLECT}" == true ] ; then
+        SUFFIX="tar"
+    else
+        SUFFIX="tgz"
+    fi
+    get_file_from_host "${host}" "${tarname}.${SUFFIX}" "${COLLECT_DIR}"
+
+    local rc=${?}
+    if [ ${rc} -eq ${PASS} ] ; then
+        if [ "${SUBCLOUD_COLLECT}" == true ] ; then
+            # login to subclouds does not show the subcloud name
+            # in the login prompt. It will always be one of the controllers
+            # so set login prompt to SUBCLOUD_LOGIN_PROMPT
+            delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${tarname}*" "${SUBCLOUD_LOGIN_PROMPT}" "${host}:"
+        else
+            # hosts always login as host name, use that hostname as login prompt
+            delete_remote_dir_or_file "${host}" "${COLLECT_BASE_DIR}/${tarname}*" "${host}"
+        fi
+        rc=$?
+        if [ ${rc} -eq ${PASS} ] ; then
+            log "collect ${COLLECT_BASE_DIR}/${tarname}.${SUFFIX} succeeded"
+        else
+            log "collect ${COLLECT_BASE_DIR}/${tarname}.${SUFFIX} succeeded but failed to cleanup"
+            rc=${PASS}
+        fi
+    else
+        report_error "failed to collect from ${host} [get file]" ${rc}
+        dlog "get_file_from_host failure: ${host}:${tarname}.${SUFFIX}:${COLLECT_DIR}"
+    fi
+    return ${rc}
+}
+
+############################################################################
+#
+# Parallel Collect Support
+#
+# collect_host_run     - run collect_host as a background task
+# collect_host_monitor - monitor for collect_host background task status
+# collect_host_done    - mark collect_host done with status
+# collect_host_stats   - print collect host stats
+#
+# collect_host_complete_local  - local collect complete operations
+# collect_host_complete_remote - remote collect complete operations
+#
+# collect_host_ctrl_list_index_print - print collect host control list@index
+#
+# collect_host_ctrl_list is a structured host list used to track the state of
+# collect_host run as a background task for each host.
+#
+# Structure members:
+#
+#  hostname - the name of the host being collected
+#  stage    - the collect stage for this host ; RUN, MON, DONE
+#  pid      - the pid of the background'ed collect host process
+#  seconds  - the time in seconds of when the collect started
+#  status   - the exit status of the remote collect 0..255
+#  name     - the full path and name of the remote collected tarball
+#
+############################################################################
+declare collect_host_ctrl_list=()
+
+# The following index constants are used to access each field.
+declare -r INDEX_HOST=0
+declare -r INDEX_STAGE=1
+declare -r INDEX_PID=2
+declare -r INDEX_SECONDS=3
+declare -r INDEX_STATUS=4
+declare -r INDEX_TARBALL=5
+
+# The stages each launched collect_host goes through
+declare -r STAGE_RUN="run"
+declare -r STAGE_MON="monitor"
+declare -r STAGE_DONE="done"
+
+# declare -r INVALID_PID=-1
+
+###########################################################################
+#
+# Name       : collect_host_monitor
+#
+# Purpose    : Transition host into tjhe monitor stage
+#
+############################################################################
+
+function collect_host_monitor()
+{
+    local index=${1}
+
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        TARGETS=${SUBCLOUDS}
+    else
+        TARGETS=${HOSTS}
+    fi
+    if [ ${index} -lt ${TARGETS} ] ; then
+        TARGET=${collect_host_ctrl_list[${index}]}
+        info=(${TARGET//:/ })
+
+        # Update collect host control structure for this host with
+        #
+        # collect_host_ctrl_list[index].stage = MONitor
+        #
+        collect_host_ctrl_list[${index}]="${info[${INDEX_HOST}]}:\
+                                            ${STAGE_MON}:\
+                                            ${info[${INDEX_PID}]}:\
+                                            ${info[${INDEX_SECONDS}]}:\
+                                            ${info[${INDEX_STATUS}]}:\
+                                            ${info[${INDEX_TARBALL}]}"
+        collect_host_ctrl_list_index_print ${index}
+    else
+        elog "collect_host_monitor ; invalid index:${index} ; must be smaller than ${TARGETS}"
+        collect_exit ${FAIL_INTERNAL}
+    fi
+}
+
+###########################################################################
+#
+# Name       : collect_host_done
+#
+# Purpose    : mark a host collect as done
+#
+############################################################################
+
+function collect_host_done()
+{
+    local index=${1}
+    local status=${2}
+
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        TARGETS=${SUBCLOUDS}
+    else
+        TARGETS=${HOSTS}
+    fi
+    if [ ${index} -lt ${TARGETS} ] ; then
+        TARGET=${collect_host_ctrl_list[${index}]}
+        info=(${TARGET//:/ })
+
+        # update struct for this pid/process with
+        #
+        # collect_host_ctrl_list[index].stage = DONE
+        # collect_host_ctrl_list[index].seconds = script run time
+        # collect_host_ctrl_list[index].status = status
+        HOST_START_TIME=${info[${INDEX_SECONDS}]}
+        collect_host_ctrl_list[${index}]="${info[${INDEX_HOST}]}:\
+                                            ${STAGE_DONE}:\
+                                            ${info[${INDEX_PID}]}:\
+                                            $((SECONDS-HOST_START_TIME)):\
+                                            ${status}:\
+                                            ${info[${INDEX_TARBALL}]}"
+        collect_host_ctrl_list_index_print ${index}
+    else
+        elog "collect_host_done ; invalid index:${index} ; must be smaller than ${TARGETS}"
+        collect_exit ${FAIL_INTERNAL}
+    fi
+}
+
+###########################################################################
+#
+# Name       : collect_host_stats
+#
+# Purpose    : call echo stats for specified collect_host_ctrl_list index
+#
+############################################################################
+
+function collect_host_stats()
+{
+    local index=${1}
+
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        SUFFIX="tar"
+    else
+        SUFFIX="tgz"
+    fi
+
+    if [[ "${PARALLEL_COLLECT_MODE}" = true && ${DONE_COUNT} -eq 0 ]] ; then
+        # send new line to delineate '.' progress
+        echo ""
+        PLEASE_STANDBY=false
+    fi
+
+    HOST=${collect_host_ctrl_list[${index}]}
+    info=(${HOST//:/ })
+    echo_stats "${info[${INDEX_SECONDS}]}" \
+               "${info[${INDEX_TARBALL}]}" \
+               "${COLLECT_DIR}/${info[${INDEX_TARBALL}]}.${SUFFIX}"
+}
+
+###########################################################################
+#
+# Name       : collect_host_ctrl_list_index_print
+#
+# Purpose    : debug
+#
+# Description: print the structure for a specified index
+#
+############################################################################
+
+collect_host_ctrl_list_index_print()
+{
+    local index=${1}
+
+    if [ "${DEBUG}" = true ] ; then
+        HOST=${collect_host_ctrl_list[${index}]}
+        info=(${HOST//:/ })
+        printf "%s Debug: %-12s %7s [%6s] | Secs:%3s | %3s | %s\n" \
+            "$(date)" \
+            "${info[${INDEX_HOST}]}" \
+            "${info[${INDEX_STAGE}]}" \
+            "${info[${INDEX_PID}]}" \
+            "${info[${INDEX_SECONDS}]}" \
+            "${info[${INDEX_STATUS}]}" \
+            "${info[${INDEX_TARBALL}]}"
+        dlog "${info[${INDEX_HOST}]} ${info[${INDEX_STAGE}]} [${info[${INDEX_PID}]}] | Secs:${info[${INDEX_SECONDS}]} | ${info[${INDEX_STATUS}]} | ${info[${INDEX_TARBALL}]}"
+    fi
+}
+
+############################################################################
+#
+# Name      : collect_host_clean
+#
+# Purpose   : Clean collect content in /scratch on specified host
+#
+# Parameters: $1 - hostname
+#
+############################################################################
+
+function collect_host_clean()
+{
+    local host="${1}"
+    local rc=${FAIL}
+
+    if [ "${host}" == "None" -o "${host}" == "" ] ; then
+        report_error "invalid host (${host}) passed to collect_host_clean" ${FAIL_HOSTNAME}
+        return
+    fi
+
+    echo -n "cleaning ${host}:${COLLECT_BASE_DIR} ... "
+    if [ "${host}" == "${HOSTNAME}" ] ; then
+        clean_scratch_dir_local ${host} ${COLLECT_BASE_DIR}
+        rc=${?}
+    else
+        clean_scratch_dir_remote ${host} ${COLLECT_BASE_DIR}
+        rc=${?}
+    fi
+    if [ ${rc} -eq ${PASS} ] ; then
+        echo "done"
+        log "user cleaned ${host}:${COLLECT_BASE_DIR} content"
+    fi
+}
+
+############################################################################
+#
+# Name      : collect_subcloud_clean
+#
+# Purpose   : Clean collect content in /scratch on specified subcloud
+#
+# Parameters: $1 - subcloud
+#
+############################################################################
+
+function collect_subcloud_clean()
+{
+    local subcloud="${1}"
+
+    check_host_reachable "${subcloud}"
+    if [ ${?} -ne ${PASS} ] ; then
+        report_error "cannot clean ${subcloud}" ${FAIL_UNREACHABLE}
+        return ${FAIL_UNREACHABLE}
+    fi
+
+    echo -n "cleaning subcloud $subcloud:${COLLECT_BASE_DIR} ... "
+
+    # Save current user log level
+    local save=${USER_LOG_MODE}
+    if [ "${VERBOSE}" = true ] ; then
+        USER_LOG_MODE=1
+    fi
+
+    # build the command
+    collect_cmd=("--clean --all --name ${subcloud}")
+
+    # copy the pw file to the subcloud and then cleanup
+    TEMPFILE=$(mktemp)
+    echo "${pw}" > ${TEMPFILE}
+    copy_file_to_host "${TEMPFILE}" "${subcloud}" "/tmp"
+    rc=${?}
+    remove_file_local ${TEMPFILE}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to copy '${TEMPFILE}' to ${subcloud}/tmp" ${FAIL_FILE_COPY}
+        collect_exit ${FAIL_FILE_COPY}
+    fi
+    collect_cmd+=("-f ${TEMPFILE}")
+
+    if [ "${DEBUG}"    = true ] ; then
+        collect_cmd+=("-d")
+    fi
+    if [ "${VERBOSE}"  = true ] ; then
+        collect_cmd+=("-v")
+    fi
+
+    # echo "Subcloud Collect Clean: ${subcloud} ${collect_cmd[@]}"
+
+/usr/bin/expect << EOF
+    trap exit {SIGINT SIGTERM}
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 30
+    expect -re $
+    send "${SSH_CMD} ${UN}@${subcloud}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${pw_error}" { exit ${FAIL_PASSWORD} }
+                "${ac_error}" { exit ${FAIL_PERMISSION_SKIP}}
+                timeout       { exit ${FAIL_TIMEOUT3} }
+                "${SUBCLOUD_LOGIN_PROMPT}" {}
+                "${subcloud}:" {}
+            }
+            send "${collect} ${collect_cmd[@]}\n"
+            expect {
+                "${collect_done}" {
+                    send "exit\r"
+                    exit ${PASS}
+                }
+                "${COLLECT_ERROR} ${FAIL_INACTIVE_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_INACTIVE}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_HOSTS_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_HOSTS}
+                }
+                "${COLLECT_ERROR} ${FAIL_MISSING_PARAMETER_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_MISSING_PARAMETER}
+                }
+                "${COLLECT_ERROR} ${FAIL_NO_FILE_SPECIFIED_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_NO_FILE_SPECIFIED}
+                }
+                "${COLLECT_ERROR}" {
+                   send "exit\r"
+                   exit ${FAIL}
+                }
+                timeout {
+                    exit ${FAIL_TIMEOUT5}
+                }
+            }
+        }
+        "(yes/no)?" {
+            send "yes\r"
+            exp_continue
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Host key verification failed" {
+            send "rm -f /home/${UN}/.ssh/known_hosts\n"
+            exit ${FAIL}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+    exit { $FAIL }
+EOF
+    rc=${?}
+    if [ ${rc} -eq ${PASS} ] ; then
+        log "clean of ${subcloud} hosts successful"
+        echo "done"
+    else
+        echo "failed to clean ${subcloud} rc:${rc}"
+    fi
+
+    USER_LOG_MODE=${save}
+    return ${rc}
+}
+
+############################################################################
+#
+#                    Handle clean command option
+#
+############################################################################
+
+if [ "${CLEAN}" = true ] ; then
+
+    if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+        if [ ${SUBCLOUDS} -eq 0 ] ; then
+            report_error "no valid subclouds to clean" ${FAIL_NO_HOSTS}
+            collect_exit ${FAIL_NO_HOSTS}
+        fi
+        dlog "cleaning scratch space on ${SUBCLOUDLIST[@]}"
+        for subcloud in "${SUBCLOUDLIST[@]}" ; do
+            collect_subcloud_clean "${subcloud}"
+        done
+    else
+        if [ ${HOSTS} -eq 0 ] ; then
+            report_error "no valid hosts to clean" ${FAIL_NO_HOSTS}
+            collect_exit ${FAIL_NO_HOSTS}
+        fi
+        dlog "cleaning scratch space on ${HOSTLIST[@]}"
+        for host in "${HOSTLIST[@]}" ; do
+            collect_host_clean "$host"
+        done
+        if [ "${ORCHESTRATED_COLLECT}" = true ] ; then
+            echo "${collect_done}"
+        fi
+    fi
+    collect_exit ${PASS}
+fi
+
+############################################################################
+#
+#                         Handle collect
+#
+############################################################################
+
+declare COLLECT_START_TIME=${SECONDS}
+
+if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+    for subcloud in "${SUBCLOUDLIST[@]}" ; do
+        len=${#subcloud}
+        if [ $len -gt ${longest_name} ] ; then
+            longest_name=$len
+        fi
+    done
+else
+    for host in "${HOSTLIST[@]}" ; do
+        len=${#host}
+        if [ $len -gt ${longest_name} ] ; then
+            longest_name=$len
+        fi
+    done
+fi
+
+############################################################################
+#
+# Name       : collect_hosts
+#
+# Purpose    : Run collect for all hosts in HOSTLIST
+#
+# Description: Loop over all the targetted hosts and
+#
+# 1. run collect_host
+#
+#    if PARALLEL = true  - Collect all hosts in parallel (all at once).
+#                          i.e. launch one background task per host.
+#                          Default behavior.
+#
+#    if PARALLEL = false - Collect all hosts inline, one after the other.
+#                          i.e. run collect for each host one after the other.
+#                          Specify the -in or --inline command line option.
+#
+# 2. copy the tarball to $COLLECT_DIR
+#
+############################################################################
+
+function collect_hosts()
+{
+    dlog "collect_hosts: [${HOSTS}] ${HOSTLIST[@]}"
+    let NEXT_PROGRESS_TIME=${SECONDS}+${PROGRESS_INTERVAL}
+
+    for host in "${HOSTLIST[@]}" ; do
+        if [ "${host}" != " " ] ; then
+
+            if [ "${host}" == "None" ] ; then
+                continue
+            elif [ "${host}" == "" ] ; then
+                continue
+            fi
+
+            check_host_reachable "${host}"
+            if [ ${?} -ne ${PASS} ] ; then
+                report_error "cannot collect from ${host}" ${FAIL_UNREACHABLE}
+                continue
+            fi
+
+            HOST_START_TIME=${SECONDS}
+            TARNAME="${host}_${NOWDATE}"
+
+            if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
+
+                # run collect_host in the background
+                (collect_host_run "${host}" "${TARNAME}")&
+
+                # save the child process's pid
+                CHILD_PID=${!}
+
+                #################################################################
+                #
+                # Add this collect_host's background child process info
+                # to the collect_host_ctrl_list
+                #
+                # collect_host_ctrl_list[index].hostname = host
+                # collect_host_ctrl_list[index].stage    = RUN
+                # collect_host_ctrl_list[index].pid      = invalid pid (-1)
+                # collect_host_ctrl_list[index].seconds  = script time in secs
+                # collect_host_ctrl_list[index].status   = default to FAIL
+                # collect_host_ctrl_list[index].tarball  = host's tarball name
+                #
+                #################################################################
+                collect_host_ctrl_list[${index}]="${host}:\
+                                                    ${STAGE_RUN}:\
+                                                    ${CHILD_PID}:\
+                                                    ${SECONDS}:\
+                                                    ${FAIL}:\
+                                                    ${TARNAME}"
+                collect_host_ctrl_list_index_print ${index}
+                index=$((index+1))
+
+            else
+
+                collect_host_run "${host}" "${TARNAME}"
+                rc=${?}
+                if [ ${rc} -eq ${PASS} ] ; then
+
+                    if [ "${host}" == "${HOSTNAME}" ] ; then
+                        collect_host_complete_local "${TARNAME}"
+                    else
+                        collect_host_complete_remote "${host}" "${TARNAME}"
+                    fi
+                    rc=${?}
+                    if [ ${rc} -ne ${PASS} ] ; then
+                        # handle copy error here
+                        report_error "failed to collect from ${host} [host file get]" ${rc}
+                    else
+                        secs=$((SECONDS-HOST_START_TIME))
+                        echo -n "done"
+                        echo_stats $secs "${TARNAME}" "${COLLECT_DIR}/${TARNAME}.tgz"
+                    fi
+                elif [ ${rc} -ge ${FAIL_TIMEOUT} -a ${rc} -le ${FAIL_TIMEOUT9} -a "${DCROLE}" == "${DCROLE_SUBCLOUD}" ] ; then
+                    report_error "failed to collect from ${host} [subcloud host run timeout]" ${FAIL_SUBCLOUD_TIMEOUT}
+                else
+                    report_error "failed to collect from ${host} [host]" ${rc}
+                fi
+            fi
+        fi
+    done
+
+    #############################################
+    #
+    # Parallel Collect Mode
+    #
+    #############################################
+    monitoring=false
+    if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
+
+        echo -n "monitoring host collect ; please standby "
+        PLEASE_STANDBY=true
+
+        # All hosts collected overall timeout
+        while [ ${UNTIL} -ge ${SECONDS} ] ; do
+            index=0
+            monitoring=false
+            for HOST in "${collect_host_ctrl_list[@]}" ; do
+                info=(${HOST//:/ })
+                # collect_host_ctrl_list_index_print ${index}
+                if [ "${info[${INDEX_STAGE}]}" == "${STAGE_MON}" ] ; then
+
+                    # check to see if this collect_host pocess is done collecting
+                    kill -0 "${info[${INDEX_PID}]}" 2>/dev/null
+                    rc=${?}
+                    if [ ${rc} -ne 0 ] ; then
+
+                        # the process is done ; get its exit code
+                        wait "${info[${INDEX_PID}]}"
+                        rc=${?}
+                        if [ ${rc} == ${PASS} ] ; then
+
+                            # if it passed then fetch that host's tarball
+                            if [ "${info[${INDEX_HOST}]}" == "${HOSTNAME}" ] ; then
+                                collect_host_complete_local  "${info[${INDEX_TARBALL}]}"
+                            else
+                                collect_host_complete_remote "${info[${INDEX_HOST}]}" \
+                                                             "${info[${INDEX_TARBALL}]}"
+                            fi
+                            rc=${?}
+                            collect_host_done ${index} ${rc}
+                            if [ ${rc} -eq ${PASS} ] ; then
+                                collect_host_stats ${index} ${rc}
+                            fi
+                            DONE_COUNT=$((DONE_COUNT+1))
+                        else
+                            collect_host_done ${index} ${rc}
+                            report_error "failed to collect from ${info[${INDEX_HOST}]} [target]" ${rc}
+                        fi
+                    else
+                        if [ ${DONE_COUNT} -eq 0 ] ; then
+                            if [ ${SECONDS} -gt ${NEXT_PROGRESS_TIME} ] ; then
+                                echo -n "."
+                                let NEXT_PROGRESS_TIME=${SECONDS}+${PROGRESS_INTERVAL}
+                            fi
+                        fi
+
+                        monitoring=true
+                    fi
+
+                elif [ "${info[${INDEX_STAGE}]}" == "${STAGE_RUN}" ] ; then
+                    monitoring=true
+                    # update stage to Monitor
+                    collect_host_monitor ${index}
+                fi
+                index=$((index+1))
+            done
+
+            if [ "${monitoring}" = false ] ; then
+                ilog "collected from ${DONE_COUNT} hosts"
+                break
+            fi
+        done
+    fi
+
+    # Report that the overall collect timed-out
+    if [ "$monitoring" = true ]; then
+        # there may be partial collect worth keeping
+        report_error "collect operation timeout after $TIMEOUT secs" ${FAIL_TIMEOUT}
+    fi
+}
+
+############################################################################
+#
+# Name       : collect_subclouds
+#
+# Purpose    : Run collect for all subclouds in SUBCLOUDLIST
+#
+# Description: Loop over all the specified subclouds and
+#
+# 1. run collect_subcloud
+#
+#    if PARALLEL = true  - Collect all subcloudss in parallel (all at once).
+#                          i.e. launch one background task per subcloud.
+#                          All hosts in subcloud also collected in parallel
+#                          Default behavior.
+#
+#    if PARALLEL = false - Collect all hosts inline, one after the other.
+#                          i.e. run collect for each host one after the other.
+#                          All hosts in subcloud also collected inline
+#                          Specify the -in or --inline command line option.
+#
+# 2. copy the tarball to $COLLECT_DIR
+#
+############################################################################
+
+declare -i PROGRESS_INTERVAL=15  # seconds
+collect_subclouds()
+{
+    dlog "collect_subclouds: [${SUBCLOUDS}] ${SUBCLOUDLIST[@]}"
+    let NEXT_PROGRESS_TIME=${SECONDS}+${PROGRESS_INTERVAL}
+
+    local -a DONE_LIST=()
+    for subcloud in "${SUBCLOUDLIST[@]}" ; do
+        if [ "${subcloud}" != " " ] ; then
+
+            if [ "${subcloud}" == "None" ] ; then
+                continue
+            elif [ "${subcloud}" == "" ] ; then
+                continue
+            fi
+
+            check_host_reachable "${subcloud}"
+            if [ ${?} -ne ${PASS} ] ; then
+                report_error "cannot collect from ${subcloud}" ${FAIL_UNREACHABLE}
+                continue
+            fi
+
+            SUBCLOUD_START_TIME=${SECONDS}
+            if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
+
+                # Collect subclouds in parallel mode
+
+                #Run collect_subcloud in the background
+                (collect_subcloud_run "${subcloud}" "${subcloud}_${NOWDATE}")&
+
+                # save the child process's pid
+                CHILD_PID=${!}
+
+                #################################################################
+                #
+                # Add this collect_subcloud_run's background child process info
+                # to the collect_host_ctrl_list
+                #
+                # collect_host_ctrl_list[index].hostname = subcloud
+                # collect_host_ctrl_list[index].stage    = RUN
+                # collect_host_ctrl_list[index].pid      = invalid pid (-1)
+                # collect_host_ctrl_list[index].seconds  = script time in secs
+                # collect_host_ctrl_list[index].status   = default to FAIL
+                # collect_host_ctrl_list[index].tarball  = host's tarball name
+                #
+                #################################################################
+                collect_host_ctrl_list[${index}]="${subcloud}:\
+                                                    ${STAGE_RUN}:\
+                                                    ${CHILD_PID}:\
+                                                    ${SECONDS}:\
+                                                    ${FAIL}:\
+                                                    ${subcloud}_${NOWDATE}"
+                collect_host_ctrl_list_index_print ${index}
+                index=$((index+1))
+
+            else
+
+                # Run collect subclouds one after the other (legacy) mode.
+
+                # make the collected filename be the subcloud name it was
+                # collected from with the date of this overall collect.
+                collect_subcloud_run "${subcloud}" "${subcloud}_${NOWDATE}"
+                rc=${?}
+                if [ ${rc} -eq ${PASS} ] ; then
+
+                    collect_host_complete_remote "${subcloud}" "${subcloud}_${NOWDATE}"
+                    rc=${?}
+                    if [ ${rc} -ne ${PASS} ] ; then
+                        # handle copy error here
+                        report_error "failed to collect from ${subcloud} [subcloud get]" ${rc}
+                    else
+                        secs=$((SECONDS-SUBCLOUD_START_TIME))
+                        echo -n "done"
+                        if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+                            SUFFIX="tar"
+                        else
+                            SUFFIX="tgz"
+                        fi
+                        echo_stats $secs "${COLLECT_NAME}" "${COLLECT_DIR}/${subcloud}_${NOWDATE}.${SUFFIX}"
+                    fi
+                else
+                    report_error "failed to collect from ${subcloud} [subcloud run]" ${rc}
+                fi
+                DONE_COUNT=$((DONE_COUNT+1))
+                DONE_LIST+=(${subcloud})
+
+                #################################################
+                # Check available space and stop collecting
+                # if the scratch_full threshold is reached
+                #################################################
+                if [ ${DONE_COUNT} -lt ${SUBCLOUDS} ] ; then
+                    scratch_full
+                    if [ ${?} -eq ${FAIL} ] ; then
+                        wlog "unable to collect more subclouds ; ${COLLECT_BASE_DIR} is almost full ; suspending subcloud collect"
+
+                        TODO_LIST=()
+                        for sc in "${SUBCLOUDLIST[@]}" ; do
+                            local found=false
+                            for done_sc in "${DONE_LIST[@]}" ; do
+                                if [ "${done_sc}" == "${sc}" ] ; then
+                                    found=true
+                                    break
+                                fi
+                            done
+                            if [ "${found}" = false ] ; then
+                                TODO_LIST+=($sc)
+                            fi
+                        done
+                        if [ ${#TODO_LIST[@]} -ne 0 ] ; then
+                            log "the following ${#TODO_LIST[@]} subclouds were not collected: ${TODO_LIST[@]}"
+                            echo "${TODO_LIST[@]}" > ${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}
+                            COLLECT_CONTINUE_MSG_NEEDED=true
+                        fi
+                        monitoring=false
+                        break
+                    fi
+                fi
+            fi
+        fi
+    done
+
+    #############################################
+    #
+    # Parallel Collect Mode - Monitoring
+    #
+    #############################################
+    monitoring=false
+
+    if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
+
+        echo -n "monitoring subcloud collect ; please standby "
+        PLEASE_STANDBY=true
+
+        # All hosts collected overall timeout
+        while [ ${UNTIL} -ge ${SECONDS} ] ; do
+            index=0
+            monitoring=false
+            for subcloud in "${collect_host_ctrl_list[@]}" ; do
+                info=(${subcloud//:/ })
+
+                # collect_host_ctrl_list_index_print ${index}
+                if [ "${info[${INDEX_STAGE}]}" == "${STAGE_MON}" ] ; then
+
+                    # check to see if this collect_host pocess is done collecting
+                    kill -0 "${info[${INDEX_PID}]}" 2>/dev/null
+                    rc=${?}
+                    if [ ${rc} -ne 0 ] ; then
+
+                        # the process is done ; get its exit code
+                        wait "${info[${INDEX_PID}]}"
+                        rc=${?}
+                        if [ ${rc} == ${PASS} ] ; then
+
+                            # if it passed then fetch that host's tarball
+                            if [ "${info[${INDEX_HOST}]}" == "${HOSTNAME}" ] ; then
+                                collect_host_complete_local  "${info[${INDEX_TARBALL}]}"
+                            else
+                                collect_host_complete_remote "${info[${INDEX_HOST}]}" \
+                                                             "${info[${INDEX_TARBALL}]}"
+                            fi
+                            rc=${?}
+                            collect_host_done ${index} ${rc}
+                            if [ ${rc} -eq ${PASS} ] ; then
+                                collect_host_stats ${index} ${rc}
+                            fi
+                            DONE_COUNT=$((DONE_COUNT+1))
+
+                            #################################################
+                            # Check available space and stop collecting
+                            # if the scratch_full threshold is reached
+                            #################################################
+                            if [ ${DONE_COUNT} -lt ${SUBCLOUDS} ] ; then
+                                scratch_full
+                                if [ ${?} -eq ${FAIL} ] ; then
+                                    wlog "unable to collect more subclouds ; ${COLLECT_BASE_DIR} is almost full ; suspending subcloud collect"
+
+                                    # search for subclouds in the MONitoring state
+                                    # and add them to the TODO_LIST
+                                    TODO_LIST=()
+                                    for sc in "${collect_host_ctrl_list[@]}" ; do
+                                        info=(${sc//:/ })
+                                        if [ "${info[${INDEX_STAGE}]}" == "${STAGE_MON}" ] ; then
+                                            TODO_LIST+=(${info[${INDEX_HOST}]})
+                                        fi
+                                    done
+                                    if [ ${#TODO_LIST[@]} -ne 0 ] ; then
+                                        log "the following ${#TODO_LIST[@]} subclouds were not collected: ${TODO_LIST[@]}"
+                                        echo "${TODO_LIST[@]}" > ${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}
+                                        COLLECT_CONTINUE_MSG_NEEDED=true
+                                    fi
+                                    monitoring=false
+                                    break
+                                fi
+                            fi
+                        else
+                            collect_host_done ${index} ${rc}
+                            report_error "failed to collect from ${info[${INDEX_HOST}]} [remote]" ${rc}
+                        fi
+                    else
+                        if [ ${DONE_COUNT} -eq 0 ] ; then
+                            if [ ${SECONDS} -gt ${NEXT_PROGRESS_TIME} ] ; then
+                                echo -n "."
+                                let NEXT_PROGRESS_TIME=${SECONDS}+${PROGRESS_INTERVAL}
+                            fi
+                        fi
+
+                        monitoring=true
+                    fi
+
+                elif [ "${info[${INDEX_STAGE}]}" == "${STAGE_RUN}" ] ; then
+                    monitoring=true
+                    # update stage to Monitor
+                    collect_host_monitor ${index}
+                fi
+                index=$((index+1))
+            done
+
+            if [ "${monitoring}" = false ] ; then
+                ilog "collected from ${DONE_COUNT} subclouds"
+                break
+            fi
+        done
+    fi
+    # Report that the overall collect timed-out
+    if [ "$monitoring" = true ]; then
+        if [ "${ORCHESTRATED_COLLECT}" = true ] ; then
+            report_error "collect operation timeout after $TIMEOUT secs" ${FAIL_SUBCLOUD_TIMEOUT}
+        else
+            report_error "collect operation timeout after $TIMEOUT secs" ${FAIL_TIMEOUT}
+        fi
+    fi
+}
+
+############################################################################
+#
+#         Handle subcloud and system hosts batched collect
+#
+############################################################################
+
+declare -i TIMEOUT_THRESHOLD_FACTOR=20
+declare -i SUBCLOUDS_TIMEOUT_BOOST=20
+declare -i HOSTS_TIMEOUT_BOOST=10
+declare -i MAX_LIST_PRINT=6
+
+if [ "${SUBCLOUD_COLLECT}" = true ] ; then
+    if [ ${SUBCLOUDS} -eq 0 ] ; then
+        report_error "no valid subclouds to collect" ${FAIL_NO_SUBCLOUDS}
+        collect_exit ${FAIL_NO_SUBCLOUDS}
+    fi
+    if [ ${SUBCLOUDS} -gt ${TIMEOUT_THRESHOLD_FACTOR} -a "${PARALLEL_COLLECT_MODE}" = true ] ; then
+        # adjust overall timeout to account for the large number of subclouds
+        let UNTIL=$(((SUBCLOUDS*SUBCLOUDS_TIMEOUT_BOOST)+TIMEOUT))
+        ilog "adjusted subcloud collect timout from ${TIMEOUT} to ${UNTIL} secs to account for ${SUBCLOUDS} subclouds"
+    fi
+    if [ "${ALLHOSTS}" = true ] ; then
+        if [ ${SUBCLOUDS} -gt ${MAX_LIST_PRINT} ] ; then
+            ilog "collecting data from all ${SUBCLOUDS} subcloud(s)"
+        else
+            ilog "collecting data from ${SUBCLOUDS} subcloud(s)"
+        fi
+    elif [ ${SUBCLOUDS} -gt ${MAX_LIST_PRINT} ] ; then
+        ilog "collecting data from ${SUBCLOUDS} subcloud(s)"
+    else
+        ilog "collecting data from ${SUBCLOUDS} subcloud(s): ${SUBCLOUDLIST[@]}"
+    fi
+    collect_subclouds "$@"
+else
+    if [ ${HOSTS} -eq 0 ] ; then
+        report_error "no valid hosts to collect" ${FAIL_NO_HOSTS}
+        collect_exit ${FAIL_NO_HOSTS}
+    fi
+    if [ ${HOSTS} -gt ${TIMEOUT_THRESHOLD_FACTOR} -a "${PARALLEL_COLLECT_MODE}" = true ] ; then
+        # adjust overall timeout to account for the large number of hosts
+        let UNTIL=$(((HOSTS*HOSTS_TIMEOUT_BOOST)+TIMEOUT))
+        ilog "adjusted hosts collect timout from ${TIMEOUT} to ${UNTIL} secs to account for ${HOSTS} hosts"
+    fi
+    if [ "${ALLHOSTS}" = true ] ; then
+        if [ ${HOSTS} -gt ${MAX_LIST_PRINT} ] ; then
+            ilog "collecting data from all ${HOSTS} host(s)"
+        else
+            ilog "collecting data from ${HOSTS} host(s)"
+        fi
+    elif [ ${HOSTS} -gt ${MAX_LIST_PRINT} ] ; then
+        ilog "collecting data from ${HOSTS} host(s)"
+    else
+        ilog "collecting data from ${HOSTS} host(s): ${HOSTLIST[@]}"
+    fi
+    collect_hosts "$@"
+fi
+
+############################################################################
+#
+# Pre tar check. Don't try to create a tarball from an empty COLLECT_DIR
+#
+############################################################################
+
+if [ -d ${COLLECT_DIR} ] ; then
+    stat ${COLLECT_DIR}/* 2>/dev/null 1>/dev/null
+    if [ $? -eq 0 ] ; then
+        tarballs=(${COLLECT_DIR}/*)
+        for tarball in "${tarballs[@]}" ; do
+            dlog "collected $tarball"
+        done
+    else
+        elog "No ${COLLECT_DIR} tarballs found ; refusing to create empty ${TARBALL_NAME}"
+        collect_exit ${FAIL_NO_TARFILES}
+    fi
+else
+    elog "${COLLECT_DIR} not present ; refusing to create empty ${TARBALL_NAME}"
+    collect_exit ${FAIL_NO_TARDIR}
+fi
+
+############################################################################
+#
+# Proceed with the tar after cleaning up error files.
+# These files are used to seach for tar failures due to out-of-space logs
+#
+############################################################################
+
+echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
+
+remove_file_local ${COLLECT_ERROR_LOG}
+remove_file_local ${HOST_COLLECT_ERROR_LOG}
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    expect -re $
+    set timeout 200
+    send "(cd ${COLLECT_BASE_DIR} ; sudo ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* 2>>${COLLECT_ERROR_LOG} ; cat ${cmd_done_file})\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${cmd_done_sig}" { exit ${PASS}            }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+                "${ac_error}"     { exit ${FAIL_PERMISSION} }
+                timeout           { exit ${FAIL_TIMEOUT1}   }
+            }
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+rc=${?}
+if [ ${rc} -ne ${PASS} ] ; then
+    collect_errors ${HOSTNAME}
+    report_error "failed to create ${TARBALL_NAME}" ${rc}
+else
+    collect_errors ${HOSTNAME}
+    rc=$?
+    if [ ${rc} -eq ${PASS} ] ; then
+        secs=$((SECONDS-COLLECT_START_TIME))
+        echo -n "done"
+        echo_stats $secs "stats-only" "${TARBALL_NAME}"
+        log "created ${COLLECT_TYPE} tarball ${TARBALL_NAME}"
+
+        if [ "${ORCHESTRATED_COLLECT}" = true ] ; then
+            echo "${collect_done}"
+        fi
+    else
+        echo "removing incomplete collect: ${TARBALL_NAME}"
+        remove_file_local "${TARBALL_NAME}"
+
+        if [ "${COLLECT_CONTINUE_MSG_NEEDED}" = true ] ; then
+            # collect continue is not supported if the previous collect fails
+            remove_file_local "${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}"
+            COLLECT_CONTINUE_MSG_NEEDED=false
+        fi
+    fi
+fi
+remove_file_local ${COLLECT_ERROR_LOG}
+remove_dir_local "${COLLECT_DIR}"
+
+if [ "${COLLECT_CONTINUE_MSG_NEEDED}" = true ] ; then
+    echo "------------------------------------------------------------------------------------------"
+    echo ""
+    wlog "Unable to gather from all requested subclouds due to limited ${COLLECT_BASE_DIR} space."
+    echo "... Successful subcloud collects stored in ${TARBALL_NAME}"
+    echo "... List of uncollected subclouds is saved in ${SUBCLOUD_COLLECT_CONTINUE_LIST_FILE}"
+    echo "... Copy ${TARBALL_NAME} off-system and then delete it from ${COLLECT_BASE_DIR}."
+    echo "... Re-run collect subcloud with the --continue option to collect remaining subclouds:"
+    echo ""
+    echo "    ${HOSTNAME}:$ collect --subcloud --continue"
+    echo ""
+    echo "------------------------------------------------------------------------------------------"
+fi
+
+# return to callers dir
+cd ${CURR_DIR}
+
+collect_exit ${rc}

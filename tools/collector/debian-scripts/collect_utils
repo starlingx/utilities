@@ -1,0 +1,318 @@
+#! /bin/bash
+#
+# Copyright (c) 2013-2019 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+##########################################################################################
+
+DEBUG=false
+
+# Fail Codes
+PASS=0
+FAIL=1
+RETRY=2
+
+FAIL_NODETYPE=3
+
+FAIL_TIMEOUT=10
+FAIL_TIMEOUT1=11
+FAIL_TIMEOUT2=12
+FAIL_TIMEOUT3=13
+FAIL_TIMEOUT4=14
+FAIL_TIMEOUT5=15
+FAIL_TIMEOUT6=16
+FAIL_TIMEOUT7=17
+FAIL_TIMEOUT8=18
+FAIL_TIMEOUT9=19
+
+FAIL_SUBCLOUD_TIMEOUT=20
+
+FAIL_PASSWORD=30
+FAIL_PERMISSION=31
+FAIL_CLEANUP=32
+FAIL_UNREACHABLE=33
+FAIL_HOSTNAME=34
+FAIL_INACTIVE=35
+FAIL_PERMISSION_SKIP=36
+FAIL_OUT_OF_SPACE=37
+FAIL_INSUFFICIENT_SPACE=38
+FAIL_INTERNAL=39
+FAIL_NO_TARDIR=40
+FAIL_NO_TARBALLS=41
+FAIL_NO_FILE_SPECIFIED=42
+FAIL_FILE_NOT_FOUND=43
+FAIL_FILE_EMPTY=44
+FAIL_PASSWORD_PROMPT=45
+FAIL_MISSING_PARAMETER=46
+FAIL_DATE_FORMAT=47
+FAIL_NO_HOSTS=48
+FAIL_FILE_COPY=49
+FAIL_SUBCLOUD=50
+FAIL_CONTINUE=51
+FAIL_SUBCLOUDNAME=52
+FAIL_NO_SUBCLOUDS=53
+FAIL_NOT_SYSTEMCONTROLLER=54
+
+
+# Warnings are above 200
+WARN_WARNING=200
+WARN_HOSTNAME=201
+WARN_SUBCLOUD=202
+
+COLLECT_ERROR="Error:"
+COLLECT_DEBUG="Debug:"
+COLLECT_WARN="Warning:"
+
+# Failure Strings
+FAIL_NOT_ENOUGH_SPACE_STR="Not enough /scratch filesystem space"
+FAIL_OUT_OF_SPACE_STR="No space left on device"
+FAIL_TAR_OUT_OF_SPACE_STR="tar: Error is not recoverable"
+FAIL_INSUFFICIENT_SPACE_STR="Not enough space on device"
+FAIL_UNREACHABLE_STR="Unreachable"
+
+FAIL_TIMEOUT_STR="operation timeout"
+FAIL_SUBCLOUD_TIMEOUT_STR="subcloud collect timeout"
+
+FAIL_NO_FILE_SPECIFIED_STR="no file specified"
+FAIL_FILE_NOT_FOUND_STR="no such file or directory"
+FAIL_FILE_EMPTY_STR="file is empty"
+FAIL_PASSWORD_PROMPT_STR="password for"
+
+FAIL_DATE_FORMAT_STR="date format"
+FAIL_INACTIVE_STR="not active"
+FAIL_NO_HOSTS_STR="empty host list"
+FAIL_NO_SUBCLOUDS_STR="empty subcloud list"
+FAIL_MISSING_PARAMETER_STR="missing parameter"
+FAIL_FILE_COPY_STR="failed to copy"
+FAIL_CONTINUE_STR="cannot continue"
+
+# The minimum amount of % free space on /scratch to allow collect to proceed
+MIN_PERCENT_SPACE_REQUIRED=75
+
+# Subcloud collect stops when avail scratch drops below this threshold.
+# Use collect -sc --continue to tell collect to continue collecting subclouds
+# from where it left off.
+# 2Gib in K blocks rounded up
+declare -i COLLECT_BASE_DIR_FULL_THRESHOLD=2147484 # 2Gib in K blocks rounded up
+
+# Log file path/names
+COLLECT_LOG=/var/log/collect.log
+COLLECT_ERROR_LOG=/tmp/collect_error.log
+HOST_COLLECT_ERROR_LOG="/tmp/host_collect_error.log"
+
+DCROLE_SYSTEMCONTROLLER="systemcontroller"
+DCROLE_SUBCLOUD="subcloud"
+
+function source_openrc_if_needed
+{
+    # get the node and subfunction types
+    nodetype=""
+    subfunction=""
+    PLATFORM_CONF=/etc/platform/platform.conf
+    if [ -e ${PLATFORM_CONF} ] ; then
+        source ${PLATFORM_CONF}
+    fi
+
+    if [ "${nodetype}" != "controller" -a "${nodetype}" != "worker" -a "${nodetype}" != "storage" ] ; then
+        logger -t ${COLLECT_TAG} "could not identify nodetype ($nodetype)"
+        exit $FAIL_NODETYPE
+    fi
+
+    ACTIVE=false
+    if [ "$nodetype" == "controller" ] ; then
+        # get local host activity state
+        OPENRC="/etc/platform/openrc"
+        if [ -e "${OPENRC}" ] ; then
+            OS_PASSWORD=""
+            source ${OPENRC} 2>/dev/null 1>/dev/null
+            if [ "${OS_PASSWORD}" != "" ] ; then
+                ACTIVE=true
+            fi
+        fi
+    fi
+}
+
+
+# Setup an expect command completion file.
+# This is used to force serialization of expect
+# sequences and highlight command completion
+collect_done="collect done"
+cmd_done_sig="expect done"
+cmd_done_file="/usr/local/sbin/expect_done"
+
+# Compression Commands
+TAR_ZIP_CMD="tar -cvzf"
+TAR_UZIP_CMD="tar -xvzf"
+TAR_CMD="tar -cvhf"
+TAR_CMD_APPEND="tar -rvhf"
+UNTAR_CMD="tar -xvf"
+ZIP_CMD="gzip"
+NICE_CMD="/usr/bin/nice -n19"
+IONICE_CMD="/usr/bin/ionice -c2 -n7"
+COLLECT_TAG="COLLECT"
+
+STARTDATE_OPTION="--start-date"
+ENDDATE_OPTION="--end-date"
+
+
+PROCESS_DETAIL_CMD="ps -e -H -o ruser,tid,pid,ppid,flags,stat,policy,rtprio,nice,priority,rss:10,vsz:10,sz:10,psr,stime,tty,cputime,wchan:14,cmd"
+BUILD_INFO_CMD="cat /etc/build.info"
+
+################################################################################
+# Log Debug, Info or Error log message to syslog
+################################################################################
+function log
+{
+    logger -t ${COLLECT_TAG} $@
+}
+
+function ilog
+{
+    echo "$@"
+    logger -t ${COLLECT_TAG} $@
+}
+
+function elog
+{
+    echo "${COLLECT_ERROR} $@"
+    logger -t ${COLLECT_TAG} "${COLLECT_ERROR} $@"
+}
+
+function wlog
+{
+    echo "${COLLECT_WARN} $@"
+    logger -t ${COLLECT_TAG} "${COLLECT_WARN} $@"
+}
+
+function set_debug_mode()
+{
+    DEBUG=${1}
+}
+
+function dlog()
+{
+    if [ "$DEBUG" == true ] ; then
+        logger -t ${COLLECT_TAG} "${COLLECT_DEBUG} $@"
+        echo "$(date) ${COLLECT_DEBUG} $@"
+    fi
+}
+
+
+function delimiter()
+{
+    echo "--------------------------------------------------------------------" >> ${1} 2>>${COLLECT_ERROR_LOG}
+    echo "`date` : ${myhostname} : ${2}" >> ${1} 2>>${COLLECT_ERROR_LOG}
+    echo "--------------------------------------------------------------------" >> ${1} 2>>${COLLECT_ERROR_LOG}
+}
+
+function log_slabinfo()
+{
+    PAGE_SIZE=$(getconf PAGE_SIZE)
+    cat /proc/slabinfo | awk -v page_size_B=${PAGE_SIZE} '
+    BEGIN {page_KiB = page_size_B/1024; TOT_KiB = 0;}
+    (NF == 17) {
+        gsub(/[<>]/, "");
+        printf("%-22s %11s %8s %8s %10s %12s %1s %5s %10s %12s %1s %12s %9s %11s %8s\n",
+        $2, $3, $4, $5, $6, $7, $8, $10, $11, $12, $13, $15, $16, $17, "KiB");
+    }
+    (NF == 16) {
+        num_objs=$3; obj_per_slab=$5; pages_per_slab=$6;
+        KiB = (obj_per_slab > 0) ? page_KiB*num_objs/obj_per_slab*pages_per_slab : 0;
+        TOT_KiB += KiB;
+        printf("%-22s %11d %8d %8d %10d %12d %1s %5d %10d %12d %1s %12d %9d %11d %8d\n",
+        $1, $2, $3, $4, $5, $6, $7, $9, $10, $11, $12, $14, $15, $16, KiB);
+    }
+    END {
+        printf("%-22s %11s %8s %8s %10s %12s %1s %5s %10s %12s %1s %12s %9s %11s %8d\n",
+        "TOTAL", "-", "-", "-", "-", "-", ":", "-", "-", "-", ":", "-", "-", "-", TOT_KiB);
+    }
+    ' >> ${1} 2>>${COLLECT_ERROR_LOG}
+}
+###########################################################################
+#
+# Name       : collect_errors
+#
+# Description: search COLLECT_ERROR_LOG for "No space left on device" logs
+#              Return 0 if no such logs are found.
+#              Return 1 if such logs are found
+#
+# Assumptions: Caller should assume a non-zero return as an indication of
+#              a corrupt or incomplete collect log
+#
+# Create logs and screen echos that record the error for the user.
+#
+# May look for other errors in the future
+#
+###########################################################################
+
+listOfOutOfSpaceErrors=(
+"${FAIL_OUT_OF_SPACE_STR}"
+"${FAIL_TAR_OUT_OF_SPACE_STR}"
+"${FAIL_INSUFFICIENT_SPACE_STR}"
+)
+
+function collect_errors()
+{
+    local host=${1}
+    local RC=0
+
+    if [ -e "${COLLECT_ERROR_LOG}" ] ; then
+
+        ## now loop through known space related error strings
+        index=0
+        while [ "x${listOfOutOfSpaceErrors[index]}" != "x" ] ; do
+            grep -q "${listOfOutOfSpaceErrors[index]}" ${COLLECT_ERROR_LOG}
+            if [ "$?" == "0" ] ; then
+
+                string="failed to collect from ${host} (reason:${FAIL_OUT_OF_SPACE}:${FAIL_OUT_OF_SPACE_STR})"
+
+                # /var/log/user.log it
+                logger -t ${COLLECT_TAG} "${string}"
+
+                # logs that show up in the foreground
+                echo "${string}"
+                echo "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
+
+                # return error code
+                RC=1
+                break
+            fi
+            index=$(($index+1))
+        done
+    fi
+    return ${RC}
+}
+
+############################################################################
+#
+# Name       : space_precheck
+#
+# Description:
+#
+############################################################################
+
+function space_precheck()
+{
+    HOSTNAME=${1}
+    COLLECT_BASE_DIR=${2}
+    COLLECT_DIR_PCENT_CMD="df --output=pcent ${COLLECT_BASE_DIR}"
+
+    space="`${COLLECT_DIR_PCENT_CMD}`"
+    space1=`echo "${space}" | grep -v Use`
+    size=`echo ${space1} | cut -f 1 -d '%'`
+    if [ ${size} -ge 0 -a ${size} -le 100 ] ; then
+        if [ ${size} -ge ${MIN_PERCENT_SPACE_REQUIRED} ] ; then
+            ilog "${COLLECT_BASE_DIR} is $size% full"
+            echo "${FAIL_INSUFFICIENT_SPACE_STR}"
+            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} does not have enough available space in to perform collect"
+            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} must be below ${MIN_PERCENT_SPACE_REQUIRED}% to perform collect"
+            wlog "Increase available space in ${HOSTNAME}:${COLLECT_BASE_DIR} and retry operation."
+            exit ${FAIL_INSUFFICIENT_SPACE}
+        fi
+    else
+        wlog "unable to parse available space from '${COLLECT_DIR_PCENT_CMD}' output"
+    fi
+}
+
