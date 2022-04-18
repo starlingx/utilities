@@ -69,19 +69,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# BI 34: partial populate_initial_config.py
-bifile='/home/sysadmin/.34'
-if [ ! -f ${bifile} ]; then
-  # workaround rootfs detection, hardcode /dev/sda
-  sed -i 's@device_path = out.rstrip()@device_path = out.split("\\n")[0].rstrip()@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/files/populate_initial_config.py
-  sed -i 's@"""Cloned from sysinv"""@return "/dev/sda"@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/files/populate_initial_config.py
-
-  # .first_boot missing
-  touch /etc/platform/.first_boot
-
-  touch ${bifile}
-fi
-
 # BI 36: first puppet runtime apply
 bifile='/home/sysadmin/.bi36'
 if [ ! -f ${bifile} ]; then
@@ -101,10 +88,6 @@ echo "host    all             all             ::0/0                   md5" >> /e
 
 # BI 38.b: slow rpc calls.
 echo "jit = off" >> /etc/postgresql/13/main/postgresql.conf
-
-# BI 53: intermittent armada not ready in 30 seconds
-sed -i 's@async_timeout: 30@async_timeout: 120@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/bringup-essential-services/tasks/main.yml
-sed -i 's@async_retries: 10@async_retries: 40@g' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/bringup-essential-services/tasks/main.yml
 
 # BI 60:
 sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
