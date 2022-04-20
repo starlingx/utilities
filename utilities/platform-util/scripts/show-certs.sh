@@ -336,6 +336,9 @@ PrintCertInfo-from-TlsSecret-or-File "ssl (restapi/gui)" "deployment" "system-re
 # Local Registry Certificate
 PrintCertInfo-from-TlsSecret-or-File "registry.local" "deployment" "system-registry-local-certificate" "/etc/ssl/private/registry-cert.crt"
 
+# Local Openldap Certificate
+PrintCertInfo-from-TlsSecret-or-File "local-openldap" "deployment" "system-openldap-local-certificate" "/etc/openldap/certs/openldap-cert.crt"
+
 # Trusted CA Certifiates
 
 for FILE in /opt/platform/config/${sw_version}/ssl_ca/*; do
