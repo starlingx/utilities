@@ -39,27 +39,7 @@ find /usr/share/puppet/modules/platform -type f -exec \
  
 # UAR 16: fix in updated BI 34  
  
-# UAR 17: k8s mounts
-bifile='/home/sysadmin/.uar17'
-if [ ! -f ${bifile} ]; then
-  A=$(grep -Rn "class platform::kubernetes::bindmounts" /usr/share/puppet/modules/platform/manifests/kubernetes.pp | tail -n 1 | awk -F':' '{print $1}')
-  B=$((A + 14))
-  sed -i ${B}'s@mount@-> mount@g' /usr/share/puppet/modules/platform/manifests/kubernetes.pp
-  B=$((A + 23))
-  sed -i ${B}'s@mount@-> mount@g' /usr/share/puppet/modules/platform/manifests/kubernetes.pp
-  B=$((A + 22))
-  sed -i ${B}'d' /usr/share/puppet/modules/platform/manifests/kubernetes.pp
- 
-  B=$((A + 13))
-  sed -i ${B}' a \ \ exec { "stop k8s-pod-recovery":\
-\ \ \ \ \ \ command => "systemctl stop k8s-pod-recovery"\
-\ \ }' /usr/share/puppet/modules/platform/manifests/kubernetes.pp
-  B=$((A + 31))
-#  sed -i ${B}' a \ \ -> exec { "start k8s-pod-recovery":\
-#\ \ \ \ \ \ command => "systemctl start k8s-pod-recovery"\
-#\ \ }' /usr/share/puppet/modules/platform/manifests/kubernetes.pp
-   touch ${bifile}
-fi
+# UAR 17: not reproducible anymore
 
 # UAR 18: backup-lv already mounted
 sed -i '113 a \ \ \ \ -> exec { "workaround: umount ${device}":\
