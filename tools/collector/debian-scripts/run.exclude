@@ -12,3 +12,5 @@
 /var/run/.vswitch
 /var/run/containerd
 /var/run/nvidia
+/var/run/rpc_pipefs
+/var/run/systemd/inaccessible/blk

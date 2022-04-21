@@ -34,7 +34,7 @@
 /etc/pm
 /etc/systemd/system/*.mount
 /etc/systemd/system/*.socket
-/etc/systemd/system/lvm2-lvmetad.service
+/etc/systemd/system/*.service
 /etc/systemd/system/ctrl-alt-del.target
 /etc/ssl
 /etc/mtc/tmp
