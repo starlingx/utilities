@@ -146,6 +146,10 @@ systemctl enable config
 A=$(grep -Rn "reqadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
 B=$((A + 0))
 sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/haproxy.pp
+A=$(grep -Rn "rspadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
+B=$((A + 0))
+sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/haproxy.pp
+
 
 # UAR 50.a ceph
 bifile='/home/sysadmin/.uar_ceph_1'
