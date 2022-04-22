@@ -134,15 +134,6 @@ sed -i '1 a touch /var/run/worker_goenabled' /etc/goenabled.d/worker-goenabled.s
 # UAR 35.c: sm stuck waiting for goenabled_subf
 systemctl enable config
 
-# UAR 43: haproxy
-A=$(grep -Rn "reqadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
-B=$((A + 0))
-sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/haproxy.pp
-A=$(grep -Rn "rspadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
-B=$((A + 0))
-sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/haproxy.pp
-
-
 # UAR 50.a ceph
 bifile='/home/sysadmin/.uar_ceph_1'
 if [ ! -f ${bifile} ]; then
