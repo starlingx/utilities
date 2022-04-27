@@ -106,13 +106,6 @@ if [ ! -f ${bifile} ]; then
   sed -i '10 a \ \ \ \ {loopback_users, []},' /usr/share/puppet/modules/rabbitmq/templates/rabbitmq.config.erb
   touch ${bifile}
 fi
- 
-# UAR 35.a: goenabled check sysinv
-chmod 755 /etc/goenabled.d/sysinv_goenabled_check.sh
-# UAR 35.b: goenabled check worker
-sed -i '1 a touch /var/run/worker_goenabled' /etc/goenabled.d/worker-goenabled.sh
-# UAR 35.c: sm stuck waiting for goenabled_subf
-systemctl enable config
 
 # UAR 43: haproxy
 A=$(grep -Rn "reqadd" /usr/share/puppet/modules/platform/manifests/haproxy.pp | awk -F':' '{print $1}')
