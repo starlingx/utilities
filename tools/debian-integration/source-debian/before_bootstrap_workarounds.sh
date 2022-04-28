@@ -82,6 +82,3 @@ echo "jit = off" >> /etc/postgresql/13/main/postgresql.conf
 
 # BI 60:
 sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf
-
-# BI 62: kubeadm init issue for ipv6
-sed -i 's@127.0.0.1@\[::1]@g' /etc/kubernetes/config
