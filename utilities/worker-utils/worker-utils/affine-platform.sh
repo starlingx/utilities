@@ -114,6 +114,14 @@ function affine_tasks {
             chrt -p -f 3 ${PID} 2>/dev/null
         done
 
+        # Ensure that ice-gnss threads are SCHED_OTHER and nice -10
+        mapfile -t PIDLIST < <(ps --ppid 2 -o pid=,comm= | awk '$2 ~ /^ice-gnss-/ { print $1; }')
+        for PID in "${PIDLIST[@]}"; do
+            # Thread is SCHED_OTHER as created by driver, set it explicitly to confirm
+            chrt -p -o    "${PID}" 2>/dev/null
+            renice -n -10 "${PID}" 2>/dev/null
+        done
+
         # Affine kernel irq/ nvme threads to platform cores
         pidlist=$(ps --ppid 2 -p 2 -o pid=,comm= | grep -E 'irq/.*nvme' | awk '{ print $1; }')
         for pid in ${pidlist[@]}; do
