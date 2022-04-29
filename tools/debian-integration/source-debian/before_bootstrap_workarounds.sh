@@ -48,9 +48,9 @@ sed -i "s@python-psycopg2@python3-psycopg2@g" /usr/share/puppet/modules/postgres
 # BI 20.o:
 bifile='/home/sysadmin/.20o'
 if [ ! -f ${bifile} ]; then
-  sed -i 's@/var/lib/postgresql/%I@/var/lib/postgresql/22.02@g' /lib/systemd/system/postgresql@.service
-  sed -i 's@/var/lib/postgresql/13/main@/var/lib/postgresql/22.02@g' /etc/postgresql/13/main/postgresql.conf
-  sed -i 's@ExecStart=-/usr/bin/pg_ctlcluster --skip-systemctl-redirect %i start@ExecStart=-/usr/bin/pg_ctlcluster --skip-systemctl-redirect %i start -- -D /var/lib/postgresql/22.02@g' /lib/systemd/system/postgresql@.service
+  sed -i 's@/var/lib/postgresql/%I@/var/lib/postgresql/22.06@g' /lib/systemd/system/postgresql@.service
+  sed -i 's@/var/lib/postgresql/13/main@/var/lib/postgresql/22.06@g' /etc/postgresql/13/main/postgresql.conf
+  sed -i 's@ExecStart=-/usr/bin/pg_ctlcluster --skip-systemctl-redirect %i start@ExecStart=-/usr/bin/pg_ctlcluster --skip-systemctl-redirect %i start -- -D /var/lib/postgresql/22.06@g' /lib/systemd/system/postgresql@.service
   systemctl daemon-reload
 
   sed -i '86 a \ \ Anchor["postgresql::server::service::end"] ->' /usr/share/puppet/modules/postgresql/manifests/server/role.pp
