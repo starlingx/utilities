@@ -11,9 +11,6 @@ echo 'set mouse-=a' > ~/.vimrc
 # mount -o remount,rw /
 ostree admin unlock --hotfix
 
-# before bootstrap issue 7
-hostnamectl set-hostname localhost
-
 # sudo instant response and download stuff
 # Workaround BI 40: need to generate the correct dns with access to private docker registry
 cat > /home/sysadmin/correct_dns.py <<EOF
@@ -79,6 +76,3 @@ echo "host    all             all             ::0/0                   md5" >> /e
 
 # BI 38.b: slow rpc calls.
 echo "jit = off" >> /etc/postgresql/13/main/postgresql.conf
-
-# BI 60:
-sed -i 's@^ordering@#ordering@g' /etc/puppet/puppet.conf

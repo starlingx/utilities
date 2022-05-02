@@ -123,9 +123,6 @@ fi
 # UAR 50.b platform-integ-apps apply
 bifile='/home/sysadmin/.uar_50b'
 if [ ! -f ${bifile} ]; then
-  # nfv kubernetes
-  sed -i 's@c = kubernetes.client.Configuration()$@c = kubernetes.client.Configuration().get_default_copy()@g' /usr/lib/python3/dist-packages/nfv_plugins/nfvi_plugins/clients/kubernetes_client.py
- 
   # Disable patching audit
   A=$(grep -Rn "def _check_patching_operation" /usr/lib/python3/dist-packages/sysinv/api/controllers/v1/kube_app.py | tail -n 1 | awk -F':' '{print $1}')
   if [[ ! -z "$A" ]]; then
