@@ -76,3 +76,10 @@ echo "host    all             all             ::0/0                   md5" >> /e
 
 # BI 38.b: slow rpc calls.
 echo "jit = off" >> /etc/postgresql/13/main/postgresql.conf
+
+# Debian ClusterIssuer cert-manager v1 is not currently available for test-issuer during bootstrap
+bifile='/home/sysadmin/.cm'
+if [ ! -f ${bifile} ]; then
+  sed -i "s@cert-manager.io/v1@cert-manager.io/v1alpha2@" /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/bringup-bootstrap-applications/templates/test-issuer.yaml.j2
+  touch ${bifile}
+fi
