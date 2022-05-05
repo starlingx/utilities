@@ -57,6 +57,15 @@ fi
 # BI 25: ignore puppet apply warnings until we fix them
 sed -i 's@Warning|@MMAAAAAAAAAASKED|@g' /usr/local/bin/puppet-manifest-apply.sh
 
+# BI 27: workaround remove grubby commands
+bifile='/home/sysadmin/.27'
+if [ ! -f ${bifile} ]; then
+  A=$(grep -Rn "Get grub default kernel" /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/one_time_config_tasks.yml | awk -F':' '{print $1}')
+  B=$((A + 8))
+  sed -i ${A}','${B}'d ' /usr/share/ansible/stx-ansible/playbooks/roles/bootstrap/persist-config/tasks/one_time_config_tasks.yml
+  touch ${bifile}
+fi
+
 # BI 36: first puppet runtime apply
 bifile='/home/sysadmin/.bi36'
 if [ ! -f ${bifile} ]; then
