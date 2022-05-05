@@ -1,3 +1,11 @@
+# UBR 1: disable drubby commands
+bifile='/home/sysadmin/.ubr1'
+if [ ! -f ${bifile} ]; then
+  sed -i '3,31d' /usr/share/puppet/modules/platform/manifests/grub.pp
+  sed -i '70,85d' /usr/share/puppet/modules/platform/manifests/compute.pp
+  touch ${bifile}
+fi
+
 # UBR 2: don't start collectd
 bifile='/home/sysadmin/.ubr2'
 if [ ! -f ${bifile} ]; then
