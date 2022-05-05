@@ -27,13 +27,6 @@ sed -i '125 a \ \ \ \ -> exec { "second mount ${device}":\
 sed -i "s@match => '\^\[ ]\*global_filter =',@match => '\^\[ \\\t]\*#? ?global_filter =',@g" /usr/share/puppet/modules/platform/manifests/worker.pp
 sed -i "s@match => '\^\[ ]\*global_filter =',@match => '\^\[ \\\t]\*#? ?global_filter =',@g" /usr/share/puppet/modules/platform/manifests/lvm.pp
    
-# UAR 21:
-bifile='/home/sysadmin/.uar21'
-if [ ! -f ${bifile} ]; then
-  sed -i "s@random: '--random',@random: '--random-fully',@g" /usr/share/puppet/modules.available/puppetlabs-firewall/lib/puppet/provider/firewall/iptables.rb
-  touch ${bifile}
-fi
-
 # UAR 26: not a fix
 bifile='/home/sysadmin/.uar26'
 if [ ! -f ${bifile} ]; then
