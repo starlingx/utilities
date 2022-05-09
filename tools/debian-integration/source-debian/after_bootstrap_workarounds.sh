@@ -120,19 +120,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# UAR 50.b platform-integ-apps apply
-bifile='/home/sysadmin/.uar_50b'
-if [ ! -f ${bifile} ]; then
-  # Disable patching audit
-  A=$(grep -Rn "def _check_patching_operation" /usr/lib/python3/dist-packages/sysinv/api/controllers/v1/kube_app.py | tail -n 1 | awk -F':' '{print $1}')
-  if [[ ! -z "$A" ]]; then
-    sed -i ${A}' a \ \ \ \ \ \ \ \ return None' /usr/lib/python3/dist-packages/sysinv/api/controllers/v1/kube_app.py
-  fi
-  systemctl restart sysinv-conductor
-
-  touch ${bifile}
-fi
-
 # UAR 52.a
 cp /usr/bin/guest* /usr/local/bin/
 # UAR 52.b
