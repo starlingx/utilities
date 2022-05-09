@@ -1,10 +1,3 @@
-# UBR 2: don't start collectd
-bifile='/home/sysadmin/.ubr2'
-if [ ! -f ${bifile} ]; then
-  sed -i '53,56d' /usr/share/puppet/modules/platform/manifests/collectd.pp
-  touch ${bifile}
-fi
-
 # UAR 9: disable
 find /etc/puppet/manifests -type f -exec \
   sed -i 's@include ::platform::ntp@#include ::platform::ntp@g' {} +
