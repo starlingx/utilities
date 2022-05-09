@@ -61,10 +61,6 @@ sed -i 's@  \$ha_primary.*= false,@  \$ha_primary     = true,@g' /usr/share/pupp
 sed -i 's@  \$automount.*= false,@  \$automount     = true,@g' /usr/share/puppet/modules/platform/manifests/drbd.pp
 systemctl daemon-reload
  
- 
-# UAR 25:
-sed -i 's@/etc/sysconfig/kubelet@/etc/default/kubelet@g' /usr/share/puppet/modules/platform/manifests/kubernetes.pp 
- 
 # UAR 26: not a fix
 bifile='/home/sysadmin/.uar26'
 if [ ! -f ${bifile} ]; then
