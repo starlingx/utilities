@@ -15,10 +15,6 @@ find /etc/puppet/manifests -type f -exec \
 #find /etc/puppet/manifests -type f -exec \
 #  sed -i 's@include ::platform::ptpinstance@#include ::platform::ptpinstance@g' {} +
  
-# UAR 12: disable
-find /etc/puppet/manifests -type f -exec \
-  sed -i 's@include ::platform::multipath@#include ::platform::multipath@g' {} +
- 
 # UAR 13: disable
 find /usr/share/puppet/modules/platform -type f -exec \
   sed -i 's@require ::platform::compute::machine@#require ::platform::compute::machine@g' {} +
