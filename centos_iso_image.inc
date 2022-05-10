@@ -25,6 +25,9 @@ build-info
 # namespace-utils
 namespace-utils
 
+# pci-irq-affinity-agent
+pci-irq-affinity-agent
+
 # platform-util
 platform-util
 platform-util-controller
