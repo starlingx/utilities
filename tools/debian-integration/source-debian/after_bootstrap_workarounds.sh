@@ -5,9 +5,6 @@ if [ ! -f ${bifile} ]; then
   touch ${bifile}
 fi
 
-# UAR 8: nslcd
-sed -i 's@gid ldap@gid openldap@g' /etc/nslcd.conf
- 
 # UAR 9: disable
 find /etc/puppet/manifests -type f -exec \
   sed -i 's@include ::platform::ntp@#include ::platform::ntp@g' {} +
