@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2016-2021 Wind River Systems, Inc.
+# Copyright (c) 2016-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -318,7 +318,7 @@ function collect_extra()
 
     # iSCSI Information
     LOGFILE="${EXTRA_DIR}/iscsi.info"
-    echo    "${hostname}: iSCSI Information ......: ${LOGFILE}"
+    echo    "${hostname}: iSCSI Info ........: ${LOGFILE}"
 
     if [ "$nodetype" = "controller" ] ; then
         # Controller- LIO exported initiators summary

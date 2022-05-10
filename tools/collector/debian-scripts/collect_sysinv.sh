@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2021 Wind River Systems, Inc.
+# Copyright (c) 2013-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -12,7 +12,6 @@ source /usr/local/sbin/collect_utils
 
 SERVICE="inventory"
 LOGFILE="${extradir}/${SERVICE}.info"
-RPMLOG="${extradir}/rpm.info"
 INVENTORY=${4}
 
 function is_service_active {
@@ -50,8 +49,8 @@ function collect_inventory {
     delimiter ${LOGFILE} "system service-list"
     system service-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
-   # delimiter ${LOGFILE} "vm-topology"
-   # timeout 60 vm-topology --show all 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    # delimiter ${LOGFILE} "vm-topology"
+    # timeout 60 vm-topology --show all 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
     delimiter ${LOGFILE} "system network-list"
     system network-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
@@ -99,11 +98,6 @@ function collect_inventory {
 # Only Controller
 ###############################################################################
 if [ "$nodetype" = "controller" ] ; then
-
-    echo    "${hostname}: Software Config ...: ${RPMLOG}"
-    # These go into the SERVICE.info file
-    delimiter ${RPMLOG} "dpkg -l"
-    dpkg -l >> ${RPMLOG}
 
     if [ "${INVENTORY}" = true ] ; then
         collect_inventory

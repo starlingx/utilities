@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2019-2021 Wind River Systems, Inc.
+# Copyright (c) 2019-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -25,7 +25,7 @@ HELM_DIR="${extradir}/helm"
 ETCD_DB_FILE="${extradir}/etcd_database.dump"
 KUBE_CONFIG_FILE="/etc/kubernetes/admin.conf"
 KUBE_CONFIG="--kubeconfig ${KUBE_CONFIG_FILE}"
-echo    "${hostname}: Containerization Info ...: ${LOGFILE}"
+echo    "${hostname}: Containers Info ...: ${LOGFILE}"
 
 ###############################################################################
 # All nodes

@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2014 Wind River Systems, Inc.
+# Copyright (c) 2013-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -17,9 +17,6 @@ echo    "${hostname}: Patching Info .....: ${LOGFILE}"
 ###############################################################################
 # All nodes
 ###############################################################################
-# FIXME: Debian doesnt support smart channel
-#delimiter ${LOGFILE} "smart channel --show"
-#smart channel --show 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
 ###############################################################################
 # Only Controller
@@ -38,9 +35,9 @@ if [ "$nodetype" = "controller" ] ; then
     delimiter ${LOGFILE} "find /opt/patching"
     find /opt/patching 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
+    # todo(abailey): Verify that we can remove the next 2 lines
     delimiter ${LOGFILE} "find /var/www/pages/updates"
     find /var/www/pages/updates 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
-
 fi
 
 exit 0

@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2020-2021 Wind River Systems, Inc.
+# Copyright (c) 2020-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -12,7 +12,6 @@ source /usr/local/sbin/collect_utils
 
 SERVICE="distributed_cloud"
 LOGFILE="${extradir}/${SERVICE}.info"
-RPMLOG="${extradir}/rpm.info"
 
 function is_active_controller {
     active_controller=`sm-query service management-ip | grep "enabled-active"`
