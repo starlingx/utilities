@@ -29,6 +29,10 @@ RUN set -ex \
         kernel-devel \
         libcap-devel \
         libuuid-devel \
+        net-tools \
+        iproute \
+        ethtool \
+        tcpdump \
     && yum install -y \
         pciutils \
         which \
