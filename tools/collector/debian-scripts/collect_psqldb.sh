@@ -11,8 +11,8 @@ source /usr/local/sbin/collect_parms
 source /usr/local/sbin/collect_utils
 
 # postgres database commands
-PSQL_CMD="sudo -u postgres psql --pset pager=off -q"
-PG_DUMP_CMD="sudo -u postgres pg_dump"
+PSQL_CMD="sudo -i -u postgres psql --pset pager=off -q"
+PG_DUMP_CMD="sudo -i -u postgres pg_dump"
 
 SERVICE="database"
 DB_DIR="${extradir}/database"
@@ -78,7 +78,7 @@ function database_dump {
     for DB in "${db_list[@]}"; do
         if [ "$DB" != "keystone" -a "$DB" != "ceilometer" ] ; then
             echo "${hostname}: Dumping Database ..: ${DB_DIR}/$DB.$DB_EXT"
-            (cd ${DB_DIR} ; sudo -u postgres pg_dump $DB > $DB.$DB_EXT)
+            (cd ${DB_DIR} ; sudo -i -u postgres pg_dump $DB > $DB.$DB_EXT)
         fi
     done
 }
