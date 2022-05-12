@@ -86,27 +86,6 @@ mkdir -p /var/www/dev
 touch /var/www/dev/null
 chmod +777 /var/www/dev/null
  
-# UAR 32: sm rabbit
-bifile='/home/sysadmin/.uar32'
-if [ ! -f ${bifile} ]; then
-  sed -i 's@2)@2|69)@g' /usr/lib/ocf/resource.d/rabbitmq/stx.rabbitmq-server
- 
-  A=$(grep -Rn "\$RABBITMQ_CTL stop \$RABBITMQ_PID_FILE" /usr/lib/ocf/resource.d/rabbitmq/stx.rabbitmq-server | head -1 | awk -F':' '{print $1}')
-  A=$((A - 1))
-  sed -i ${A}' a \ \ \ \ touch $RABBITMQ_PID_FILE' /usr/lib/ocf/resource.d/rabbitmq/stx.rabbitmq-server
-  touch ${bifile}
-fi
- 
-# UAR 33:
-bifile='/home/sysadmin/.uar33'
-if [ ! -f ${bifile} ]; then
-  sed -i '26d' /usr/share/puppet/modules/rabbitmq/templates/rabbitmq.config.erb
-  sed -i '22d' /usr/share/puppet/modules/rabbitmq/templates/rabbitmq.config.erb
-  sed -i '11d' /usr/share/puppet/modules/rabbitmq/templates/rabbitmq.config.erb
-  sed -i '10 a \ \ \ \ {loopback_users, []},' /usr/share/puppet/modules/rabbitmq/templates/rabbitmq.config.erb
-  touch ${bifile}
-fi
-
 # UAR 50.a ceph
 bifile='/home/sysadmin/.uar_ceph_1'
 if [ ! -f ${bifile} ]; then
