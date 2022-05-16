@@ -1,9 +1,0 @@
----
-debname: pci-irq-affinity-agent
-debver: 1.0-1
-src_path: pci_irq_affinity
-src_files:
-  - files
-revision:
-  dist: $STX_DIST
-  PKG_GITREVCOUNT: true
