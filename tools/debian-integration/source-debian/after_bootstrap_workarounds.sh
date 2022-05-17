@@ -33,13 +33,7 @@ if [ ! -f ${bifile} ]; then
   sed -i "s@random: '--random',@random: '--random-fully',@g" /usr/share/puppet/modules.available/puppetlabs-firewall/lib/puppet/provider/firewall/iptables.rb
   touch ${bifile}
 fi
- 
-# UAR 24:
-sed -i 's@  \$ha_primary.*= false,@  \$ha_primary     = true,@g' /usr/share/puppet/modules/drbd/manifests/resource.pp
-sed -i 's@  \$ha_primary.*= false,@  \$ha_primary     = true,@g' /usr/share/puppet/modules/platform/manifests/drbd.pp
-sed -i 's@  \$automount.*= false,@  \$automount     = true,@g' /usr/share/puppet/modules/platform/manifests/drbd.pp
-systemctl daemon-reload
- 
+
 # UAR 26: not a fix
 bifile='/home/sysadmin/.uar26'
 if [ ! -f ${bifile} ]; then
