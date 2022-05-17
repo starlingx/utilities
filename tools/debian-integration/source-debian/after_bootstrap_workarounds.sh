@@ -97,8 +97,3 @@ fi
 
 # UAR 52.a
 cp /usr/bin/guest* /usr/local/bin/
-# UAR 52.b
-mv /etc/pmon.d/pci-irq-affinity-agent.conf /home/sysadmin/
-systemctl disable pci-irq-affinity-agent
-
- 
