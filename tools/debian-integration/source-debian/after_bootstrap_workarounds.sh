@@ -19,16 +19,6 @@ sed -i '125 a \ \ \ \ -> exec { "second mount ${device}":\
 \ \ \ \ \ \ path    => "/usr/bin",\
 \ \ \ \ }' /usr/share/puppet/modules/platform/manifests/filesystem.pp
 
-# UAR 26: not a fix
-bifile='/home/sysadmin/.uar26'
-if [ ! -f ${bifile} ]; then
-  A=$(grep -Rn "Create \\$" /usr/share/puppet/modules/platform/manifests/kubernetes.pp | head -1 | awk -F':' '{print $1}')
-  A=$((A + 1))
-  B=$((A + 39))
-  sed -i ${A}','${B}'d ' /usr/share/puppet/modules/platform/manifests/kubernetes.pp
-  touch ${bifile}
-fi
- 
 # UAR 28: not a fix
 sed -i "s@command => 'reboot',@command => 'ls'@g" /usr/share/puppet/modules/platform/manifests/compute.pp
  
