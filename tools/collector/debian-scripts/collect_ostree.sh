@@ -19,9 +19,20 @@ OSTREE_REF="starlingx"
 
 echo    "${hostname}: OSTREE Info .......: ${LOGFILE}"
 ###############################################################################
-# OSTREE Info (logs for the sysroot and patch feeds)
+# OSTREE Info:
 ###############################################################################
 
+
+###############################################################################
+# ostree admin status (deployment)
+# -v outputs additional data to stderr
+###############################################################################
+delimiter ${LOGFILE} "ostree admin status -v"
+ostree admin status -v >> ${LOGFILE}  2>&1
+
+###############################################################################
+# ostree logs for the sysroot and patch feeds
+###############################################################################
 delimiter ${LOGFILE} "ostree log ${OSTREE_REF} --repo=${SYSROOT_REPO}"
 ostree log ${OSTREE_REF} --repo=${SYSROOT_REPO} >> ${LOGFILE}  2>>${COLLECT_ERROR_LOG}
 
