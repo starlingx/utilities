@@ -13,6 +13,4 @@ ostree admin unlock --hotfix
 
 # sudo instant response and download stuff
 
-# BI 25: ignore puppet apply warnings until we fix them
-sed -i 's@Warning|@MMAAAAAAAAAASKED|@g' /usr/local/bin/puppet-manifest-apply.sh
 
