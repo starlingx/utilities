@@ -81,6 +81,3 @@ if [ ! -f ${bifile} ]; then
 
   touch ${bifile}
 fi
-
-# UAR 52.a
-cp /usr/bin/guest* /usr/local/bin/
