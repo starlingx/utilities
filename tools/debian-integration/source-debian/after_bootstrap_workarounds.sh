@@ -8,17 +8,6 @@ find /etc/puppet/manifests -type f -exec \
  
 # UAR 17: not reproducible anymore
 
-# UAR 18: backup-lv already mounted
-sed -i '113 a \ \ \ \ -> exec { "workaround: umount ${device}":\
-\ \ \ \ \ \ command => "umount ${mountpoint}; sleep 2",\
-\ \ \ \ \ \ path    => "/usr/bin"\
-\ \ \ \ }' /usr/share/puppet/modules/platform/manifests/filesystem.pp
-sed -i '125 a \ \ \ \ -> exec { "second mount ${device}":\
-\ \ \ \ \ \ unless  => "mount | awk '\''{print \$3}'\'' | grep -Fxq -e /var/rootdirs${mountpoint} -e ${mountpoint}",\
-\ \ \ \ \ \ command => "mount ${mountpoint} || true",\
-\ \ \ \ \ \ path    => "/usr/bin",\
-\ \ \ \ }' /usr/share/puppet/modules/platform/manifests/filesystem.pp
-
 # UAR 28: not a fix
 sed -i "s@command => 'reboot',@command => 'ls'@g" /usr/share/puppet/modules/platform/manifests/compute.pp
  
