@@ -1,7 +1,3 @@
-# UAR 9: disable
-find /etc/puppet/manifests -type f -exec \
-  sed -i 's@include ::platform::ntp@#include ::platform::ntp@g' {} +
- 
 # UAR 10: disable
 find /etc/puppet/manifests -type f -exec \
   sed -i 's@include ::platform::ptp@#include ::platform::ptp@g' {} +
