@@ -23,10 +23,6 @@ sed -i '125 a \ \ \ \ -> exec { "second mount ${device}":\
 \ \ \ \ \ \ path    => "/usr/bin",\
 \ \ \ \ }' /usr/share/puppet/modules/platform/manifests/filesystem.pp
 
-# UAR 20: lvm.conf issue
-sed -i "s@match => '\^\[ ]\*global_filter =',@match => '\^\[ \\\t]\*#? ?global_filter =',@g" /usr/share/puppet/modules/platform/manifests/worker.pp
-sed -i "s@match => '\^\[ ]\*global_filter =',@match => '\^\[ \\\t]\*#? ?global_filter =',@g" /usr/share/puppet/modules/platform/manifests/lvm.pp
-   
 # UAR 26: not a fix
 bifile='/home/sysadmin/.uar26'
 if [ ! -f ${bifile} ]; then
