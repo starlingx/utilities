@@ -12,21 +12,6 @@ echo 'set mouse-=a' > ~/.vimrc
 ostree admin unlock --hotfix
 
 # sudo instant response and download stuff
-# Workaround BI 40: need to generate the correct dns with access to private docker registry
-cat > /home/sysadmin/correct_dns.py <<EOF
-#!/usr/bin/env python
-import yaml
-with open("/etc/resolv.conf", "w") as f:
-    with open("/home/sysadmin/localhost.yml", "r") as stream:
-        try:
-            data = yaml.safe_load(stream)
-            for dns in data['dns_servers']:
-                    f.write('nameserver ' + dns)
-                    f.write('\n')
-        except yaml.YAMLError as exc:
-            print(exc)
-EOF
-sudo python /home/sysadmin/correct_dns.py
 
 # BI 25: ignore puppet apply warnings until we fix them
 sed -i 's@Warning|@MMAAAAAAAAAASKED|@g' /usr/local/bin/puppet-manifest-apply.sh
