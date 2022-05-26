@@ -13,7 +13,7 @@ export LOCAL_ETC_MODLOAD = etc/modules-load.d
 
 override_dh_install:
 	install -d -m 755 $(ROOT)/$(LOCAL_ETC_SYSCTL)
-	install -p -D -m 644 coredump-sysctl.conf $(ROOT)/$(LOCAL_ETC_SYSCTL)/50-coredump.conf
+	install -p -D -m 644 coredump-sysctl-debian.conf $(ROOT)/$(LOCAL_ETC_SYSCTL)/50-coredump.conf
 
 	install -d -m 755 $(ROOT)/$(LOCAL_ETC_COREDUMP)
 	install -p -D -m 644 coredump.conf $(ROOT)/$(LOCAL_ETC_COREDUMP)/coredump.conf
