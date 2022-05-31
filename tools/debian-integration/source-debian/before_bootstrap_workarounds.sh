@@ -16,11 +16,3 @@ ostree admin unlock --hotfix
 # BI 25: ignore puppet apply warnings until we fix them
 sed -i 's@Warning|@MMAAAAAAAAAASKED|@g' /usr/local/bin/puppet-manifest-apply.sh
 
-# BI 36: first puppet runtime apply
-bifile='/home/sysadmin/.bi36'
-if [ ! -f ${bifile} ]; then
-  # kdump service missing, disable kdump config
-  sed -i 's@include ::platform::config::kdump@@g' /usr/share/puppet/modules/platform/manifests/config.pp
-
-  touch ${bifile}
-fi
