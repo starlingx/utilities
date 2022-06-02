@@ -1,0 +1,4 @@
+etc/
+etc/update-motd.d
+etc/profile.d
+usr/sbin

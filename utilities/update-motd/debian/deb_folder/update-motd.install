@@ -1,1 +1,4 @@
-update-motd usr/sbin
+etc/profile.d/update-motd.sh
+etc/update-motd.d/*
+etc/motd.head
+usr/sbin/*
