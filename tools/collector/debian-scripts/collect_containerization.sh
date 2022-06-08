@@ -33,6 +33,14 @@ echo    "${hostname}: Containers Info ...: ${LOGFILE}"
 mkdir -p ${HELM_DIR}
 source_openrc_if_needed
 
+CMD="docker system df"
+delimiter ${LOGFILE_IMG} "${CMD}"
+${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+
+CMD="du -h --max-depth 1 /var/lib/docker"
+delimiter ${LOGFILE_IMG} "${CMD}"
+${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+
 CMD="docker image ls -a"
 delimiter ${LOGFILE_IMG} "${CMD}"
 ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
