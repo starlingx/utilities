@@ -1,4 +1,26 @@
 #!/usr/bin/make -f
 
+export ROOT = debian/tmp
+
+export SBINDIR = $(ROOT)/usr/sbin
+export SYSCONFDIR = $(ROOT)/etc
+
 %:
 	dh $@
+
+override_dh_install:
+	install -m 755 -p -D files/motd-header $(SYSCONFDIR)/update-motd.d/00-header
+	install -m 755 -p -D files/motd-footer $(SYSCONFDIR)/update-motd.d/99-footer
+	install -m 644 -p -D files/motd.head $(SYSCONFDIR)/motd.head
+	install -m 700 -p -D update-motd.sh $(SYSCONFDIR)/profile.d/update-motd.sh
+
+	install -m 700 -p -D update-motd $(SBINDIR)/update-motd
+	install -m 700 -p -D files/customize-banner $(SBINDIR)/customize-banner
+	install -m 700 -p -D files/apply_banner_customization $(SBINDIR)/apply_banner_customization
+
+	dh_install
+
+override_dh_fixperms:
+	dh_fixperms \
+	-Xapply_banner_customization \
+	-Xcustomize-banner

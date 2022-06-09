@@ -2,6 +2,8 @@
 debname: update-motd
 debver: 3.9
 src_path: source-debian
+src_files:
+  - files
 revision:
   dist: $STX_DIST
   PKG_GITREVCOUNT: true

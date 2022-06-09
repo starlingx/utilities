@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# Copyright (c) 2016 Wind River Systems, Inc.
+# Copyright (c) 2016-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,6 +20,10 @@ fi
 install_banner_files
 
 # recreate /etc/motd
-/usr/sbin/motd-update
+if grep -q "CentOS" /etc/os-release; then
+    /usr/sbin/motd-update
+else
+    rm -f /etc/motd
+fi
 
 exit 0
