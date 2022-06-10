@@ -1,8 +1,8 @@
 usr/bin/*
 etc/init.d/*
 etc/goenabled.d/*
-usr/lib/systemd/system/affine-platform.sh.service
-usr/lib/systemd/system/affine-tasks.service
+lib/systemd/system/affine-platform.sh.service
+lib/systemd/system/affine-tasks.service
 
 # Marked as %config(noreplace)
 etc/platform/worker_reserved.conf
