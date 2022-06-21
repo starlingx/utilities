@@ -117,6 +117,13 @@ function rabbitmq_usage_stats {
     printf "%6d %8d %9d %11d %8d %8d %9d %10d\n" $num_queues $num_bindings $num_exchanges $num_connections $num_channels $messages $consumers $memory >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 }
 
+function rabbitmqctl_report {
+    # RabbitMQ Report
+    MQ_REPORT="rabbitmqctl report"
+    delimiter ${LOGFILE} "${MQ_REPORT}"
+    ${MQ_REPORT} 2>/dev/null >> ${LOGFILE}
+}
+
 ###############################################################################
 # Only Controller
 ###############################################################################
@@ -129,6 +136,9 @@ if [ "$nodetype" = "controller" ] ; then
 
     # host rabbitmq usage
     rabbitmq_usage_stats
+
+    # produce full report
+    rabbitmqctl_report
 
     # Check for openstack label on this node
     if ! is_openstack_node; then
