@@ -1,6 +1,6 @@
 #!/usr/bin/python
 ################################################################################
-# Copyright (c) 2013 Wind River Systems, Inc.
+# Copyright (c) 2013-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -11,9 +11,10 @@
 #                total memory, and numa nodes
 
 from __future__ import print_function
-import os
-import sys
+
 import re
+import sys
+
 
 class Topology(object):
     """ Build up topology information.

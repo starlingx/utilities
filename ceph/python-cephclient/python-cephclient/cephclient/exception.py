@@ -11,7 +11,8 @@ class CephClientException(Exception):
     def __init__(self, *args, **kwargs):
         if "message" not in kwargs:
             try:
-                message = self.message.format(*args, **kwargs)  # pylint: disable=W1645
+                # pylint: disable=W1645
+                message = self.message.format(*args, **kwargs)
             except Exception:   # noqa
                 message = '{}, args:{}, kwargs: {}'.format(
                     self.message, args, kwargs)  # pylint: disable=W1645

@@ -10,11 +10,11 @@ by querying /proc/buddyinfo
 Example:
 # python3 buddyinfo.py
 """
+from collections import defaultdict
+import logging
 import optparse
 import os
 import re
-from collections import defaultdict
-import logging
 
 
 class Logger:

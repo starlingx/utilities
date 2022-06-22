@@ -6,3 +6,4 @@ pylint<2.1.0;python_version<"3.0" # GPLv2
 pylint<2.3.0;python_version>="3.0" # GPLv2
 pytest
 mock
+flake8-import-order

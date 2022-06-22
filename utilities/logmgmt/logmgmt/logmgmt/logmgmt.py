@@ -9,14 +9,15 @@ SPDX-License-Identifier: Apache-2.0
 # IMPORTS
 ###################
 from __future__ import absolute_import
+
+import glob
 import logging
 import logging.handlers
-import time
 import os
-import subprocess
-import glob
 import re
+import subprocess
 import sys
+import time
 
 from daemon import runner
 

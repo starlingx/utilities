@@ -5,3 +5,4 @@
 bandit;python_version>="3.0"
 flake8
 pytest
+flake8-import-order

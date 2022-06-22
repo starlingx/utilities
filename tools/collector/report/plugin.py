@@ -16,10 +16,11 @@
 
 
 from datetime import datetime
-import algorithms
 import json
 import logging
 import os
+
+import algorithms
 
 logger = logging.getLogger(__name__)
 

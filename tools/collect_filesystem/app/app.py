@@ -1,44 +1,43 @@
-import os
-import shutil
-import logging
-import zipfile
+import atexit
 from datetime import datetime
 from datetime import timedelta
 from functools import wraps
+import logging
+import os
+import shutil
 import tarfile
+from urllib.parse import quote
+from urllib.parse import unquote
+import zipfile
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask import abort
+from flask import after_this_request
+from flask import flash
+from flask import Flask
+from flask import g
+from flask import jsonify
+from flask import make_response
+from flask import redirect
+from flask import render_template
+from flask import request
+from flask import send_file
+from flask import session
+from flask import url_for
+from flask_mail import Mail
+from flask_mail import Message
+import flask_openid
+from launchpadlib.launchpad import Launchpad
+import magic
 from mail_config import custom_mail_password
 from mail_config import custom_mail_server
 from mail_config import custom_mail_username
 from mail_config import custom_server_admins
-
-import magic
-from flask_mail import Mail
-from flask_mail import Message
-from urllib.parse import quote
-from urllib.parse import unquote
-
-from flask import Flask
-from flask import flash
-from flask import request
-from flask import redirect
-from flask import render_template
-from flask import g
-from flask import session
-from flask import url_for
-from flask import abort
-from flask import send_file
-from flask import make_response
-from flask import jsonify
-from flask import after_this_request
-import flask_openid
 from openid.extensions import pape
+import pymysql.cursors
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
-import pymysql.cursors
-from launchpadlib.launchpad import Launchpad
-import atexit
 
-from apscheduler.schedulers.background import BackgroundScheduler
 
 logging.basicConfig(filename='collect.log', level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
 

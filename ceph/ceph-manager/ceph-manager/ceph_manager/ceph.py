@@ -4,10 +4,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from ceph_manager import exception
-from ceph_manager.i18n import _LI
 # noinspection PyUnresolvedReferences
 from oslo_log import log as logging
+
+from ceph_manager import exception
+from ceph_manager.i18n import _LI
 
 
 LOG = logging.getLogger(__name__)

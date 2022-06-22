@@ -4,9 +4,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-from ceph_manager.i18n import _
 # noinspection PyUnresolvedReferences
 from sysinv.common import constants as sysinv_constants
+
+from ceph_manager.i18n import _
+
 
 CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL = \
     sysinv_constants.CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL

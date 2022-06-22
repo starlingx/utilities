@@ -14,17 +14,17 @@ This class wraps novaclient access interface and expose get_instance() and
 get_instances() to other agent classes.
 """
 
-import keyring
 import os
 import socket
 
+import keyring
 from keystoneauth1 import loading
 from keystoneauth1 import session
 from novaclient import client
 
-from pci_irq_affinity.config import CONF
 from pci_irq_affinity import guest
 from pci_irq_affinity import instance
+from pci_irq_affinity.config import CONF
 from pci_irq_affinity.log import LOG
 
 

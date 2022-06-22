@@ -11,8 +11,8 @@
 
 """ Define configuration info for pci-irq-affinity-agent"""
 
-import sys
 from os import path
+import sys
 
 from oslo_config import cfg
 

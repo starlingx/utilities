@@ -11,13 +11,15 @@
 
 """ Encapsulate libvirt related interfaces"""
 
-import libvirt
 import os
-import sys
 import signal
 from xml.dom import minidom
 from xml.etree import ElementTree
+
+import libvirt
+
 from pci_irq_affinity.log import LOG
+
 
 debug = 0
 # libvirt timeout parameters

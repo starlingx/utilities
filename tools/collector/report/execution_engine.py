@@ -14,15 +14,16 @@
 #
 ########################################################################
 
-import shutil
-import algorithms
+from datetime import datetime
 import gzip
 import logging
 import os
 import re
+import shutil
 import subprocess
 
-from datetime import datetime
+import algorithms
+
 
 logger = logging.getLogger(__name__)
 

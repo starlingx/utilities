@@ -12,28 +12,27 @@ import sys
 # noinspection PyUnresolvedReferences
 import eventlet
 # noinspection PyUnresolvedReferences
-import oslo_messaging as messaging
-# noinspection PyUnresolvedReferences
 from fm_api import fm_api
 # noinspection PyUnresolvedReferences
 from oslo_config import cfg
 # noinspection PyUnresolvedReferences
 from oslo_log import log as logging
 # noinspection PyUnresolvedReferences
+import oslo_messaging as messaging
+# noinspection PyUnresolvedReferences
 from oslo_service import service
 # noinspection PyUnresolvedReferences
 from oslo_service.periodic_task import PeriodicTasks
-
 # noinspection PyUnresolvedReferences
-from cephclient import wrapper
+from retrying import retry
 
-from ceph_manager.monitor import Monitor
 from ceph_manager import constants
 from ceph_manager import utils
-
 from ceph_manager.i18n import _LI
 from ceph_manager.i18n import _LW
-from retrying import retry
+from ceph_manager.monitor import Monitor
+from cephclient import wrapper
+
 
 eventlet.monkey_patch(all=True)
 
@@ -136,11 +135,12 @@ class Service(SysinvConductorUpgradeApi, service.Service):
 
         # pylint: disable=protected-access
         sysinv_conf = self.conf._namespace._normalized[0]['DEFAULT']
-        url = "rabbit://{user}:{password}@{host}:{port}"\
-              "".format(user=sysinv_conf['rabbit_userid'][0],
-                        password=sysinv_conf['rabbit_password'][0],
-                        host=utils.ipv6_bracketed(sysinv_conf['rabbit_host'][0]),
-                        port=sysinv_conf['rabbit_port'][0])
+        url = "rabbit://{user}:{password}@{host}:{port}".format(
+            user=sysinv_conf['rabbit_userid'][0],
+            password=sysinv_conf['rabbit_password'][0],
+            host=utils.ipv6_bracketed(sysinv_conf['rabbit_host'][0]),
+            port=sysinv_conf['rabbit_port'][0]
+        )
         transport = messaging.get_transport(self.conf, url=url)
         self.sysinv_conductor = messaging.RPCClient(
             transport,

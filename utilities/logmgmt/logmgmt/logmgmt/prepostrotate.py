@@ -11,8 +11,8 @@ SPDX-License-Identifier: Apache-2.0
 
 import array
 import fcntl
-import struct
 import glob
+import struct
 
 EXT2_APPEND_FL = 0x00000020
 EXT4_EXTENTS_FL = 0x00080000

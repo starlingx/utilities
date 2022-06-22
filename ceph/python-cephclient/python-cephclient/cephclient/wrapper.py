@@ -69,7 +69,8 @@ class CephWrapper(CephClient):
         return self._request('osd create', **kwargs)
 
     def osd_rm(self, ids, body='json', timeout=None):
-        """remove osd(s) <id> [<id>...], or use <any|all> to remove all osds """
+        """remove osd(s) <id> [<id>...], or use <any|all> to remove all osds
+        """
         if isinstance(ids, list):
             ids = [self._sanitize_osdid_to_str(_id)
                    for _id in ids]
@@ -82,7 +83,8 @@ class CephWrapper(CephClient):
         return self.osd_rm(ids, body=body, timeout=timeout)
 
     def osd_down(self, ids, body='json', timeout=None):
-        """set osd(s) <id> [<id>...] down, or use <any|all> to set all osds down """
+        """set osd(s) <id> [<id>...] down, or use <any|all> to set all osds down
+        """
         if isinstance(ids, list):
             ids = [self._sanitize_osdid_to_str(_id)
                    for _id in ids]
@@ -219,7 +221,11 @@ class CephWrapper(CephClient):
         return caps
 
     def auth_add(self, entity, caps=None, body='json', timeout=None):
-        """add auth info for <entity> from input file, or random key if no input is given, and/or any caps specified in the command """
+        """Add auth info
+
+        Adds auth info for <entity> from input file, or random key if no input
+        is given, and/or any caps specified in the command
+        """
         caps = self._auth_convert_caps(caps)
         return super(CephWrapper, self).auth_add(
             entity, caps=caps, body=body, timeout=timeout)
@@ -231,15 +237,23 @@ class CephWrapper(CephClient):
             entity, caps=caps, body=body, timeout=timeout)
 
     def auth_get_or_create(self, entity, caps=None, body='json', timeout=None):
-        """add auth info for <entity> from input file, or random key if no input given, and/or any caps specified in the command """
+        """Get or create auth info
+
+        Adds auth info for <entity> from input file, or random key if no input
+        given, and/or any caps specified in the command
+        """
         caps = self._auth_convert_caps(caps)
         return super(CephWrapper, self).auth_get_or_create(
             entity, caps, body=body, timeout=timeout)
 
     def auth_get_or_create_key(self, entity, caps=None,
                                body='json', timeout=None):
+        """Get or add auth key
 
-        """get, or add, key for <name> from system/caps pairs specified in the command.  If key already exists, any given caps must match the existing caps for that key.  """
+        Gets, or adds, key for <name> from system/caps pairs specified in the
+        command.  If key already exists, any given caps must match the
+        existing caps for that key.
+        """
         caps = self._auth_convert_caps(caps)
         response, _body = super(CephWrapper, self).auth_get_or_create_key(
             entity, caps, body=body, timeout=timeout)

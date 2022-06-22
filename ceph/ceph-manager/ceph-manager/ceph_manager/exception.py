@@ -5,10 +5,11 @@
 #
 
 # noinspection PyUnresolvedReferences
+from oslo_log import log as logging
+
+# noinspection PyUnresolvedReferences
 from ceph_manager.i18n import _
 from ceph_manager.i18n import _LW
-# noinspection PyUnresolvedReferences
-from oslo_log import log as logging
 
 
 LOG = logging.getLogger(__name__)

@@ -11,13 +11,13 @@
 
 """ Define AffinePciIrqDriver class"""
 
-from oslo_service import loopingcall
 from oslo_concurrency import lockutils
+from oslo_service import loopingcall
 
-from pci_irq_affinity.config import CONF
-from pci_irq_affinity.log import LOG
 from pci_irq_affinity import nova_provider
 from pci_irq_affinity import utils as pci_utils
+from pci_irq_affinity.config import CONF
+from pci_irq_affinity.log import LOG
 
 synchronized = lockutils.synchronized_with_prefix('pci_irq_affinity-')
 

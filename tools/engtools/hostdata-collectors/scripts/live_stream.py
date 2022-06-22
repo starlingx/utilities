@@ -1,26 +1,25 @@
 #!/usr/bin/python3
 
 """
-Copyright (c) 2017 Wind River Systems, Inc.
+Copyright (c) 2017-2022 Wind River Systems, Inc.
 
 SPDX-License-Identifier: Apache-2.0
 """
 
-import os
-import sys
-import time
+from collections import OrderedDict
 import datetime
-import psutil
 import fcntl
 import logging
-from six.moves import configparser
-import itertools
-import six
-from multiprocessing import Process
 from multiprocessing import cpu_count
-from subprocess import Popen
+from multiprocessing import Process
+import os
 from subprocess import PIPE
-from collections import OrderedDict
+from subprocess import Popen
+import sys
+import time
+
+import psutil
+from six.moves import configparser
 from six.moves import input
 
 

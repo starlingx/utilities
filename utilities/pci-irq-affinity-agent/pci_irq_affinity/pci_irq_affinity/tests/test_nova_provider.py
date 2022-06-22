@@ -6,11 +6,12 @@
 # All Rights Reserved.
 #
 
-import mock
 import unittest
 
-from pci_irq_affinity.config import CONF
+import mock
+
 from pci_irq_affinity import nova_provider
+from pci_irq_affinity.config import CONF
 
 
 class TestNovaProvider(unittest.TestCase):

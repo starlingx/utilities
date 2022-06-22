@@ -12,10 +12,11 @@
 """ Define pci_irq_affinity_provider class"""
 import os
 
-from pci_irq_affinity.driver import AffinePciIrqDriver
-from pci_irq_affinity.log import LOG
 from pci_irq_affinity import nova_provider
 from pci_irq_affinity import utils as pci_utils
+from pci_irq_affinity.driver import AffinePciIrqDriver
+from pci_irq_affinity.log import LOG
+
 
 COMPUTE_IRQ = os.getenv("COMPUTE_IRQ", default="/proc/irq/")
 

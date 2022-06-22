@@ -12,22 +12,22 @@
 """ Pci interrupt affinity agent daemon entry"""
 
 import os
-import sys
 import signal
 import socket
-import eventlet
+import sys
 import threading
 import time
 
+import eventlet
+import oslo_messaging
 from oslo_service import periodic_task
 from oslo_service import service
-import oslo_messaging
 
 from pci_irq_affinity import affinity
-from pci_irq_affinity.config import CONF
-from pci_irq_affinity.log import LOG
 from pci_irq_affinity import nova_provider
 from pci_irq_affinity import utils as pci_utils
+from pci_irq_affinity.config import CONF
+from pci_irq_affinity.log import LOG
 
 
 stay_on = True

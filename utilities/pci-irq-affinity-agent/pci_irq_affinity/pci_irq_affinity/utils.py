@@ -11,12 +11,12 @@
 
 """ Define utility functions for this agent"""
 
-import os
 import errno
 from itertools import groupby
+import os
+
 
 from pci_irq_affinity.log import LOG
-import pci_irq_affinity.instance
 
 
 COMPUTE_PCI_DEVICES = os.getenv("COMPUTE_PCI_DEVICES", default="/sys/bus/pci/devices")

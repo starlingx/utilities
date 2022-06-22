@@ -38,12 +38,12 @@
 
 import argparse
 from cmath import log
+from datetime import datetime
+from datetime import timezone
 import logging
 import os
 import time
 
-from datetime import datetime
-from datetime import timezone
 from execution_engine import ExecutionEngine
 from plugin import Plugin
 

@@ -2,29 +2,42 @@
 - project:
     check:
       jobs:
-        - openstack-tox-linters
-        - stx-tox-pylint
-        - utilities-ceph-manager-tox-bandit
-        - utilities-ceph-client-tox-bandit
-        - utilities-pci-irq-affinity-agent-tox-py27
-        - utilities-pci-irq-affinity-agent-tox-py39
-        - utilities-pci-irq-affinity-agent-tox-flake8
+        - stx-utilities-tox-linters
+        - stx-utilities-tox-pep8
+        - stx-utilities-tox-pylint
+        - stx-utilities-ceph-manager-tox-bandit
+        - stx-utilities-ceph-client-tox-bandit
+        - stx-utilities-pci-irq-affinity-agent-tox-py27
+        - stx-utilities-pci-irq-affinity-agent-tox-py39
+        - stx-utilities-pci-irq-affinity-agent-tox-pep8
     gate:
       jobs:
-        - openstack-tox-linters
-        - stx-tox-pylint
-        - utilities-ceph-manager-tox-bandit
-        - utilities-ceph-client-tox-bandit
-        - utilities-pci-irq-affinity-agent-tox-py27
-        - utilities-pci-irq-affinity-agent-tox-py39
-        - utilities-pci-irq-affinity-agent-tox-flake8
+        - stx-utilities-tox-linters
+        - stx-utilities-tox-pep8
+        - stx-utilities-tox-pylint
+        - stx-utilities-ceph-manager-tox-bandit
+        - stx-utilities-ceph-client-tox-bandit
+        - stx-utilities-pci-irq-affinity-agent-tox-py27
+        - stx-utilities-pci-irq-affinity-agent-tox-py39
+        - stx-utilities-pci-irq-affinity-agent-tox-pep8
     post:
       jobs:
         - stx-utilities-upload-git-mirror
 
 - job:
-    name: stx-tox-pylint
+    name: stx-utilities-tox-linters
+    parent: openstack-tox-linters
+    nodeset: debian-bullseye
+
+- job:
+    name: stx-utilities-tox-pep8
+    parent: openstack-tox-pep8
+    nodeset: debian-bullseye
+
+- job:
+    name: stx-utilities-tox-pylint
     parent: tox
+    nodeset: debian-bullseye
     description: |
       Run pylint tests
     required-projects:
@@ -32,6 +45,7 @@
       - starlingx/config
     vars:
       tox_envlist: pylint
+
 - job:
     name: stx-utilities-upload-git-mirror
     parent: upload-git-mirror
@@ -46,7 +60,7 @@
         pass-to-parent: true
 
 - job:
-    name: utilities-ceph-manager-tox-bandit
+    name: stx-utilities-ceph-manager-tox-bandit
     parent: tox
     description: |
       Run bandit test for utilities ceph-mananger
@@ -58,7 +72,7 @@
       tox_extra_args: -c ./ceph/ceph-manager/ceph-manager/tox.ini
 
 - job:
-    name: utilities-ceph-client-tox-bandit
+    name: stx-utilities-ceph-client-tox-bandit
     parent: tox
     description: |
       Run bandit test for utilities python-cephclient
@@ -70,7 +84,7 @@
       tox_extra_args: -c ./ceph/python-cephclient/python-cephclient/tox.ini
 
 - job:
-    name: utilities-pci-irq-affinity-agent-tox-py27
+    name: stx-utilities-pci-irq-affinity-agent-tox-py27
     parent: tox
     description: |
       Run py27 unittests for utilities/pci-irq-affinity-agent
@@ -82,7 +96,7 @@
       tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
 
 - job:
-    name: utilities-pci-irq-affinity-agent-tox-py39
+    name: stx-utilities-pci-irq-affinity-agent-tox-py39
     voting: false
     parent: tox
     description: |
@@ -96,7 +110,7 @@
       tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
 
 - job:
-    name: utilities-pci-irq-affinity-agent-tox-flake8
+    name: stx-utilities-pci-irq-affinity-agent-tox-pep8
     parent: tox
     description: |
       Run flake8 checks for utilities/pci-irq-affinity-agent
@@ -104,7 +118,7 @@
     files:
       - ./utilities/pci-irq-affinity-agent/*
     vars:
-      tox_envlist: flake8
+      tox_envlist: pep8
       tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
 
 - secret:

@@ -7,22 +7,21 @@
 import time
 
 # noinspection PyUnresolvedReferences
-from fm_api import fm_api
-# noinspection PyUnresolvedReferences
 from fm_api import constants as fm_constants
 # noinspection PyUnresolvedReferences
+from fm_api import fm_api
+# noinspection PyUnresolvedReferences
 from oslo_log import log as logging
-
-# noinspection PyProtectedMember
-from ceph_manager.i18n import _
-from ceph_manager.i18n import _LI
-from ceph_manager.i18n import _LW
-from ceph_manager.i18n import _LE
+from tsconfig import tsconfig
 
 from ceph_manager import constants
 from ceph_manager import exception
+# noinspection PyProtectedMember
+from ceph_manager.i18n import _
+from ceph_manager.i18n import _LE
+from ceph_manager.i18n import _LI
+from ceph_manager.i18n import _LW
 
-from tsconfig import tsconfig
 
 LOG = logging.getLogger(__name__)
 
@@ -721,4 +720,3 @@ class Monitor(HandleUpgradesMixin):
         self.current_health_alarm = self.service.fm_api.get_fault(
             fm_constants.FM_ALARM_ID_STORAGE_CEPH,
             self.service.entity_instance_id)
-

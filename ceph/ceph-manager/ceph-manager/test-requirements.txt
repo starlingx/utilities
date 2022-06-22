@@ -9,3 +9,4 @@ eventlet
 pytest
 oslo.log
 oslo.i18n
+flake8-import-order
