@@ -161,7 +161,13 @@ function unmount_iso {
 
 function mount_efiboot_img {
     local isodir=$1
-    local efiboot_img=${isodir}/images/efiboot.img
+
+    if [ -e ${isodir}/images/efiboot.img ]; then
+        local efiboot_img=${isodir}/images/efiboot.img
+    else
+        local efiboot_img=${isodir}/efi.img
+    fi
+
     local loop_setup_output=
 
     if [ $UID -eq 0 ]; then

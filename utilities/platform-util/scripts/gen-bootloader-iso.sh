@@ -267,12 +267,11 @@ done
 # Functions
 #
 
-function generate_boot_cfg {
+#
+# generate boot cfg for CentOS
+#
+function generate_boot_cfg_centos {
     local isodir=$1
-
-    if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
-    fi
 
     local KS_URL="${NODE_URL}/miniboot_${KS_NODETYPE}.cfg"
     local BOOT_IP_ARG="${BOOT_IP}::${BOOT_GATEWAY}:${BOOT_NETMASK}:${BOOT_HOSTNAME}:${BOOT_INTERFACE}:none"
@@ -339,6 +338,104 @@ menuentry 'Graphical Console' --id=graphical {
 EOF
 
     done
+}
+
+
+#
+# generate boot cfg for Debian
+# This requires the following arguments:
+function generate_boot_cfg_debian {
+    local isodir=$1
+
+    local BOOT_IP_ARG="${BOOT_IP}::${BOOT_GATEWAY}:${BOOT_NETMASK}:${BOOT_HOSTNAME}:${BOOT_INTERFACE}:${DNS}"
+    local PARAM_LIST=
+    # Set/update boot parameters
+    if [ ${#PARAMS[@]} -gt 0 ]; then
+        for p in ${PARAMS[@]}; do
+            param=${p%%=*}
+            value=${p#*=}
+            PARAM_LIST="${PARAM_LIST} ${param}=${value}"
+        done
+    fi
+    echo ${PARAM_LIST}
+    COMMON_ARGS="initrd=/initrd instdate=@1656353118 instw=60 instiso=instboot"
+    COMMON_ARGS="${COMMON_ARGS} biosplusefi=1 instnet=0"
+    COMMON_ARGS="${COMMON_ARGS} ks=file:///kickstart/miniboot.cfg"
+    COMMON_ARGS="${COMMON_ARGS} rdinit=/install instname=debian instbr=starlingx instab=0"
+    COMMON_ARGS="${COMMON_ARGS} insturl=${BASE_URL}/ostree_repo ip=${BOOT_IP_ARG}"
+    COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=/dev/sda"
+    COMMON_ARGS="${COMMON_ARGS} console=ttyS0,115200 console=tty1 defaultkernel=vmlinuz-*[!t]-amd64"
+    COMMON_ARGS="${COMMON_ARGS} ${PARAM_LIST}"
+
+    for f in ${isodir}/isolinux/isolinux.cfg; do
+             cat <<EOF > ${f}
+prompt 0
+timeout 100
+allowoptions 1
+serial 0 115200
+
+ui vesamenu.c32
+menu background   #ff555555
+menu title Select kernel options and boot kernel
+menu tabmsg Press [Tab] to edit, [Return] to select
+
+DEFAULT 0
+LABEL 0
+    menu label ^Debian Controller Install
+    kernel /bzImage-std
+    ipappend 2
+    append ${COMMON_ARGS} traits=controller
+
+LABEL 1
+    menu label ^Debian All-In-One Install
+    kernel /bzImage-std
+    ipappend 2
+    append ${COMMON_ARGS} traits=controller,worker
+
+LABEL 2
+    menu label ^Debian All-In-One (lowlatency) Install
+    kernel /bzImage-rt
+    ipappend 2
+    append ${COMMON_ARGS} traits=controller,worker,lowlatency
+
+EOF
+    done
+
+    for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
+        cat <<EOF > ${f}
+default=${DEFAULT_GRUB_ENTRY}
+timeout=${GRUB_TIMEOUT}
+search --no-floppy --set=root -l 'oe_iso_boot'
+
+menuentry "${NODE_ID}" {
+    echo " "
+}
+
+menuentry 'Serial Console' --id=serial {
+    linuxefi /bzImage ${COMMON_ARGS} console=ttyS0,115200 serial
+    initrdefi /initrd
+}
+
+menuentry 'Graphical Console' --id=graphical {
+    linuxefi /bzImage ${COMMON_ARGS} console=tty0
+    initrdefi /initrd
+}
+EOF
+    done
+}
+
+function generate_boot_cfg {
+    local isodir=$1
+
+    if [ -z "${EFI_MOUNT}" ]; then
+        mount_efiboot_img ${isodir}
+    fi
+
+    if [ "${OS_NAME}" == "CentOS" ]; then
+        generate_boot_cfg_centos ${isodir}
+    else
+        generate_boot_cfg_debian ${isodir}
+    fi
 }
 
 function cleanup {
@@ -563,6 +660,47 @@ function extract_shared_files {
     fi
 }
 
+function extract_debian_files {
+    # Copy files for mini ISO build
+    rsync -a \
+          --exclude ostree_repo \
+          --exclude pxeboot \
+        ${MNTDIR}/ ${BUILDDIR}
+
+    rc=$?
+    if [ "${rc}" -ne "0" ]; then
+        log_error "Call to rsync ISO content on debian failed: [rc=${rc}]."
+        exit "${rc}"
+    fi
+
+    # Setup syslinux and grub cfg files
+    generate_boot_cfg ${BUILDDIR}
+
+    unmount_efiboot_img
+
+    mkdir -p ${NODE_DIR}
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create ${NODE_DIR}"
+        exit 1
+    fi
+
+    echo "BUILDDIR is ${BUILDDIR}"
+    # Rebuild the ISO
+    OUTPUT_ISO=${NODE_DIR}/bootimage.iso
+    mkisofs -o ${OUTPUT_ISO} \
+        -A 'instboot' -V 'instboot' \
+        -quiet -U -J -joliet-long -r -iso-level 2 \
+        -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot \
+        -boot-load-size 4 -boot-info-table \
+        -eltorito-alt-boot \
+        -e efi.img \
+        -no-emul-boot \
+        ${BUILDDIR}
+
+    isohybrid --uefi ${OUTPUT_ISO}
+    implantisomd5 ${OUTPUT_ISO}
+}
+
 function extract_node_files {
     # Copy files for mini ISO build
     rsync -a \
@@ -694,6 +832,7 @@ EOF
 #
 
 # Check script dependencies
+
 check_requirements
 
 # Validate parameters
@@ -764,25 +903,32 @@ fi
 
 mount_iso ${INPUT_ISO}
 
-# Determine release version from ISO
-if [ ! -f ${MNTDIR}/upgrades/version ]; then
-    log_error "Version info not found on ${INPUT_ISO}"
-    exit 1
+if [ -e "${MNTDIR}/ostree_repo" ]; then
+    # This is a debian ISO.
+    echo "ostree_repo exists in the iso"
+    OS_NAME="Debian"
+    extract_debian_files
+else
+    OS_NAME="CentOS"
+    # Determine release version from ISO
+    if [ ! -f ${MNTDIR}/upgrades/version ]; then
+        log_error "Version info not found on ${INPUT_ISO}"
+        exit 1
+    fi
+
+    ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
+    if [ -z "${ISO_VERSION}" ]; then
+        log_error "Failed to determine version of installation ISO"
+        exit 1
+    fi
+
+    # Copy the common files from the ISO, if needed
+    extract_shared_files
+
+    # Extract/generate the node-specific files
+    extract_node_files
 fi
-
-ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
-if [ -z "${ISO_VERSION}" ]; then
-    log_error "Failed to determine version of installation ISO"
-    exit 1
-fi
-
-# Copy the common files from the ISO, if needed
-extract_shared_files
-
-# Extract/generate the node-specific files
-extract_node_files
 
 unmount_iso
 
 exit 0
-
