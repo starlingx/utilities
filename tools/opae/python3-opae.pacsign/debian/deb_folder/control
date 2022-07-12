@@ -1,0 +1,21 @@
+Source: python3-opae.pacsign
+Section: python
+Priority: optional
+Standards-Version: 4.5.1
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Homepage: https://www.starlingx.io
+Build-Depends:
+  debhelper (>= 13),
+  dh-python,
+  python3,
+  python3-all,
+  python3-setuptools
+
+Package: python3-opae.pacsign
+Architecture: any
+Description: Signing utility for Intel FPGA PAC devices.
+Depends:
+  opae-devel (<< 2),
+  opae-libs (<< 2),
+  ${misc:Depends},
+  ${python3:Depends}

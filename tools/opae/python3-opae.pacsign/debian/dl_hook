@@ -1,0 +1,31 @@
+#!/bin/bash
+set -x
+
+# $1: Name of directory where the source code is extracted to.
+#     It corresponds to the build name taken from changelog.OPAE_ZIP
+
+PKG_BUILD_NAME=$1
+PKG_BUILD_DIR=$(realpath `pwd`/"${PKG_BUILD_NAME}")
+
+OPAE_PACSIGN_VERSION=1.0.4
+OPAE_PACSIGN_SOURCE=opae.pac_sign-"${OPAE_PACSIGN_VERSION}".tar.gz
+
+# The OPAE zip file includes opae-sdk, opae.admin and opae.pac_sign source code
+OPAE_ZIP=OPAE_1.3.7-5_el7.zip
+
+unzip ./"${OPAE_ZIP}"
+if [ $? -ne 0 ]
+then
+    echo "Failed unzip of source code: ${OPAE_ZIP}"
+    exit 1
+fi
+
+mv OPAE/source_code/"${OPAE_PACSIGN_SOURCE}" ./
+mkdir -p "${PKG_BUILD_DIR}"
+
+# Unpack source code
+tar xzf $(basename "${OPAE_PACSIGN_SOURCE}") -C "${PKG_BUILD_DIR}" --strip-components 1
+
+# Clean-up
+rm -rf *.tar.gz
+rm -rf "${OPAE_ZIP}" OPAE

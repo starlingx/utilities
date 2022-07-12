@@ -1,0 +1,23 @@
+Source: python3-opae.admin
+Section: python
+Priority: optional
+Standards-Version: 4.5.1
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Homepage: https://www.starlingx.io
+Build-Depends:
+  debhelper (>= 13),
+  dh-python,
+  python3,
+  python3-all,
+  python3-setuptools
+
+Package: python3-opae.admin
+Architecture: all
+Description: Provides administration capability for Intel FPGA PAC devices.
+Depends:
+  opae-devel (<< 2),
+  opae-libs (<< 2),
+  sysvinit-utils,
+  pciutils,
+  ${misc:Depends},
+  ${python3:Depends}

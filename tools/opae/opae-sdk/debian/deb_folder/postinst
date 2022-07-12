@@ -1,0 +1,9 @@
+#!/bin/sh
+
+set -e
+
+mkdir -p /etc/ld.so.conf.d
+echo "/usr/lib" > /etc/ld.so.conf.d/opae-c.conf
+ldconfig
+
+#DEBHELPER#

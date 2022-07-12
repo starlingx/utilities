@@ -1,0 +1,43 @@
+#!/bin/bash
+set -x
+
+# $1: Name of directory where the source code is extracted to.
+#     It corresponds to the build name taken from changelog.OPAE_ZIP
+
+PKG_BUILD_NAME=$1
+PKG_BUILD_DIR=$(realpath `pwd`/"${PKG_BUILD_NAME}")
+
+OPAE_ADM_VERSION=1.0.3
+OPAE_ADM_RPM_VER="${OPAE_ADM_VERSION}"-2
+
+OPAE_ADM_SOURCE=opae.admin-"${OPAE_ADM_VERSION}".tar.gz
+OPAE_ADM_RPMBIN=opae.admin-"${OPAE_ADM_RPM_VER}".el7.noarch.rpm
+
+# The OPAE zip file includes opae-sdk, opae.admin and opae.pac_sign source code
+OPAE_ZIP=OPAE_1.3.7-5_el7.zip
+
+unzip ./${OPAE_ZIP}
+if [ $? -ne 0 ]
+then
+    echo "Failed unzip of source code: ${OPAE_ZIP}"
+    exit 1
+fi
+
+mv OPAE/source_code/"${OPAE_ADM_SOURCE}" ./
+mv OPAE/installation_packages/"${OPAE_ADM_RPMBIN}" ./
+mkdir -p "${PKG_BUILD_DIR}"
+
+# Unpack source code
+tar xzf $(basename "${OPAE_ADM_SOURCE}") -C "${PKG_BUILD_DIR}" --strip-components 1
+rpm2cpio ./"${OPAE_ADM_RPMBIN}" | cpio -i --to-stdout ./usr/share/doc/opae.admin/LICENSE > ./LICENSE
+mv ./LICENSE "${PKG_BUILD_DIR}"/
+
+# Patches
+sed -i 's|/home/lab/sys_aalsdk/Security-Tools/python/opae.admin/LICENSE|LICENSE|' "${PKG_BUILD_DIR}"/setup.py
+sed -i 's|/home/lab/sys_aalsdk/Security-Tools/python/opae.admin/LICENSE|LICENSE|' \
+    "${PKG_BUILD_DIR}"/opae.admin.egg-info/SOURCES.txt
+
+# Clean-up
+rm -rf *.tar.gz
+rm -rf *.rpm
+rm -rf "${OPAE_ZIP}" OPAE

@@ -33,23 +33,20 @@ RUN set -ex && \
     cp -f /etc/apt/sources.list.d/stx.list.disabled /etc/apt/sources.list.d/stx.list && \
     apt-get update -y && \
     apt-get install -y \
+        autoconf-archive \
+        autogen \
+        cmake \
+        doxygen \
+        dwarves \
         git \
         git-review \
-        unzip \
-        autogen \
-        autoconf-archive \
-        linux-perf-5.10 \
         libcap-dev \
-        uuid-dev \
-        ncurses-dev \
-        dwarves \
-        cmake \
-        libhwloc-dev \
         libjson-c-dev \
-        doxygen \
+        linux-perf-5.10 \
+        ncurses-dev \
         sphinx-doc \
-        acpica-tools \
-        trace-cmd \
+        unzip \
+        uuid-dev \
         && \
     rm -f /etc/apt/sources.list.d/debian.list && \
     rm -f /etc/apt/sources.list.d/stx.list && \
@@ -66,29 +63,36 @@ RUN set -ex && \
     apt-get update -y && \
     apt-get upgrade -y && \
     apt-get install -y \
-        sudo \
-        bash \
-        python3-yaml \
-        curl \
-        wget \
-        make \
         automake \
+        bash \
         bc \
         bison \
-        isomd5sum \
-        gettext \
-        mkisofs \
-        gcc \
-        g++ \
-        rsync \
-        vim \
-        linux-headers-5.10.0-6 \
+        curl \
         fakeroot \
         flex \
+        gcc \
+        g++ \
+        gettext \
+        isomd5sum \
         libelf-dev \
+        libhwloc-dev=1.11.12-3 \
         libssl-dev \
-        xz-utils \
+        linux-headers-5.10.0-6 \
+        make \
+        mkisofs \
+        pciutils \
+        python-is-python3 \
+        python3-intelhex \
+        python3-pip \
+        python3-pybind11 \
+        python3-yaml \
+        rsync \
         sphinx-common \
+        sudo \
+        sysvinit-utils \
+        vim \
+        wget \
+        xz-utils \
         && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -98,20 +102,17 @@ RUN set -ex && \
     apt-get update -y && \
     apt-get upgrade -y && \
     apt-get install -y \
-        net-tools \
-        iproute2 \
-        ethtool \
-        tcpdump \
-        linux-cpupower \
-        pciutils \
-        pcm \
-        sysvinit-utils \
+        acpica-tools \
         dmidecode \
-        python-is-python3 \
-        python3-pip \
-        && \
-    python -m pip install \
-        intelhex \
+        ethtool \
+        iproute2 \
+        linux-cpupower \
+        net-tools \
+        opae-libs opae-tools opae-tools-extra opae-devel \
+        pcm \
+        python3-opae.admin python3-opae.pacsign \
+        tcpdump \
+        trace-cmd \
         && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

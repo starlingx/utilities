@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+export PYBUILD_NAME=python3-opae.admin
+
+DEBPATH=$(CURDIR)/debian/python3-opae.admin
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_test:
+	# do not run tests
+
+override_dh_install:
+	python3 setup.py install -f --install-layout=deb --root=${PATH_TO}
+	mv ${DEBPATH}/usr/bin ${DEBPATH}/usr/sbin
+	dh_install

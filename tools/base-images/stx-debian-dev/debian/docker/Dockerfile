@@ -33,21 +33,20 @@ RUN set -ex && \
     cp -f /etc/apt/sources.list.d/stx.list.disabled /etc/apt/sources.list.d/stx.list && \
     apt-get update -y && \
     apt-get install -y \
+        autoconf-archive \
+        autogen \
+        cmake \
+        doxygen \
+        dwarves \
         git \
         git-review \
-        unzip \
-        autogen \
-        autoconf-archive \
-        linux-perf-5.10 \
         libcap-dev \
-        uuid-dev \
-        ncurses-dev \
-        dwarves \
-        cmake \
-        libhwloc-dev \
         libjson-c-dev \
-        doxygen \
+        linux-perf-5.10 \
+        ncurses-dev \
         sphinx-doc \
+        unzip \
+        uuid-dev \
         && \
     rm -f /etc/apt/sources.list.d/debian.list && \
     rm -f /etc/apt/sources.list.d/stx.list && \
@@ -64,29 +63,30 @@ RUN set -ex && \
     apt-get update -y && \
     apt-get upgrade -y && \
     apt-get install -y \
-        sudo \
-        bash \
-        python3-yaml \
-        curl \
-        wget \
-        make \
         automake \
+        bash \
         bc \
         bison \
-        isomd5sum \
-        gettext \
-        mkisofs \
-        gcc \
-        g++ \
-        rsync \
-        vim \
-        linux-headers-5.10.0-6 \
+        curl \
         fakeroot \
         flex \
+        gcc \
+        g++ \
+        gettext \
+        isomd5sum \
         libelf-dev \
+        libhwloc-dev=1.11.12-3 \
         libssl-dev \
-        xz-utils \
+        linux-headers-5.10.0-6 \
+        make \
+        mkisofs \
+        python3-yaml \
+        rsync \
         sphinx-common \
+        sudo \
+        vim \
+        wget \
+        xz-utils \
         && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

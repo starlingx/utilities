@@ -1,0 +1,10 @@
+usr/bin/afu_platform_config usr/sbin
+usr/bin/afu_platform_info usr/sbin
+usr/bin/afu_synth_setup usr/sbin
+usr/bin/rtl_src_config usr/sbin
+usr/include/opae/*
+usr/include/safe_string/*
+usr/lib/libsafestr.a
+usr/share/opae/*
+usr/src/opae/*
+LICENSE usr/share/doc/opae-devel

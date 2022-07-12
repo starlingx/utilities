@@ -1,0 +1,59 @@
+Source: opae-sdk
+Section: devel
+Priority: optional
+Standards-Version: 4.5.1
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Homepage: https://www.starlingx.io
+Build-Depends:
+  cmake,
+  debhelper (>= 13),
+  doxygen,
+  gcc,
+  g++,
+  libc6-dev,
+  libhwloc-dev (<< 2),
+  libjson-c-dev,
+  make,
+  pandoc,
+  pkg-config,
+  python3-dev,
+  uuid-dev
+
+Package: opae-libs
+Architecture: amd64
+Description: OPAE runtime
+Depends:
+  libhwloc5 (<< 2),
+  libjson-c5,
+  uuid-dev,
+  ${shlibs:Depends},
+  ${misc:Depends}
+
+Package: opae-devel
+Architecture: amd64
+Description: OPAE documentation and sample source code
+Depends:
+  opae-libs (= ${binary:Version}),
+  ${misc:Depends},
+  ${python3:Depends},
+  ${shlibs:Depends}
+
+Package: opae-tools
+Architecture: amd64
+Description: OPAE base tool binaries
+Depends:
+  opae-devel (= ${binary:Version}),
+  opae-libs (= ${binary:Version}),
+  ${shlibs:Depends},
+  ${misc:Depends}
+
+Package: opae-tools-extra
+Architecture: amd64
+Description: OPAE extra tool binaries
+Depends:
+  opae-devel (= ${binary:Version}),
+  opae-libs (= ${binary:Version}),
+  opae-tools (= ${binary:Version}),
+  ${misc:Depends},
+  ${python3:Depends},
+  ${shlibs:Depends}
