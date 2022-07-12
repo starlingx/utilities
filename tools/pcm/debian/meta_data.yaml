@@ -1,0 +1,5 @@
+debver: 202207-1
+archive: https://deb.debian.org/debian/pool/main/p/pcm/
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true

@@ -3,6 +3,7 @@ ceph/python-cephclient
 tools/debian-integration
 tools/collector
 tools/engtools/hostdata-collectors
+tools/pcm
 utilities/build-info
 utilities/logmgmt
 utilities/namespace-utils
