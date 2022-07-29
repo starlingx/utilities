@@ -359,10 +359,11 @@ fi
 PrintCertInfo-fromFile "DC-AdminEp-Server" "/etc/ssl/private/admin-ep-cert.pem" "${GREEN}$AUTO_LABEL${RESET}"
 
 # ETCD CA
+# ETCD certificates are automatically renewed by kube_root_ca_rotation cron job
 PrintCertInfo-fromFile "etcd CA certificate" "/etc/etcd/ca.crt" "${RED}Manual${RESET}"
-PrintCertInfo-fromFile "etcd client certificate" "/etc/etcd/etcd-client.crt" "${RED}Manual${RESET}"
-PrintCertInfo-fromFile "etcd server certificate" "/etc/etcd/etcd-server.crt" "${RED}Manual${RESET}"
-PrintCertInfo-fromFile "etcd apiserver client certificate" "/etc/etcd/apiserver-etcd-client.crt" "${RED}Manual${RESET}"
+PrintCertInfo-fromFile "etcd client certificate" "/etc/etcd/etcd-client.crt" "${GREEN}Automatic${RESET}"
+PrintCertInfo-fromFile "etcd server certificate" "/etc/etcd/etcd-server.crt" "${GREEN}Automatic${RESET}"
+PrintCertInfo-fromFile "etcd apiserver client certificate" "/etc/etcd/apiserver-etcd-client.crt" "${GREEN}Automatic${RESET}"
 
 # OpenStack Certificates
 PrintCertInfo-fromFile "openstack" "/etc/ssl/private/openstack/cert.pem" "${RED}Manual${RESET}"
