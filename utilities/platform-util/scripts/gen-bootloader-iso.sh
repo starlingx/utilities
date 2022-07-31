@@ -1,6 +1,7 @@
 #!/bin/bash
+# vim: filetype=sh shiftwidth=4 expandtab
 #
-# Copyright (c) 2020 Wind River Systems, Inc.
+# Copyright (c) 2020-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -12,43 +13,117 @@
 # under an http/https served directory
 #
 #
+readonly SCRIPTDIR=$(readlink -m "$(dirname "$0")")
+readonly SCRIPTNAME=$(basename "$0")
 
 # Source shared utility functions
-source $(dirname $0)/stx-iso-utils.sh
+# shellcheck disable=SC1090 # ignore source warning
+source "$SCRIPTDIR"/stx-iso-utils.sh
 
-declare LOG_TAG=$(basename $0)
+ADDON=
+BASE_URL=
+BOOT_GATEWAY=
+BOOT_HOSTNAME=
+BOOT_INTERFACE=
+BOOT_IP=
+BOOT_NETMASK=
+DEFAULT_GRUB_ENTRY=
+DEFAULT_LABEL=
+DEFAULT_SYSLINUX_ENTRY=
+DELETE="no"
+GRUB_TIMEOUT=-1
+INITRD_FILE=
+REPACK=no     # REPACK initrd is disabled until signing is fixed
+INPUT_ISO=
+KS_NODETYPE=
+LOCK_FILE=/var/run/.gen-bootloader-iso.lock
+LOCK_TMOUT=600  # Wait up to 10 minutes, by default
+LOG_TAG=$SCRIPTNAME
+USE_CACHE=yes
+NODE_ID=
+OUTPUT_ISO=
+SCRATCH_DIR=${SCRATCH_DIR:-/scratch}
+TIMEOUT=100
+WORKDIR=
+WWW_ROOT_DIR=
+VERBOSE=${VERBOSE:-}
+XZ_ARGS="--threads=0 -9 --format=lzma"
 
-function log_error {
-    logger -i -s -t ${LOG_TAG} -- "$@"
+declare -a PARAMS
+
+# Initialized via initialize_and_lock:
+BUILDDIR=
+CACHED_INITRD_FILE=
+NODE_DIR=
+NODE_DIR_BASE=
+VERBOSE_RSYNC=
+WORKDIR=
+
+# Initialized by stx-iso-utils.sh:mount_efiboot_img
+EFI_MOUNT=
+
+# Set this to a directory path containing kickstart *.cfg script(s) for testing:
+KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR:-}
+KICKSTART_OVERRIDE_DIR=/home/sysadmin/miniboot-override/kickstart
+
+function log_verbose {
+    if [ -n "$VERBOSE" ]; then
+        echo "$@"
+    fi
 }
 
-declare ADDON=
-declare BASE_URL=
-declare BOOT_GATEWAY=
-declare BOOT_HOSTNAME=
-declare BOOT_INTERFACE=
-declare BOOT_IP=
-declare BOOT_NETMASK=
-declare CLEAN_NODE_DIR="no"
-declare CLEAN_SHARED_DIR="no"
-declare DEFAULT_GRUB_ENTRY=
-declare DEFAULT_LABEL=
-declare DEFAULT_SYSLINUX_ENTRY=
-declare DELETE="no"
-declare GRUB_TIMEOUT=-1
-declare INPUT_ISO=
-declare ISO_VERSION=
-declare KS_NODETYPE=
-declare -i LOCK_TMOUT=600 # Wait up to 10 minutes, by default
-declare NODE_ID=
-declare ORIG_PWD=$PWD
-declare OUTPUT_ISO=
-declare -a PARAMS
-declare PATCHES_FROM_HOST="yes"
-declare -i TIMEOUT=0
-declare UPDATE_TIMEOUT="no"
-declare WORKDIR=
-declare WWW_ROOT_DIR=
+function log_info {
+    echo "$@"
+}
+
+function log_error {
+    logger -i -s -t "${LOG_TAG}" -- "ERROR: $*"
+}
+
+function log_warn {
+    logger -i -s -t "${LOG_TAG}" -- "WARN: $*"
+}
+
+function get_path_size {
+    local path=$1
+    du -hs "$path" | awk '{print $1}'
+}
+
+function log_path_size {
+    local path=$1
+    local msg=$2
+    log_info "$msg: $(get_path_size "$path")"
+}
+
+function fatal_error {
+    logger -i -s -t "${LOG_TAG}" -- "FATAL: $*"
+    exit 1
+}
+
+function check_rc_exit {
+    local rc=$1
+    shift
+    if [ "$rc" -ne 0 ]; then
+        logger -i -s -t "${LOG_TAG}" -- "FATAL: $* [exit: $rc]"
+        exit "$rc"
+    fi
+}
+
+function get_os {
+    local os
+    os=$(awk -F '=' '/^ID=/ { print $2; }' /etc/os-release)
+    case "$os" in
+        *debian*)
+            echo debian
+            ;;
+        *centos*)
+            echo centos
+            ;;
+        *)
+            echo "$os"
+            ;;
+    esac
+}
 
 function usage {
     cat <<ENDUSAGE
@@ -77,9 +152,10 @@ Optional parameters for setup:
     --boot-hostname <host>:  Specify temporary hostname for target node
     --boot-netmask <mask>:   Specify netmask for boot interface
     --boot-gateway <addr>:   Specify gateway for boot interface
+    --initrd <initrd-file>:  Specify an existing initrd file to use
     --timeout <seconds>:     Specify boot menu timeout, in seconds
     --lock-timeout <secs>:   Specify time to wait for mutex lock before aborting
-    --patches-from-iso:      Use patches from the ISO, if any, rather than host
+    --patches-from-iso:      Ignored (obsolete)
     --param <p=v>:           Specify boot parameter customization
         Examples:
         --param rootfs_device=nvme0n1 --param boot_device=nvme0n1
@@ -119,258 +195,292 @@ ENDUSAGE
 }
 
 #
-# Parse cmdline arguments
-#
-LONGOPTS="input:,addon:,param:,default-boot:,timeout:,lock-timeout:,patches-from-iso"
-LONGOPTS="${LONGOPTS},base-url:,www-root:,id:,delete"
-LONGOPTS="${LONGOPTS},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
-LONGOPTS="${LONGOPTS},help"
-
-OPTS=$(getopt -o h --long "${LONGOPTS}" --name "$0" -- "$@")
-
-if [ $? -ne 0 ]; then
-    usage
-    exit 1
-fi
-
-eval set -- "${OPTS}"
-
-while :; do
-    case "$1" in
-        --input)
-            INPUT_ISO=$2
-            shift 2
-            ;;
-        --addon)
-            ADDON=$2
-            shift 2
-            ;;
-        --boot-gateway)
-            BOOT_GATEWAY=$2
-            shift 2
-            ;;
-        --boot-hostname)
-            BOOT_HOSTNAME=$2
-            shift 2
-            ;;
-        --boot-interface)
-            BOOT_INTERFACE=$2
-            shift 2
-            ;;
-        --boot-ip)
-            BOOT_IP=$2
-            shift 2
-            ;;
-        --boot-netmask)
-            BOOT_NETMASK=$2
-            shift 2
-            ;;
-        --param)
-            PARAMS+=($2)
-            shift 2
-            ;;
-        --default-boot)
-            DEFAULT_LABEL=$2
-            shift 2
-
-            case ${DEFAULT_LABEL} in
-                0)
-                    DEFAULT_SYSLINUX_ENTRY=0
-                    DEFAULT_GRUB_ENTRY="serial"
-                    KS_NODETYPE='controller'
-                    ;;
-                1)
-                    DEFAULT_SYSLINUX_ENTRY=1
-                    DEFAULT_GRUB_ENTRY="graphical"
-                    KS_NODETYPE='controller'
-                    ;;
-                2)
-                    DEFAULT_SYSLINUX_ENTRY=0
-                    DEFAULT_GRUB_ENTRY="serial"
-                    KS_NODETYPE='smallsystem'
-                    ;;
-                3)
-                    DEFAULT_SYSLINUX_ENTRY=1
-                    DEFAULT_GRUB_ENTRY="graphical"
-                    KS_NODETYPE='smallsystem'
-                    ;;
-                4)
-                    DEFAULT_SYSLINUX_ENTRY=0
-                    DEFAULT_GRUB_ENTRY="serial"
-                    KS_NODETYPE='smallsystem_lowlatency'
-                    ;;
-                5)
-                    DEFAULT_SYSLINUX_ENTRY=1
-                    DEFAULT_GRUB_ENTRY="graphical"
-                    KS_NODETYPE='smallsystem_lowlatency'
-                    ;;
-                *)
-                    log_error "Invalid default boot menu option: ${DEFAULT_LABEL}"
-                    usage
-                    exit 1
-                    ;;
-            esac
-            ;;
-        --timeout)
-            let -i timeout_arg=$2
-            shift 2
-
-            if [ ${timeout_arg} -gt 0 ]; then
-                let -i TIMEOUT=${timeout_arg}*10
-                GRUB_TIMEOUT=${timeout_arg}
-            elif [ ${timeout_arg} -eq 0 ]; then
-                GRUB_TIMEOUT=0.001
-            fi
-
-            UPDATE_TIMEOUT="yes"
-            ;;
-        --www-root)
-            WWW_ROOT_DIR=$2
-            shift 2
-            ;;
-        --base-url)
-            BASE_URL=$2
-            shift 2
-            ;;
-        --id)
-            NODE_ID=$2
-            shift 2
-            ;;
-        --lock-timeout)
-            LOCK_TMOUT=$2
-            shift 2
-            if [ $LOCK_TMOUT -le 0 ]; then
-                echo "Lock timeout must be greater than 0" >&2
-                exit 1
-            fi
-            ;;
-        --delete)
-            DELETE="yes"
-            shift
-            ;;
-        --patches-from-iso)
-            PATCHES_FROM_HOST="no"
-            shift
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *)
-            usage
-            exit 1
-            ;;
-    esac
-done
-
-#
 # Functions
 #
 
-#
-# generate boot cfg for CentOS
-#
-function generate_boot_cfg_centos {
-    local isodir=$1
+function parse_arguments {
+    # Parse cmdline arguments
+    local longopts opts
+    longopts="input:,addon:,param:,default-boot:,timeout:,lock-timeout:,patches-from-iso"
+    longopts="${longopts},base-url:,www-root:,id:,delete"
+    longopts="${longopts},base-url:,repack,initrd:,no-cache"
+    longopts="${longopts},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
+    longopts="${longopts},help,verbose"
 
-    local KS_URL="${NODE_URL}/miniboot_${KS_NODETYPE}.cfg"
-    local BOOT_IP_ARG="${BOOT_IP}::${BOOT_GATEWAY}:${BOOT_NETMASK}:${BOOT_HOSTNAME}:${BOOT_INTERFACE}:none"
+    opts=$(getopt -o h --long "${longopts}" --name "$0" -- "$@")
+    # shellcheck disable=SC2181 # prefer to check exit code:
+    if [ $? -ne 0 ]; then
+        usage
+        exit 1
+    fi
 
-    local COMMON_ARGS="inst.text inst.gpt boot_device=sda rootfs_device=sda"
-    COMMON_ARGS="${COMMON_ARGS} biosdevname=0 usbcore.autosuspend=-1"
-    COMMON_ARGS="${COMMON_ARGS} security_profile=standard user_namespace.enable=1"
-    COMMON_ARGS="${COMMON_ARGS} inst.repo=${NODE_URL} inst.stage2=${NODE_URL} inst.ks=${KS_URL}"
-    COMMON_ARGS="${COMMON_ARGS} ip=${BOOT_IP_ARG}"
+    eval set -- "${opts}"
 
-    for f in ${isodir}/isolinux.cfg ${isodir}/syslinux.cfg; do
-        cat <<EOF > ${f}
-display splash.cfg
-timeout ${TIMEOUT}
-F1 help.txt
-F2 devices.txt
-F3 splash.cfg
-serial 0 115200
-ui vesamenu.c32
-menu background   #ff555555
-
-default ${DEFAULT_SYSLINUX_ENTRY}
-
-menu begin
-    menu title ${NODE_ID}
-
-    # Serial Console submenu
-    label 0
-        menu label Serial Console
-        kernel vmlinuz
-        initrd initrd.img
-        append rootwait ${COMMON_ARGS} console=ttyS0,115200 serial
-
-    # Graphical Console submenu
-    label 1
-        menu label Graphical Console
-        kernel vmlinuz
-        initrd initrd.img
-        append rootwait ${COMMON_ARGS} console=tty0
-menu end
-
-EOF
+    while :; do
+        case "$1" in
+            --input)
+                INPUT_ISO=$2
+                shift 2
+                ;;
+            # TODO: do we need to support --addon for debian?
+            --addon)
+                ADDON=$2
+                shift 2
+                ;;
+            --boot-gateway)
+                BOOT_GATEWAY=$2
+                shift 2
+                ;;
+            --boot-hostname)
+                BOOT_HOSTNAME=$2
+                shift 2
+                ;;
+            --boot-interface)
+                BOOT_INTERFACE=$2
+                shift 2
+                ;;
+            --boot-ip)
+                BOOT_IP=$2
+                shift 2
+                ;;
+            --boot-netmask)
+                BOOT_NETMASK=$2
+                shift 2
+                ;;
+            --param)
+                PARAMS+=("$2")
+                shift 2
+                ;;
+            --default-boot)
+                DEFAULT_LABEL=$2
+                shift 2
+                # The default-boot numbers are preserved here for debian as the
+                # same in centos for backward compatibility.
+                # TODO(kmacleod) For debian, KS_NODETYPE needs to be incorporated: see story: TBD
+                case ${DEFAULT_LABEL} in
+                    0)
+                        DEFAULT_SYSLINUX_ENTRY=0
+                        DEFAULT_GRUB_ENTRY="serial"
+                        KS_NODETYPE='controller'
+                        ;;
+                    1)
+                        DEFAULT_SYSLINUX_ENTRY=1
+                        DEFAULT_GRUB_ENTRY="graphical"
+                        KS_NODETYPE='controller'
+                        ;;
+                    2)
+                        DEFAULT_SYSLINUX_ENTRY=0
+                        DEFAULT_GRUB_ENTRY="serial"
+                        KS_NODETYPE='smallsystem'
+                        ;;
+                    3)
+                        DEFAULT_SYSLINUX_ENTRY=1
+                        DEFAULT_GRUB_ENTRY="graphical"
+                        KS_NODETYPE='smallsystem'
+                        ;;
+                    4)
+                        DEFAULT_SYSLINUX_ENTRY=0
+                        DEFAULT_GRUB_ENTRY="serial"
+                        KS_NODETYPE='smallsystem_lowlatency'
+                        ;;
+                    5)
+                        DEFAULT_SYSLINUX_ENTRY=1
+                        DEFAULT_GRUB_ENTRY="graphical"
+                        KS_NODETYPE='smallsystem_lowlatency'
+                        ;;
+                    *)
+                        log_error "Invalid default boot menu option: ${DEFAULT_LABEL}"
+                        usage
+                        exit 1
+                        ;;
+                esac
+                ;;
+            --timeout)
+                timeout_arg=$2
+                shift 2
+                if [ $(( timeout_arg )) -gt 0 ]; then
+                    TIMEOUT=$(( timeout_arg * 10 ))
+                    GRUB_TIMEOUT=${timeout_arg}
+                elif [ $(( timeout_arg )) -eq 0 ]; then
+                    GRUB_TIMEOUT=0.001
+                fi
+                ;;
+            --www-root)
+                WWW_ROOT_DIR=$2
+                shift 2
+                ;;
+            --base-url)
+                BASE_URL=$2
+                shift 2
+                ;;
+            --id)
+                NODE_ID=$2
+                shift 2
+                ;;
+            --no-repack)
+                # Do not repack initrd - use original
+                REPACK=no
+                shift
+                ;;
+            --no-cache)
+                # Force initrd repack
+                USE_CACHE=no
+                shift
+                ;;
+            --initrd)
+                # Allow specifying an existing initrd file. If none is specified,
+                # then $CACHED_INITRD_FILE is used, if it exists
+                INITRD_FILE=$2
+                [ -f "$INITRD_FILE" ] || fatal_error "initrd file not found: $INITRD_FILE"
+                shift 2
+                ;;
+            --lock-timeout)
+                LOCK_TMOUT=$2
+                shift 2
+                if [ "$LOCK_TMOUT" -le 0 ]; then
+                    echo "Lock timeout must be greater than 0" >&2
+                    exit 1
+                fi
+                ;;
+            --delete)
+                DELETE="yes"
+                shift
+                ;;
+            --patches-from-iso)
+                # ignored - not applicable for debian/ostree
+                shift
+                ;;
+            --verbose)
+                VERBOSE=1
+                shift
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                usage
+                exit 1
+                ;;
+        esac
     done
-
-    for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        cat <<EOF > ${f}
-default=${DEFAULT_GRUB_ENTRY}
-timeout=${GRUB_TIMEOUT}
-search --no-floppy --set=root -l 'oe_iso_boot'
-
-menuentry "${NODE_ID}" {
-    echo " "
 }
 
-menuentry 'Serial Console' --id=serial {
-    linuxefi /vmlinuz ${COMMON_ARGS} console=ttyS0,115200 serial
-    initrdefi /initrd.img
+function get_lock {
+    # Grab the lock, to protect against simultaneous execution
+    exec 200>${LOCK_FILE}
+    flock -w "${LOCK_TMOUT}" 200
+    check_rc_exit $? "Failed waiting for lock: ${LOCK_FILE}"
 }
 
-menuentry 'Graphical Console' --id=graphical {
-    linuxefi /vmlinuz ${COMMON_ARGS} console=tty0
-    initrdefi /initrd.img
+function initialize_and_lock {
+    check_requirements
+
+    # Check mandatory parameters
+    check_required_param "--id" "${NODE_ID}"
+    check_required_param "--www-root" "${WWW_ROOT_DIR}"
+    [ -d "${WWW_ROOT_DIR}" ] || fatal_error "Root directory ${WWW_ROOT_DIR} does not exist"
+    [ -d "${WWW_ROOT_DIR}/iso" ] || mkdir "${WWW_ROOT_DIR}/iso"
+
+    if [ -n "$VERBOSE" ]; then
+        VERBOSE_RSYNC="--verbose"
+        XZ_ARGS="--verbose $XZ_ARGS"
+
+        # log all output to temp file
+        echo "Verbose: logging output to /tmp/gen-bootloader-iso.log"
+        exec > >(tee "/tmp/gen-bootloader-iso.log") 2>&1
+    fi
+
+    # Initialize dynamic variables
+    NODE_DIR_BASE="${WWW_ROOT_DIR}/nodes"
+    NODE_DIR="${NODE_DIR_BASE}/${NODE_ID}"
+
+    CACHED_INITRD_FILE="${WWW_ROOT_DIR}/initrd-mini"
+
+    if [ ! -d "$SCRATCH_DIR" ]; then
+        log_warn "SCRATCH_DIR does not exist, using /tmp"
+        SCRATCH_DIR=/tmp
+    fi
+
+    get_lock
+
+    # Check for deletion
+    if [ ${DELETE} = "yes" ]; then
+        handle_delete
+        exit 0
+    fi
+
+    # Handle extraction and setup
+    check_required_param "--input" "${INPUT_ISO}"
+    check_required_param "--default-boot" "${DEFAULT_GRUB_ENTRY}"
+    check_required_param "--base-url" "${BASE_URL}"
+    check_required_param "--boot-ip" "${BOOT_IP}"
+    check_required_param "--boot-interface" "${BOOT_INTERFACE}"
+
+    if [ ! -f "${INPUT_ISO}" ]; then
+        fatal_error "Input file does not exist: ${INPUT_ISO}"
+    fi
+    if [ -d "${NODE_DIR}" ]; then
+        fatal_error "Output dir already exists: ${NODE_DIR}"
+    fi
+
+    # Run cleanup on any exit
+    trap cleanup_on_exit EXIT
+
+    BUILDDIR=$(mktemp -d -p "$SCRATCH_DIR" gen_bootloader_build_XXXXXX)
+    if [ -z "${BUILDDIR}" ] || [ ! -d "${BUILDDIR}" ]; then
+        fatal_error "Failed to create builddir: $BUILDDIR"
+    fi
+
+    WORKDIR=$(mktemp -d -p "$SCRATCH_DIR" gen_bootloader_initrd_XXXXXX)
+    if [ -z "${WORKDIR}" ] || [ ! -d "${WORKDIR}" ]; then
+        fatal_error "Failed to create initrd extract directory: $WORKDIR"
+    fi
 }
-EOF
 
-    done
-}
-
-
-#
-# generate boot cfg for Debian
-# This requires the following arguments:
-function generate_boot_cfg_debian {
+function generate_boot_cfg {
     local isodir=$1
+    local instdev=/dev/sda
 
-    local BOOT_IP_ARG="${BOOT_IP}::${BOOT_GATEWAY}:${BOOT_NETMASK}:${BOOT_HOSTNAME}:${BOOT_INTERFACE}:${DNS}"
+    # The 'ip=' format is defined by LAT:
+    # Format:   ip=<client-ip>::<gw-ip>:<netmask>:<hostname>:<device>:off:<dns0-ip>:<dns1-ip>
+    # However, LAT isn't really using ip= except for dhcp, and it is broken for IPv6.
+    # So we are changing the delimiter to ',' for easier parsing in our miniboot.cfg file.
+    # It won't affect LAT (but it is something to keep an eye towards in the future).
+    local BOOT_IP_ARG="${BOOT_IP},,${BOOT_GATEWAY},${BOOT_NETMASK},${BOOT_HOSTNAME},${BOOT_INTERFACE},off"
+
     local PARAM_LIST=
+    log_info "Generating miniboot.iso from params: ${PARAMS[*]}"
     # Set/update boot parameters
     if [ ${#PARAMS[@]} -gt 0 ]; then
-        for p in ${PARAMS[@]}; do
+        for p in "${PARAMS[@]}"; do
             param=${p%%=*}
             value=${p#*=}
+            # Pull the boot device out of PARAMS and convert to instdev
+            if [ "$param" = "boot_device" ]; then
+                log_info "Setting instdev=$value from boot_device param"
+                instdev=$value
+            fi
             PARAM_LIST="${PARAM_LIST} ${param}=${value}"
         done
     fi
-    echo ${PARAM_LIST}
+    log_verbose "Parameters: ${PARAM_LIST}"
     COMMON_ARGS="initrd=/initrd instdate=@1656353118 instw=60 instiso=instboot"
     COMMON_ARGS="${COMMON_ARGS} biosplusefi=1 instnet=0"
     COMMON_ARGS="${COMMON_ARGS} ks=file:///kickstart/miniboot.cfg"
     COMMON_ARGS="${COMMON_ARGS} rdinit=/install instname=debian instbr=starlingx instab=0"
     COMMON_ARGS="${COMMON_ARGS} insturl=${BASE_URL}/ostree_repo ip=${BOOT_IP_ARG}"
-    COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=/dev/sda"
-    COMMON_ARGS="${COMMON_ARGS} console=ttyS0,115200 console=tty1 defaultkernel=vmlinuz-*[!t]-amd64"
+    COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
+    COMMON_ARGS="${COMMON_ARGS} defaultkernel=vmlinuz-*[!t]-amd64"
+    # Uncomment for debugging:
+    #COMMON_ARGS="${COMMON_ARGS} instsh=2"
     COMMON_ARGS="${COMMON_ARGS} ${PARAM_LIST}"
+    log_verbose "COMMON_ARGS: $COMMON_ARGS"
 
     for f in ${isodir}/isolinux/isolinux.cfg; do
-             cat <<EOF > ${f}
+        cat <<EOF > "${f}"
 prompt 0
-timeout 100
+timeout ${TIMEOUT}
 allowoptions 1
 serial 0 115200
 
@@ -379,30 +489,29 @@ menu background   #ff555555
 menu title Select kernel options and boot kernel
 menu tabmsg Press [Tab] to edit, [Return] to select
 
-DEFAULT 0
+DEFAULT ${DEFAULT_SYSLINUX_ENTRY}
 LABEL 0
     menu label ^Debian Controller Install
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} traits=controller
+    append ${COMMON_ARGS} traits=controller console=ttyS0,115200 console=tty0
 
 LABEL 1
     menu label ^Debian All-In-One Install
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} traits=controller,worker
-
-LABEL 2
-    menu label ^Debian All-In-One (lowlatency) Install
-    kernel /bzImage-rt
-    ipappend 2
-    append ${COMMON_ARGS} traits=controller,worker,lowlatency
-
+    append ${COMMON_ARGS} traits=controller,worker console=ttyS0,115200 console=tty0
 EOF
+# We do NOT support an RT kernel for the initial boot:
+# LABEL 2
+#     menu label ^Debian All-In-One (lowlatency) Install
+#     kernel /bzImage-rt
+#     ipappend 2
+#     append ${COMMON_ARGS} traits=controller,worker,lowlatency
     done
 
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        cat <<EOF > ${f}
+        cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
 search --no-floppy --set=root -l 'oe_iso_boot'
@@ -412,38 +521,29 @@ menuentry "${NODE_ID}" {
 }
 
 menuentry 'Serial Console' --id=serial {
-    linuxefi /bzImage ${COMMON_ARGS} console=ttyS0,115200 serial
-    initrdefi /initrd
+    linux /bzImage-std ${COMMON_ARGS} traits=controller console=ttyS0,115200 serial
+    initrd /initrd
 }
 
 menuentry 'Graphical Console' --id=graphical {
-    linuxefi /bzImage ${COMMON_ARGS} console=tty0
-    initrdefi /initrd
+    linux /bzImage-std ${COMMON_ARGS} traits=controller console=tty0
+    initrd /initrd
 }
 EOF
     done
 }
 
-function generate_boot_cfg {
-    local isodir=$1
-
-    if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
-    fi
-
-    if [ "${OS_NAME}" == "CentOS" ]; then
-        generate_boot_cfg_centos ${isodir}
-    else
-        generate_boot_cfg_debian ${isodir}
-    fi
-}
-
-function cleanup {
+function cleanup_on_exit {
+    # This is invoked from the trap handler.
+    # The last exit code is used to determine if we are exiting
+    # in failed state (non-zero exit), in which case we do the
+    # full cleanup. Disable the warning here since we are
+    # invoked as a trap handler
+    # shellcheck disable=SC2181 # Check exit code directly...
     if [ $? -ne 0 ]; then
-        # Clean up from failure
+        log_info "Cleanup on failure"
         handle_delete
     fi
-
     common_cleanup
 }
 
@@ -453,241 +553,122 @@ function check_requirements {
 
 function handle_delete {
     # Remove node-specific files
-    if [ -d ${NODE_DIR} ]; then
-        rm -rf ${NODE_DIR}
+    if [ -d "${NODE_DIR}" ]; then
+        rm -rf "${NODE_DIR}"
     fi
 
     # If there are no more nodes, cleanup everything else
-    if [ $(ls -A ${NODE_DIR_BASE} 2>/dev/null | wc -l) = 0 ]; then
-        if [ -d ${NODE_DIR_BASE} ]; then
-            rmdir ${NODE_DIR_BASE}
+    # shellcheck disable=SC2012
+    if [ "$(ls -A "${NODE_DIR_BASE}" 2>/dev/null | wc -l)" = 0 ]; then
+        if [ -d "${NODE_DIR_BASE}" ]; then
+            rmdir "${NODE_DIR_BASE}"
         fi
-
-        if [ -d ${SHARED_DIR} ]; then
-            rm -rf ${SHARED_DIR}
-        fi
-    fi
-
-    # Mark the DNF cache expired
-    dnf clean expire-cache
-}
-
-function get_patches_from_host {
-    local host_patch_repo=/var/www/pages/updates/rel-${ISO_VERSION}
-
-    if [ ! -d ${host_patch_repo} ]; then
-        log_error "Patch repo not found: ${host_patch_repo}"
-        # Don't fail, as there could be scenarios where there's nothing on
-        # the host related to the release on the ISO
-        return
-    fi
-
-    mkdir -p ${SHARED_DIR}/patches
-    if [ $? -ne 0 ]; then
-        log_error "Failed to create directory: ${SHARED_DIR}/patches"
-        exit 1
-    fi
-
-    rsync -a ${host_patch_repo}/repodata ${SHARED_DIR}/patches/
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy ${host_patch_repo}/repodata"
-        exit 1
-    fi
-
-    if [ -d ${host_patch_repo}/Packages ]; then
-        rsync -a ${host_patch_repo}/Packages ${SHARED_DIR}/patches/
-        if [ $? -ne 0 ]; then
-            log_error "Failed to copy ${host_patch_repo}/Packages"
-            exit 1
-        fi
-    elif [ ! -d ${SHARED_DIR}/patches/Packages ]; then
-        # Create an empty Packages dir
-        mkdir ${SHARED_DIR}/patches/Packages
-        if [ $? -ne 0 ]; then
-            log_error "Failed to create ${SHARED_DIR}/patches/Packages"
-            exit 1
-        fi
-    fi
-
-    mkdir -p \
-        ${SHARED_DIR}/patches/metadata/available \
-        ${SHARED_DIR}/patches/metadata/applied \
-        ${SHARED_DIR}/patches/metadata/committed
-    if [ $? -ne 0 ]; then
-        log_error "Failed to create directory: ${SHARED_DIR}/patches/metadata/${state}"
-        exit 1
-    fi
-
-    local metadata_to_copy=
-    for state in applied committed; do
-        if [ ! -d /opt/patching/metadata/${state} ]; then
-            continue
-        fi
-
-        metadata_to_copy=$(find /opt/patching/metadata/${state} -type f -exec grep -q "<sw_version>${ISO_VERSION}</sw_version>" {} \; -print)
-        if [ -n "${metadata_to_copy}" ]; then
-            rsync -a ${metadata_to_copy} ${SHARED_DIR}/patches/metadata/${state}/
-            if [ $? -ne 0 ]; then
-                log_error "Failed to copy ${state} patch metadata"
-                exit 1
-            fi
-        fi
-    done
-}
-
-function query_patched_pkg {
-    local pkg=$1
-    local pkg_location=
-    local shared_patch_repo=${SHARED_DIR}/patches
-
-    pkg_location=$(dnf repoquery --disablerepo=* --repofrompath local,file:///${shared_patch_repo} --latest-limit=1 --location -q ${pkg})
-    if [ $? -eq 0 -a -n "${pkg_location}" ]; then
-        echo ${pkg_location/file:\/\/\//}
     fi
 }
 
-function extract_pkg_to_workdir {
-    local pkg=$1
-    local pkgfile=
+repack_initrd() {
+    # Repackage the initrd file which is a compressed squashfs image.
+    # The goal is to create the smallest viable initrd for initial boot
+    # (just enough to pull down the ostree_repo from the system controller).
+    #
+    # Also use xz with lzma compression to minimize the size of the
+    # resulting initrd file. Note that this operation is very expensive.
+    local source_initrd_file=$1
+    local initrd_extract_dir=$2
+    log_info "Repacking initrd"
+    log_verbose "Extracting $source_initrd_file to $initrd_extract_dir"
+    gzip -d --stdout "$source_initrd_file" \
+        | cpio -i -d -H newc --no-absolute-filename --directory "$initrd_extract_dir"
+    check_rc_exit $? "cpio failed for $source_initrd_file"
 
-    pkgfile=$(query_patched_pkg ${pkg})
-    if [ -z "${pkgfile}" ]; then
-        # Nothing to do
-        return
-    fi
+    log_verbose "Trimming initrd content"
+    local currdir initrd_size_before
+    currdir=$(pwd)
+    cd "$initrd_extract_dir" || fatal_error "cd failed: $initrd_extract_dir"
+    initrd_size_before=$(get_path_size "$initrd_extract_dir")
+    # Removing (not needed for initial boot):
+    # These are found by examination via ncdu:
+    # - rt kernel modules
+    # - strip the std kernel moduls
+    # - all __pycache__ directories
+    # - locale entries - we are using the default "C" locale for initial boot
+    # - vim - no need for an editor
+    rm -rf lib/modules/5*rt*amd64 \
+        && find lib/modules/5*amd64 -iname "*.ko" -exec strip --strip-unneeded {} \; \
+        && find . -type d -name '__pycache__' -print0 | xargs -0 rm -rf \
+        && rm -rf usr/share/locale/* \
+        && rm -rf usr/share/info/* \
+        && rm -rf usr/bin/vim.basic
+    check_rc_exit $? "failed to trim initrd files"
+    log_info "Trimmed extract initrd: $initrd_size_before -> $(get_path_size "$initrd_extract_dir")"
 
-    if [ ! -f "${pkgfile}" ]; then
-        log_error "File doesn't exist, unable to extract: ${pkgfile}"
-        exit 1
-    fi
+    log_info "Creating new initrd"
+    # shellcheck disable=SC2086 # we want parameter expansion for XZ_ARGS
+    find . 2>/dev/null | cpio -o -H newc -R root:root | time xz $XZ_ARGS > "$INITRD_FILE"
+    check_rc_exit $? "cpio failed"
+    log_info "Size of initd after trim: $(get_path_size "$INITRD_FILE")"
 
-    pushd ${WORKDIR} >/dev/null
-    echo "Extracting files from ${pkgfile}"
-    rpm2cpio ${pkgfile} | cpio -idmv
-    if [ $? -ne 0 ]; then
-        log_error "Failed to extract files from ${pkgfile}"
-        exit 1
-    fi
-    popd >/dev/null
+    cd "$currdir" || fatal_error "cd failed: $currdir"
 }
 
-function extract_shared_files {
-    if [ -d ${SHARED_DIR} ]; then
-        # If the shared dir already exists, assume we don't need to re-extract
-        return
-    fi
-
-    mkdir -p ${SHARED_DIR}
-    if [ $? -ne 0 ]; then
-        log_error "Failed to create directory: ${SHARED_DIR}"
-        exit 1
-    fi
-
-    # Check ISO content
-    if [ ! -f ${MNTDIR}/LiveOS/squashfs.img ]; then
-        log_error "squashfs.img not found on ${INPUT_ISO}"
-        exit 1
-    fi
-
-    # Setup shared patch data
-    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
-        get_patches_from_host
-    else
-        if [ -d ${MNTDIR}/patches ]; then
-            rsync -a ${MNTDIR}/patches/ ${SHARED_DIR}/patches/
-            if [ $? -ne 0 ]; then
-                log_error "Failed to copy patches repo from ${INPUT_ISO}"
-                exit 1
-            fi
-        fi
-    fi
-
-    # Mark the DNF cache expired, in case there was previous ad-hoc repo data
-    dnf clean expire-cache
-
-    local squashfs_img_file=${MNTDIR}/LiveOS/squashfs.img
-    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
-        extract_pkg_to_workdir 'pxe-network-installer'
-
-        local patched_squashfs_img_file=${WORKDIR}/var/www/pages/feed/rel-${ISO_VERSION}/LiveOS/squashfs.img
-        if [ -f ${patched_squashfs_img_file} ]; then
-            # Use the patched squashfs.img
-            squashfs_img_file=${patched_squashfs_img_file}
-        fi
-    fi
-
-    mkdir ${SHARED_DIR}/LiveOS
-    rsync -a ${squashfs_img_file} ${SHARED_DIR}/LiveOS/
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy rootfs: ${patched_squashfs_img_file}"
-        exit 1
-    fi
-
-    local kickstart_files_dir=${MNTDIR}/
-    if [ ${PATCHES_FROM_HOST} = "yes"  ]; then
-        extract_pkg_to_workdir 'platform-kickstarts'
-
-        local patched_kickstart_files_dir=${WORKDIR}/var/www/pages/feed/rel-${ISO_VERSION}
-        if [ -f ${patched_kickstart_files_dir}/miniboot_controller_ks.cfg ]; then
-            # Use the patched kickstart files
-            kickstart_files_dir=${patched_kickstart_files_dir}
-        fi
-    fi
-
-    mkdir ${SHARED_DIR}/kickstart/
-    rsync -a ${kickstart_files_dir}/miniboot_*.cfg ${SHARED_DIR}/kickstart
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy kickstart files from ${kickstart_files_dir}"
-        exit 1
-    fi
-
-    rsync -a ${MNTDIR}/isolinux.cfg ${SHARED_DIR}/
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy isolinux.cfg from ${INPUT_ISO}"
-        exit 1
-    fi
-
-    rsync -a ${MNTDIR}/Packages/ ${SHARED_DIR}/Packages/
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy base packages from ${INPUT_ISO}"
-        exit 1
-    fi
-
-    rsync -a ${MNTDIR}/repodata/ ${SHARED_DIR}/repodata/
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy base repodata from ${INPUT_ISO}"
-        exit 1
-    fi
-}
-
-function extract_debian_files {
+function create_miniboot_iso {
     # Copy files for mini ISO build
-    rsync -a \
+    rsync $VERBOSE_RSYNC -a \
           --exclude ostree_repo \
           --exclude pxeboot \
-        ${MNTDIR}/ ${BUILDDIR}
+        "${MNTDIR}/" "${BUILDDIR}"
+    check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
 
-    rc=$?
-    if [ "${rc}" -ne "0" ]; then
-        log_error "Call to rsync ISO content on debian failed: [rc=${rc}]."
-        exit "${rc}"
+    if [ "$REPACK" = yes ]; then
+        # Use default initrd location if none specified
+        if [ -z "$INITRD_FILE" ]; then
+            INITRD_FILE="$CACHED_INITRD_FILE"
+        fi
+        if [ "$USE_CACHE" = "no" ] || [ ! -f "$INITRD_FILE" ]; then
+            # Initialize INITRD_FILE if it hasn't been set via args:
+            repack_initrd "$BUILDDIR/initrd" "$WORKDIR"
+            check_rc_exit $? "repack_initrd failed"
+        else
+            log_info "Using existing initrd: $INITRD_FILE"
+        fi
+        [ -f "$INITRD_FILE" ] || fatal_error "Failed to generate initrd file: $INITRD_FILE"
+        # Overwrite the original ISO initrd file:
+        cp "$INITRD_FILE" "${BUILDDIR}/initrd"
+
+        log_info "Trimming miniboot ISO content"
+        log_path_size "$BUILDDIR" "Size of extracted miniboot before trim"
+        # Remove unused kernel images:
+        rm "$BUILDDIR"/{bzImage,bzImage.sig,bzImage-rt,bzImage-rt.sig}
+        check_rc_exit $? "failed to trim miniboot iso files"
+        log_path_size "$BUILDDIR" "Size of extracted miniboot after trim"
+    fi
+
+    # For testing/debugging kickstart scripts. Support an override directory,
+    # where any .cfg files are now copied into the /kickstart directory in the ISO
+    # Any files in this override directory can replace the files from the ISO copied
+    # from the rsync above.
+    if [ -n "$KICKSTART_OVERRIDE_DIR" ] \
+        && [ -d "$KICKSTART_OVERRIDE_DIR" ] \
+        && [ "$(echo "$KICKSTART_OVERRIDE_DIR/"*.cfg)" != "$KICKSTART_OVERRIDE_DIR/*.cfg" ]; then
+        log_info "Copying .cfg files from KICKSTART_OVERRIDE_DIR=$KICKSTART_OVERRIDE_DIR to $BUILDDIR/kickstart"
+        cp "$KICKSTART_OVERRIDE_DIR/"*.cfg "$BUILDDIR/kickstart"
     fi
 
     # Setup syslinux and grub cfg files
-    generate_boot_cfg ${BUILDDIR}
-
+    if [ -z "${EFI_MOUNT}" ]; then
+        mount_efiboot_img "${BUILDDIR}"
+        check_rc_exit $? "failed to mount EFI"
+        log_info "Using EFI_MOUNT=$EFI_MOUNT"
+    fi
+    generate_boot_cfg "${BUILDDIR}"
     unmount_efiboot_img
 
-    mkdir -p ${NODE_DIR}
-    if [ $? -ne 0 ]; then
-        log_error "Failed to create ${NODE_DIR}"
-        exit 1
-    fi
+    mkdir -p "${NODE_DIR}" || fatal_error "Failed to create ${NODE_DIR}"
 
-    echo "BUILDDIR is ${BUILDDIR}"
     # Rebuild the ISO
     OUTPUT_ISO=${NODE_DIR}/bootimage.iso
-    mkisofs -o ${OUTPUT_ISO} \
+    log_info "Creating $OUTPUT_ISO from BUILDDIR: ${BUILDDIR}"
+    mkisofs -o "${OUTPUT_ISO}" \
         -A 'instboot' -V 'instboot' \
         -quiet -U -J -joliet-long -r -iso-level 2 \
         -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot \
@@ -695,240 +676,35 @@ function extract_debian_files {
         -eltorito-alt-boot \
         -e efi.img \
         -no-emul-boot \
-        ${BUILDDIR}
+        "${BUILDDIR}"
+    check_rc_exit $? "mkisofs failed"
 
-    isohybrid --uefi ${OUTPUT_ISO}
-    implantisomd5 ${OUTPUT_ISO}
-}
-
-function extract_node_files {
-    # Copy files for mini ISO build
-    rsync -a \
-        --exclude LiveOS/ \
-        --exclude Packages/ \
-        --exclude repodata/ \
-        --exclude patches/ \
-        --exclude pxeboot/ \
-        --exclude pxeboot_setup.sh \
-        --exclude upgrades/ \
-        --exclude '*_ks.cfg' \
-        --exclude ks.cfg \
-        --exclude ks \
-        ${MNTDIR}/ ${BUILDDIR}/
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        log_error "Call to rsync ISO content. Aborting..."
-        exit $rc
-    fi
-
-    if [ ${PATCHES_FROM_HOST} = "yes" ]; then
-        local patched_initrd_file=${WORKDIR}/pxeboot/rel-${ISO_VERSION}/installer-intel-x86-64-initrd_1.0
-        local patched_vmlinuz_file=${WORKDIR}/pxeboot/rel-${ISO_VERSION}/installer-bzImage_1.0
-
-        # First, check to see if pxe-network-installer is already extracted.
-        # If this is the first setup for this ISO, it will have been extracted
-        # during the shared setup, and we don't need to do it again.
-        if [ ! -f ${patched_initrd_file} ]; then
-            extract_pkg_to_workdir 'pxe-network-installer'
-        fi
-
-        # Copy patched files, as appropriate
-        if [ -f ${patched_initrd_file} ]; then
-            rsync -a ${patched_initrd_file} ${BUILDDIR}/initrd.img
-            if [ $? -ne 0 ]; then
-                log_error "Failed to copy ${patched_initrd_file}"
-                exit 1
-            fi
-        fi
-
-        if [ -f ${patched_vmlinuz_file} ]; then
-            rsync -a ${patched_vmlinuz_file} ${BUILDDIR}/vmlinuz
-            if [ $? -ne 0 ]; then
-                log_error "Failed to copy ${patched_vmlinuz_file}"
-                exit 1
-            fi
-        fi
-    fi
-
-    # Setup syslinux and grub cfg files
-    generate_boot_cfg ${BUILDDIR}
-
-    # Set/update boot parameters
-    if [ ${#PARAMS[@]} -gt 0 ]; then
-        for p in ${PARAMS[@]}; do
-            param=${p%%=*} # Strip from the first '=' on
-            value=${p#*=}  # Strip to the first '='
-
-            update_parameter ${BUILDDIR} "${param}" "${value}"
-        done
-    fi
-
-    unmount_efiboot_img
-
-    mkdir -p ${NODE_DIR}
-    if [ $? -ne 0 ]; then
-        log_error "Failed to create ${NODE_DIR}"
-        exit 1
-    fi
-
-    # Setup symlinks to the shared content, which lighttpd can serve
-    pushd ${NODE_DIR} >/dev/null
-    ln -s ../../shared/* .
-    popd >/dev/null
-
-    # Rebuild the ISO
-    OUTPUT_ISO=${NODE_DIR}/bootimage.iso
-    mkisofs -o ${OUTPUT_ISO} \
-        -R -D -A 'oe_iso_boot' -V 'oe_iso_boot' \
-        -quiet \
-        -b isolinux.bin -c boot.cat -no-emul-boot \
-        -boot-load-size 4 -boot-info-table \
-        -eltorito-alt-boot \
-        -e images/efiboot.img \
-        -no-emul-boot \
-        ${BUILDDIR}
-
-    isohybrid --uefi ${OUTPUT_ISO}
-    implantisomd5 ${OUTPUT_ISO}
-
-    # Setup the kickstart
-    local ksfile=${SHARED_DIR}/kickstart/miniboot_${KS_NODETYPE}_ks.cfg
-
-    cp ${ksfile} ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg
-    if [ $? -ne 0 ]; then
-        log_error "Failed to copy ${ksfile} to ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg"
-        exit 1
-    fi
-
-    # Number of dirs in the NODE_URL: Count the / characters, subtracting 2 for http:// or https://
-    DIRS=$(($(grep -o "/" <<< "$NODE_URL" | wc -l) - 2))
-
-    # Escape the / chars for use in sed
-    NODE_URL_SED="${NODE_URL//\//\\/}"
-
-    sed -i "s#xxxHTTP_URLxxx#${NODE_URL_SED}#g;
-            s#xxxHTTP_URL_PATCHESxxx#${NODE_URL_SED}/patches#g;
-            s#NUM_DIRS#${DIRS}#g" \
-        ${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg
-
-    # Append the custom addon
-    if [ -n "${ADDON}" ]; then
-        cat <<EOF >>${NODE_DIR}/miniboot_${KS_NODETYPE}.cfg
-
-%post --erroronfail
-
-# Source common functions
-. /tmp/ks-functions.sh
-
-$(cat ${ADDON})
-
-%end
-EOF
-    fi
+    isohybrid --uefi "${OUTPUT_ISO}"
+    check_rc_exit $? "isohybrid failed"
+    # implantisomd5 "${OUTPUT_ISO}"
+    # check_rc_exit $? "implantisomd5 failed"
+    log_path_size "$OUTPUT_ISO" "Size of bootimage.iso"
 }
 
 #
 # Main
 #
-
-# Check script dependencies
-
-check_requirements
-
-# Validate parameters
-
-# Check mandatory parameters
-
-check_required_param "--id" "${NODE_ID}"
-check_required_param "--www-root" "${WWW_ROOT_DIR}"
-
-declare NODE_DIR_BASE="${WWW_ROOT_DIR}/nodes"
-declare NODE_DIR="${NODE_DIR_BASE}/${NODE_ID}"
-declare SHARED_DIR="${WWW_ROOT_DIR}/shared"
-
-if [ ! -d "${WWW_ROOT_DIR}" ]; then
-    log_error "Root directory ${WWW_ROOT_DIR} does not exist"
-    exit 1
-fi
-
-# Grab the lock, to protect against simultaneous execution
-LOCK_FILE=/var/run/.gen-bootloader-iso.lock
-exec 200>${LOCK_FILE}
-flock -w ${LOCK_TMOUT} 200
-if [ $? -ne 0 ]; then
-    log_error "Failed waiting for lock: ${LOCK_FILE}"
-    exit 1
-fi
-
-# Check for deletion
-if [ ${DELETE} = "yes" ]; then
-    handle_delete
+function main {
+    if [ "$(get_os)" = centos ]; then
+        # Invoke the legacy centos script then exit:
+        "$SCRIPTDIR/gen-bootloader-iso-centos.sh" "$@"
+        exit $?
+    fi
+    parse_arguments "$@"
+    initialize_and_lock
+    mount_iso "$INPUT_ISO" "$SCRATCH_DIR"
+    create_miniboot_iso
+    unmount_iso
     exit 0
+}
+
+# Execute main if script is executed directly (not sourced):
+# This allows for shunit2 testing
+if [[ "${BASH_SOURCE[0]}" = "$0" ]]; then
+    main "$@"
 fi
-
-# Handle extraction and setup
-
-check_required_param "--input" "${INPUT_ISO}"
-check_required_param "--default-boot" "${DEFAULT_GRUB_ENTRY}"
-check_required_param "--base-url" "${BASE_URL}"
-check_required_param "--boot-ip" "${BOOT_IP}"
-check_required_param "--boot-interface" "${BOOT_INTERFACE}"
-
-declare NODE_URL="${BASE_URL%\/}/nodes/${NODE_ID}"
-
-if [ ! -f ${INPUT_ISO} ]; then
-    log_error "Input file does not exist: ${INPUT_ISO}"
-    exit 1
-fi
-
-if [ -d ${NODE_DIR} ]; then
-    log_error "Output dir already exists: ${NODE_DIR}"
-    exit 1
-fi
-
-# Run cleanup on any exit
-trap cleanup EXIT
-
-BUILDDIR=$(mktemp -d -p /scratch gen_bootloader_build_XXXXXX)
-if [ -z "${BUILDDIR}" -o ! -d ${BUILDDIR} ]; then
-    log_error "Failed to create builddir. Aborting..."
-    exit 1
-fi
-
-WORKDIR=$(mktemp -d -p /scratch gen_bootloader_workdir_XXXXXX)
-if [ -z "${WORKDIR}" -o ! -d ${WORKDIR} ]; then
-    log_error "Failed to create builddir. Aborting..."
-    exit 1
-fi
-
-mount_iso ${INPUT_ISO}
-
-if [ -e "${MNTDIR}/ostree_repo" ]; then
-    # This is a debian ISO.
-    echo "ostree_repo exists in the iso"
-    OS_NAME="Debian"
-    extract_debian_files
-else
-    OS_NAME="CentOS"
-    # Determine release version from ISO
-    if [ ! -f ${MNTDIR}/upgrades/version ]; then
-        log_error "Version info not found on ${INPUT_ISO}"
-        exit 1
-    fi
-
-    ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
-    if [ -z "${ISO_VERSION}" ]; then
-        log_error "Failed to determine version of installation ISO"
-        exit 1
-    fi
-
-    # Copy the common files from the ISO, if needed
-    extract_shared_files
-
-    # Extract/generate the node-specific files
-    extract_node_files
-fi
-
-unmount_iso
-
-exit 0

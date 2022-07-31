@@ -118,10 +118,11 @@ function check_files_size {
 
 function mount_iso {
     local input_iso=$1
+    local basedir=${2:-$PWD}
 
-    MNTDIR=$(mktemp -d -p $PWD stx-iso-utils_mnt_XXXXXX)
+    MNTDIR=$(mktemp -d -p "$basedir" stx-iso-utils_mnt_XXXXXX)
     if [ -z "${MNTDIR}" -o ! -d ${MNTDIR} ]; then
-        log_error "Failed to create mntdir. Aborting..."
+        log_error "Failed to create mntdir $MNTDIR. Aborting..."
         exit 1
     fi
 
