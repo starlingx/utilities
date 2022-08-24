@@ -3,3 +3,4 @@ etc/init.d/*
 etc/pmon.d/*
 usr/lib/systemd/system/logmgmt.service
 usr/lib/python3/dist-packages/logmgmt*
+usr/share/starlingx/pmon.d/*
