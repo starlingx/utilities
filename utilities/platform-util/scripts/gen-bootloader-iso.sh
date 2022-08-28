@@ -27,33 +27,34 @@ BOOT_HOSTNAME=
 BOOT_INTERFACE=
 BOOT_IP=
 BOOT_NETMASK=
+MINIBOOT_INITRD_FILE=/var/miniboot/initrd-mini  # populated by the loadbuild at this location
 DEFAULT_GRUB_ENTRY=
 DEFAULT_LABEL=
 DEFAULT_SYSLINUX_ENTRY=
 DELETE="no"
 GRUB_TIMEOUT=-1
 INITRD_FILE=
-REPACK=no     # REPACK initrd is disabled until signing is fixed
 INPUT_ISO=
 KS_NODETYPE=
 LOCK_FILE=/var/run/.gen-bootloader-iso.lock
 LOCK_TMOUT=600  # Wait up to 10 minutes, by default
 LOG_TAG=$SCRIPTNAME
-USE_CACHE=yes
 NODE_ID=
 OUTPUT_ISO=
+REPACK=yes  # Repack/trim the initrd and kernel images by default
 SCRATCH_DIR=${SCRATCH_DIR:-/scratch}
 TIMEOUT=100
+VERBOSE=${VERBOSE:-}
+VERBOSE_LOG_DIR=/var/log/dcmanager/miniboot
+VERBOSE_OVERRIDE_FILE=/tmp/gen-bootloader-verbose  # turn on verbose if this file is present
 WORKDIR=
 WWW_ROOT_DIR=
-VERBOSE=${VERBOSE:-}
 XZ_ARGS="--threads=0 -9 --format=lzma"
 
 declare -a PARAMS
 
 # Initialized via initialize_and_lock:
 BUILDDIR=
-CACHED_INITRD_FILE=
 NODE_DIR=
 NODE_DIR_BASE=
 VERBOSE_RSYNC=
@@ -63,8 +64,7 @@ WORKDIR=
 EFI_MOUNT=
 
 # Set this to a directory path containing kickstart *.cfg script(s) for testing:
-KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR:-}
-KICKSTART_OVERRIDE_DIR=/home/sysadmin/miniboot-override/kickstart
+KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR:-/var/miniboot/kickstart-override}
 
 function log_verbose {
     if [ -n "$VERBOSE" ]; then
@@ -318,18 +318,13 @@ function parse_arguments {
                 shift 2
                 ;;
             --no-repack)
-                # Do not repack initrd - use original
+                # Do not repack initrd and kernel images
                 REPACK=no
-                shift
-                ;;
-            --no-cache)
-                # Force initrd repack
-                USE_CACHE=no
                 shift
                 ;;
             --initrd)
                 # Allow specifying an existing initrd file. If none is specified,
-                # then $CACHED_INITRD_FILE is used, if it exists
+                # then $MINIBOOT_INITRD_FILE is used, if it exists
                 INITRD_FILE=$2
                 [ -f "$INITRD_FILE" ] || fatal_error "initrd file not found: $INITRD_FILE"
                 shift 2
@@ -368,6 +363,7 @@ function parse_arguments {
 
 function get_lock {
     # Grab the lock, to protect against simultaneous execution
+    # Open $LOCK_FILE for reading, with assigned file handle 200
     exec 200>${LOCK_FILE}
     flock -w "${LOCK_TMOUT}" 200
     check_rc_exit $? "Failed waiting for lock: ${LOCK_FILE}"
@@ -382,20 +378,25 @@ function initialize_and_lock {
     [ -d "${WWW_ROOT_DIR}" ] || fatal_error "Root directory ${WWW_ROOT_DIR} does not exist"
     [ -d "${WWW_ROOT_DIR}/iso" ] || mkdir "${WWW_ROOT_DIR}/iso"
 
+    [ -f "$VERBOSE_OVERRIDE_FILE" ] && VERBOSE=1
     if [ -n "$VERBOSE" ]; then
         VERBOSE_RSYNC="--verbose"
         XZ_ARGS="--verbose $XZ_ARGS"
 
-        # log all output to temp file
-        echo "Verbose: logging output to /tmp/gen-bootloader-iso.log"
-        exec > >(tee "/tmp/gen-bootloader-iso.log") 2>&1
+        # log all output to file
+        if [ ! -d "$(dirname "$VERBOSE_LOG_DIR")" ]; then
+            # For testing: the base directory does not exist - use /tmp instead
+            VERBOSE_LOG_DIR=/tmp/miniboot
+        fi
+        [ -d "$VERBOSE_LOG_DIR" ] || mkdir -p "$VERBOSE_LOG_DIR"
+        local logfile="${VERBOSE_LOG_DIR}/gen-bootloader-iso-${NODE_ID}.log"
+        echo "Verbose: logging output to $logfile"
+        exec > >(tee "$logfile") 2>&1
     fi
 
     # Initialize dynamic variables
     NODE_DIR_BASE="${WWW_ROOT_DIR}/nodes"
     NODE_DIR="${NODE_DIR_BASE}/${NODE_ID}"
-
-    CACHED_INITRD_FILE="${WWW_ROOT_DIR}/initrd-mini"
 
     if [ ! -d "$SCRATCH_DIR" ]; then
         log_warn "SCRATCH_DIR does not exist, using /tmp"
@@ -566,52 +567,8 @@ function handle_delete {
     fi
 }
 
-repack_initrd() {
-    # Repackage the initrd file which is a compressed squashfs image.
-    # The goal is to create the smallest viable initrd for initial boot
-    # (just enough to pull down the ostree_repo from the system controller).
-    #
-    # Also use xz with lzma compression to minimize the size of the
-    # resulting initrd file. Note that this operation is very expensive.
-    local source_initrd_file=$1
-    local initrd_extract_dir=$2
-    log_info "Repacking initrd"
-    log_verbose "Extracting $source_initrd_file to $initrd_extract_dir"
-    gzip -d --stdout "$source_initrd_file" \
-        | cpio -i -d -H newc --no-absolute-filename --directory "$initrd_extract_dir"
-    check_rc_exit $? "cpio failed for $source_initrd_file"
-
-    log_verbose "Trimming initrd content"
-    local currdir initrd_size_before
-    currdir=$(pwd)
-    cd "$initrd_extract_dir" || fatal_error "cd failed: $initrd_extract_dir"
-    initrd_size_before=$(get_path_size "$initrd_extract_dir")
-    # Removing (not needed for initial boot):
-    # These are found by examination via ncdu:
-    # - rt kernel modules
-    # - strip the std kernel moduls
-    # - all __pycache__ directories
-    # - locale entries - we are using the default "C" locale for initial boot
-    # - vim - no need for an editor
-    rm -rf lib/modules/5*rt*amd64 \
-        && find lib/modules/5*amd64 -iname "*.ko" -exec strip --strip-unneeded {} \; \
-        && find . -type d -name '__pycache__' -print0 | xargs -0 rm -rf \
-        && rm -rf usr/share/locale/* \
-        && rm -rf usr/share/info/* \
-        && rm -rf usr/bin/vim.basic
-    check_rc_exit $? "failed to trim initrd files"
-    log_info "Trimmed extract initrd: $initrd_size_before -> $(get_path_size "$initrd_extract_dir")"
-
-    log_info "Creating new initrd"
-    # shellcheck disable=SC2086 # we want parameter expansion for XZ_ARGS
-    find . 2>/dev/null | cpio -o -H newc -R root:root | time xz $XZ_ARGS > "$INITRD_FILE"
-    check_rc_exit $? "cpio failed"
-    log_info "Size of initd after trim: $(get_path_size "$INITRD_FILE")"
-
-    cd "$currdir" || fatal_error "cd failed: $currdir"
-}
-
 function create_miniboot_iso {
+    log_info "Creating minitboot ISO"
     # Copy files for mini ISO build
     rsync $VERBOSE_RSYNC -a \
           --exclude ostree_repo \
@@ -620,21 +577,28 @@ function create_miniboot_iso {
     check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
 
     if [ "$REPACK" = yes ]; then
-        # Use default initrd location if none specified
+        # Use default initrd-mini location if none specified
+        # This picks up the initrd-mini file if it is available
+        # (included in ISO by the loadbuild). Otherwise we warn
+        # and continue without repacking initrd - instead using
+        # the original from the ISO.
         if [ -z "$INITRD_FILE" ]; then
-            INITRD_FILE="$CACHED_INITRD_FILE"
+            INITRD_FILE="$MINIBOOT_INITRD_FILE"
         fi
-        if [ "$USE_CACHE" = "no" ] || [ ! -f "$INITRD_FILE" ]; then
-            # Initialize INITRD_FILE if it hasn't been set via args:
-            repack_initrd "$BUILDDIR/initrd" "$WORKDIR"
-            check_rc_exit $? "repack_initrd failed"
+        if [ -f "$INITRD_FILE" ]; then
+            if [ -f "${INITRD_FILE}.sig" ]; then
+                # Overwrite the original ISO initrd file:
+                log_info "Repacking miniboot ISO using initrd: ${INITRD_FILE} and ${INITRD_FILE}.sig"
+                cp "$INITRD_FILE" "${BUILDDIR}/initrd"
+                check_rc_exit $? "copy initrd failed"
+                cp "${INITRD_FILE}.sig" "${BUILDDIR}/initrd.sig"
+                check_rc_exit $? "copy initrd.sig failed"
+            else
+                log_error "No initrd.sig found at: ${INITRD_FILE}.sig ...skipping initrd repack"
+            fi
         else
-            log_info "Using existing initrd: $INITRD_FILE"
+            log_warn "Could not find initrd file at $INITRD_FILE ...skipping initrd repack"
         fi
-        [ -f "$INITRD_FILE" ] || fatal_error "Failed to generate initrd file: $INITRD_FILE"
-        # Overwrite the original ISO initrd file:
-        cp "$INITRD_FILE" "${BUILDDIR}/initrd"
-
         log_info "Trimming miniboot ISO content"
         log_path_size "$BUILDDIR" "Size of extracted miniboot before trim"
         # Remove unused kernel images:
