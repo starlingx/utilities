@@ -5,6 +5,7 @@ tools/collector
 tools/engtools/hostdata-collectors
 tools/pcm
 utilities/build-info
+utilities/k8s-coredump
 utilities/logmgmt
 utilities/namespace-utils
 utilities/nfscheck

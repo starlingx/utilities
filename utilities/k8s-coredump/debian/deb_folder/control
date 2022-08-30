@@ -1,0 +1,25 @@
+Source: k8s-coredump
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13),
+ dh-python,
+ python3-setuptools,
+ python3-wheel,
+ python3-all
+Standards-Version: 4.4.1
+Homepage: https://www.starlingx.io
+
+Package: k8s-coredump
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends},
+ python3-requests,
+ python3-nsenter
+Description: K8s Pod Coredump Handler
+ This package controls coredump using individual pods.
+
+Package: k8s-coredump-wheels
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends},
+Description: Contains python wheels for k8s-coredump
+ This package contains python wheels for specific k8s-coredump

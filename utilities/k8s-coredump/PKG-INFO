@@ -1,0 +1,13 @@
+Metadata-Version: 1.1
+Name: k8s-coredump
+Version: 1.0
+Summary: Intercepts raw coredump and apply specific core pattern and namespace
+Home-page:
+Author: Windriver
+Author-email: info@windriver.com
+License: Apache-2.0
+
+Description: Intercepts raw coredump and apply specific core pattern and namespace
+
+ 
+Platform: UNKNOWN

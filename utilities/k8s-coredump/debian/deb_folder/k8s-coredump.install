@@ -1,0 +1,4 @@
+etc/k8s-coredump/*
+usr/bin/k8s-coredump
+usr/lib/python3/dist-packages/k8s_coredump/*
+usr/lib/python3/dist-packages/k8s_coredump-1.0.0.egg-info/*

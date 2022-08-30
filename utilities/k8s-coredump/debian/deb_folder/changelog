@@ -1,0 +1,5 @@
+k8s-coredump (1.0-1) unstable; urgency=medium
+
+    * Initial release.
+
+ -- Samuel Presa Toledo <samuel.presatoledo@windriver.com>  Mon, 01 Aug 2022 16:11:00 -0300

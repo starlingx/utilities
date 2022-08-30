@@ -1,0 +1,9 @@
+---
+debname: k8s-coredump
+debver: 1.0-1
+src_path: k8s-coredump
+src_files:
+  - files
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true

@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+#export DH_VERBOSE = 1
+
+export PYBUILD_NAME = k8s-coredump
+export PBR_VERSION=1.0.0
+export ROOT = debian/tmp
+export ETC_K8S_DIR = $(ROOT)/etc/k8s-coredump
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_install:
+	python3 setup.py install --install-layout=deb --root=$(ROOT)
+
+	python3 setup.py bdist_wheel --universal \
+			-d $(ROOT)/wheels/$(PYBUILD_NAME)
+
+	install -d -m 755 $(ETC_K8S_DIR)
+	install -p -D -m 644 files/k8s-coredump.yaml $(ETC_K8S_DIR)
+	install -p -D -m 644 files/pods.json $(ETC_K8S_DIR)
+	dh_install
