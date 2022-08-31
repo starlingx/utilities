@@ -17,5 +17,4 @@ override_dh_install:
 
 	install -d -m 755 $(ETC_K8S_DIR)
 	install -p -D -m 644 files/k8s-coredump.yaml $(ETC_K8S_DIR)
-	install -p -D -m 644 files/pods.json $(ETC_K8S_DIR)
 	dh_install
