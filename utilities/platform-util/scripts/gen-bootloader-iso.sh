@@ -29,13 +29,14 @@ BOOT_IP=
 BOOT_NETMASK=
 MINIBOOT_INITRD_FILE=/var/miniboot/initrd-mini  # populated by the loadbuild at this location
 DEFAULT_GRUB_ENTRY=
-DEFAULT_LABEL=
 DEFAULT_SYSLINUX_ENTRY=
 DELETE="no"
 GRUB_TIMEOUT=-1
 INITRD_FILE=
+INSTALL_TYPE=
+INSTALL_SPECIFIC_BOOT_ARGS=
+REPACK=no     # REPACK initrd is disabled until signing is fixed
 INPUT_ISO=
-KS_NODETYPE=
 LOCK_FILE=/var/run/.gen-bootloader-iso.lock
 LOCK_TMOUT=600  # Wait up to 10 minutes, by default
 LOG_TAG=$SCRIPTNAME
@@ -252,44 +253,48 @@ function parse_arguments {
                 shift 2
                 ;;
             --default-boot)
-                DEFAULT_LABEL=$2
+                INSTALL_TYPE=$2
                 shift 2
-                # The default-boot numbers are preserved here for debian as the
-                # same in centos for backward compatibility.
-                # TODO(kmacleod) For debian, KS_NODETYPE needs to be incorporated: see story: TBD
-                case ${DEFAULT_LABEL} in
+                # Supported install values:
+                #0 - Standard Controller, Serial Console
+                #1 - Standard Controller, Graphical Console
+                #2 - AIO, Serial Console
+                #3 - AIO, Graphical Console
+                #4 - AIO Low-latency, Serial Console
+                #5 - AIO Low-latency, Graphical Console
+                case ${INSTALL_TYPE} in
                     0)
                         DEFAULT_SYSLINUX_ENTRY=0
-                        DEFAULT_GRUB_ENTRY="serial"
-                        KS_NODETYPE='controller'
+                        DEFAULT_GRUB_ENTRY=serial
+                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller"
                         ;;
                     1)
                         DEFAULT_SYSLINUX_ENTRY=1
-                        DEFAULT_GRUB_ENTRY="graphical"
-                        KS_NODETYPE='controller'
+                        DEFAULT_GRUB_ENTRY=graphical
+                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller"
                         ;;
                     2)
                         DEFAULT_SYSLINUX_ENTRY=0
-                        DEFAULT_GRUB_ENTRY="serial"
-                        KS_NODETYPE='smallsystem'
+                        DEFAULT_GRUB_ENTRY=serial
+                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker"
                         ;;
                     3)
                         DEFAULT_SYSLINUX_ENTRY=1
-                        DEFAULT_GRUB_ENTRY="graphical"
-                        KS_NODETYPE='smallsystem'
+                        DEFAULT_GRUB_ENTRY=graphical
+                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker"
                         ;;
                     4)
                         DEFAULT_SYSLINUX_ENTRY=0
-                        DEFAULT_GRUB_ENTRY="serial"
-                        KS_NODETYPE='smallsystem_lowlatency'
+                        DEFAULT_GRUB_ENTRY=serial
+                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker,lowlatency"
                         ;;
                     5)
                         DEFAULT_SYSLINUX_ENTRY=1
-                        DEFAULT_GRUB_ENTRY="graphical"
-                        KS_NODETYPE='smallsystem_lowlatency'
+                        DEFAULT_GRUB_ENTRY=graphical
+                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker,lowlatency"
                         ;;
                     *)
-                        log_error "Invalid default boot menu option: ${DEFAULT_LABEL}"
+                        log_error "Invalid default boot menu option: ${INSTALL_TYPE}"
                         usage
                         exit 1
                         ;;
@@ -413,7 +418,7 @@ function initialize_and_lock {
 
     # Handle extraction and setup
     check_required_param "--input" "${INPUT_ISO}"
-    check_required_param "--default-boot" "${DEFAULT_GRUB_ENTRY}"
+    check_required_param "--default-boot" "${INSTALL_TYPE}"
     check_required_param "--base-url" "${BASE_URL}"
     check_required_param "--boot-ip" "${BOOT_IP}"
     check_required_param "--boot-interface" "${BOOT_INTERFACE}"
@@ -466,7 +471,7 @@ function generate_boot_cfg {
         done
     fi
     log_verbose "Parameters: ${PARAM_LIST}"
-    COMMON_ARGS="initrd=/initrd instdate=@1656353118 instw=60 instiso=instboot"
+    COMMON_ARGS="initrd=/initrd instdate=@$(date +%s) instw=60 instiso=instboot"
     COMMON_ARGS="${COMMON_ARGS} biosplusefi=1 instnet=0"
     COMMON_ARGS="${COMMON_ARGS} ks=file:///kickstart/miniboot.cfg"
     COMMON_ARGS="${COMMON_ARGS} rdinit=/install instname=debian instbr=starlingx instab=0"
@@ -478,6 +483,10 @@ function generate_boot_cfg {
     COMMON_ARGS="${COMMON_ARGS} ${PARAM_LIST}"
     log_verbose "COMMON_ARGS: $COMMON_ARGS"
 
+    local serial_args="console=ttyS0,115200 serial"
+    local graphical_args="console=tty0"
+
+    log_verbose "Generating isolinux.cfg, default: $DEFAULT_SYSLINUX_ENTRY, timeout: $TIMEOUT"
     for f in ${isodir}/isolinux/isolinux.cfg; do
         cat <<EOF > "${f}"
 prompt 0
@@ -492,25 +501,20 @@ menu tabmsg Press [Tab] to edit, [Return] to select
 
 DEFAULT ${DEFAULT_SYSLINUX_ENTRY}
 LABEL 0
-    menu label ^Debian Controller Install
+    menu label ^Serial Console
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} traits=controller console=ttyS0,115200 console=tty0
+    append ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${serial_args}
 
 LABEL 1
-    menu label ^Debian All-In-One Install
+    menu label ^Graphical Console
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} traits=controller,worker console=ttyS0,115200 console=tty0
+    append ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${graphical_args}
 EOF
-# We do NOT support an RT kernel for the initial boot:
-# LABEL 2
-#     menu label ^Debian All-In-One (lowlatency) Install
-#     kernel /bzImage-rt
-#     ipappend 2
-#     append ${COMMON_ARGS} traits=controller,worker,lowlatency
     done
 
+    log_verbose "Generating grub.cfg, install_type: $INSTALL_TYPE, default: $DEFAULT_GRUB_ENTRY, timeout: $GRUB_TIMEOUT"
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
         cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
@@ -521,17 +525,24 @@ menuentry "${NODE_ID}" {
     echo " "
 }
 
-menuentry 'Serial Console' --id=serial {
-    linux /bzImage-std ${COMMON_ARGS} traits=controller console=ttyS0,115200 serial
+menuentry 'UEFI Serial Console' --id=serial {
+    linux /bzImage-std ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${serial_args}
     initrd /initrd
 }
 
-menuentry 'Graphical Console' --id=graphical {
-    linux /bzImage-std ${COMMON_ARGS} traits=controller console=tty0
+menuentry 'UEFI Graphical Console' --id=graphical {
+    linux /bzImage-std ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${graphical_args}
     initrd /initrd
 }
 EOF
     done
+if [ -n "$VERBOSE" ]; then
+    log_verbose "Contents of ${isodir}/EFI/BOOT/grub.cfg"
+    cat "${isodir}/EFI/BOOT/grub.cfg"
+    log_verbose ""
+    log_verbose "Contents of ${EFI_MOUNT}/EFI/BOOT/grub.cfg"
+    cat "${EFI_MOUNT}/EFI/BOOT/grub.cfg"
+fi
 }
 
 function cleanup_on_exit {
