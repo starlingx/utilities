@@ -21,6 +21,7 @@ from ceph_manager.i18n import _
 from ceph_manager.i18n import _LE
 from ceph_manager.i18n import _LI
 from ceph_manager.i18n import _LW
+from ceph_manager.sysinv_api import upgrade
 
 
 LOG = logging.getLogger(__name__)
@@ -35,12 +36,14 @@ LOG = logging.getLogger(__name__)
 #
 class HandleUpgradesMixin(object):
 
-    def __init__(self, service):
+    def __init__(self, service, conf):
         self.service = service
+        self.sysinv_upgrade_api = upgrade.SysinvUpgradeApi(conf)
         self.wait_for_upgrade_complete = False
 
     def setup(self, config):
-        self._set_upgrade(self.service.retry_get_software_upgrade_status())
+        self._set_upgrade(
+            self.sysinv_upgrade_api.retry_get_software_upgrade_status())
 
     def _set_upgrade(self, upgrade):
         state = upgrade.get('state')
@@ -109,7 +112,7 @@ class HandleUpgradesMixin(object):
                 and (constants.CEPH_HEALTH_WARN_REQUIRE_JEWEL_OSDS_NOT_SET
                      in health['detail'])):
             try:
-                upgrade = self.service.get_software_upgrade_status()
+                upgrade = self.sysinv_upgrade_api.get_software_upgrade_status()
             except Exception as ex:
                 LOG.warn(_LW(
                     "Getting software upgrade status failed "
@@ -152,7 +155,7 @@ class HandleUpgradesMixin(object):
 
 class Monitor(HandleUpgradesMixin):
 
-    def __init__(self, service):
+    def __init__(self, service, conf):
         self.service = service
         self.current_ceph_health = ""
         self.tiers_size = {}
@@ -160,7 +163,7 @@ class Monitor(HandleUpgradesMixin):
         self.primary_tier_name = constants.SB_TIER_DEFAULT_NAMES[
             constants.SB_TIER_TYPE_CEPH] + constants.CEPH_CRUSH_TIER_SUFFIX
         self.cluster_is_up = False
-        super(Monitor, self).__init__(service)
+        super(Monitor, self).__init__(service, conf)
 
     def setup(self, config):
         super(Monitor, self).setup(config)

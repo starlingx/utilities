@@ -23,13 +23,10 @@ import oslo_messaging as messaging
 from oslo_service import service
 # noinspection PyUnresolvedReferences
 from oslo_service.periodic_task import PeriodicTasks
-# noinspection PyUnresolvedReferences
-from retrying import retry
 
 from ceph_manager import constants
 from ceph_manager import utils
 from ceph_manager.i18n import _LI
-from ceph_manager.i18n import _LW
 from ceph_manager.monitor import Monitor
 from cephclient import wrapper
 
@@ -94,38 +91,16 @@ class RpcEndpoint(PeriodicTasks):
         return self.service.monitor.cluster_is_up
 
 
-class SysinvConductorUpgradeApi(object):
-    def __init__(self):
-        self.sysinv_conductor = None
-        super(SysinvConductorUpgradeApi, self).__init__()
-
-    def get_software_upgrade_status(self):
-        LOG.info(_LI("Getting software upgrade status from sysinv"))
-        cctxt = self.sysinv_conductor.prepare(timeout=2)
-        upgrade = cctxt.call({}, 'get_software_upgrade_status')
-        LOG.info(_LI("Software upgrade status: %s") % str(upgrade))
-        return upgrade
-
-    @retry(wait_fixed=1000,
-           retry_on_exception=lambda e:
-               LOG.warn(_LW(
-                   "Getting software upgrade status failed "
-                   "with: %s. Retrying... ") % str(e)) or True)
-    def retry_get_software_upgrade_status(self):
-        return self.get_software_upgrade_status()
-
-
-class Service(SysinvConductorUpgradeApi, service.Service):
+class Service(service.Service):
 
     def __init__(self, conf):
         super(Service, self).__init__()
         self.conf = conf
         self.rpc_server = None
-        self.sysinv_conductor = None
         self.ceph_api = None
         self.entity_instance_id = ''
         self.fm_api = fm_api.FaultAPIs()
-        self.monitor = Monitor(self)
+        self.monitor = Monitor(self, conf)
         self.config = None
         self.config_desired = None
         self.config_applied = None
@@ -135,17 +110,13 @@ class Service(SysinvConductorUpgradeApi, service.Service):
 
         # pylint: disable=protected-access
         sysinv_conf = self.conf._namespace._normalized[0]['DEFAULT']
-        url = "rabbit://{user}:{password}@{host}:{port}".format(
-            user=sysinv_conf['rabbit_userid'][0],
-            password=sysinv_conf['rabbit_password'][0],
-            host=utils.ipv6_bracketed(sysinv_conf['rabbit_host'][0]),
-            port=sysinv_conf['rabbit_port'][0]
-        )
+        url = "rabbit://{user}:{password}@{host}:{port}"\
+              "".format(user=sysinv_conf['rabbit_userid'][0],
+                        password=sysinv_conf['rabbit_password'][0],
+                        host=utils.ipv6_bracketed(
+                            sysinv_conf['rabbit_host'][0]),
+                        port=sysinv_conf['rabbit_port'][0])
         transport = messaging.get_transport(self.conf, url=url)
-        self.sysinv_conductor = messaging.RPCClient(
-            transport,
-            messaging.Target(
-                topic=constants.SYSINV_CONDUCTOR_TOPIC))
 
         self.ceph_api = wrapper.CephWrapper(
             endpoint='http://localhost:{}'.format(constants.CEPH_MGR_PORT))

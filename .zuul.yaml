@@ -6,6 +6,7 @@
         - stx-utilities-tox-pep8
         - stx-utilities-tox-pylint
         - stx-utilities-ceph-manager-tox-bandit
+        - stx-utilities-ceph-manager-tox-py39
         - stx-utilities-ceph-client-tox-bandit
         - stx-utilities-pci-irq-affinity-agent-tox-py27
         - stx-utilities-pci-irq-affinity-agent-tox-py39
@@ -16,6 +17,7 @@
         - stx-utilities-tox-pep8
         - stx-utilities-tox-pylint
         - stx-utilities-ceph-manager-tox-bandit
+        - stx-utilities-ceph-manager-tox-py39
         - stx-utilities-ceph-client-tox-bandit
         - stx-utilities-pci-irq-affinity-agent-tox-py27
         - stx-utilities-pci-irq-affinity-agent-tox-py39
@@ -69,6 +71,19 @@
       - ./ceph/ceph-manager/ceph-manager/*
     vars:
       tox_envlist: bandit
+      tox_extra_args: -c ./ceph/ceph-manager/ceph-manager/tox.ini
+
+- job:
+    name: stx-utilities-ceph-manager-tox-py39
+    parent: tox
+    description: |
+       Run py39 unittests for utilities ceph-mananger
+    nodeset: debian-bullseye
+    files:
+      - ./ceph/ceph-manager/ceph-manager/*
+    vars:
+      tox_envlist: py39
+      python_version: 3.9
       tox_extra_args: -c ./ceph/ceph-manager/ceph-manager/tox.ini
 
 - job:

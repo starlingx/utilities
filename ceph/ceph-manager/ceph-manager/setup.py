@@ -13,7 +13,7 @@ setuptools.setup(
     version='1.0.0',
     description='CEPH manager',
     license='Apache-2.0',
-    packages=['ceph_manager'],
+    packages=['ceph_manager', 'ceph_manager.sysinv_api'],
     entry_points={
     }
 )
