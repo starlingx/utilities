@@ -22,6 +22,8 @@ source "$SCRIPTDIR"/stx-iso-utils.sh
 
 ADDON=
 BASE_URL=
+BOOT_ARGS_COMMON=
+BOOT_ARGS_SPECIFIC=
 BOOT_GATEWAY=
 BOOT_HOSTNAME=
 BOOT_INTERFACE=
@@ -34,7 +36,6 @@ DELETE="no"
 GRUB_TIMEOUT=-1
 INITRD_FILE=
 INSTALL_TYPE=
-INSTALL_SPECIFIC_BOOT_ARGS=
 REPACK=no     # REPACK initrd is disabled until signing is fixed
 INPUT_ISO=
 LOCK_FILE=/var/run/.gen-bootloader-iso.lock
@@ -262,36 +263,41 @@ function parse_arguments {
                 #3 - AIO, Graphical Console
                 #4 - AIO Low-latency, Serial Console
                 #5 - AIO Low-latency, Graphical Console
+                local default_kernel='vmlinuz-*[!t]-amd64'
+                local default_kernel_rt='vmlinuz-*-rt-amd64'
+                local traits_standard="controller"
+                local traits_aio="controller,worker"
+                local traits_aio_rt="controller,worker,lowlatency"
                 case ${INSTALL_TYPE} in
                     0)
                         DEFAULT_SYSLINUX_ENTRY=0
                         DEFAULT_GRUB_ENTRY=serial
-                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller"
+                        BOOT_ARGS_SPECIFIC="traits=$traits_standard defaultkernel=$default_kernel"
                         ;;
                     1)
                         DEFAULT_SYSLINUX_ENTRY=1
                         DEFAULT_GRUB_ENTRY=graphical
-                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller"
+                        BOOT_ARGS_SPECIFIC="traits=$traits_standard defaultkernel=$default_kernel"
                         ;;
                     2)
                         DEFAULT_SYSLINUX_ENTRY=0
                         DEFAULT_GRUB_ENTRY=serial
-                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker"
+                        BOOT_ARGS_SPECIFIC="traits=$traits_aio defaultkernel=$default_kernel"
                         ;;
                     3)
                         DEFAULT_SYSLINUX_ENTRY=1
                         DEFAULT_GRUB_ENTRY=graphical
-                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker"
+                        BOOT_ARGS_SPECIFIC="traits=$traits_aio defaultkernel=$default_kernel"
                         ;;
                     4)
                         DEFAULT_SYSLINUX_ENTRY=0
                         DEFAULT_GRUB_ENTRY=serial
-                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker,lowlatency"
+                        BOOT_ARGS_SPECIFIC="traits=$traits_aio_rt defaultkernel=$default_kernel_rt"
                         ;;
                     5)
                         DEFAULT_SYSLINUX_ENTRY=1
                         DEFAULT_GRUB_ENTRY=graphical
-                        INSTALL_SPECIFIC_BOOT_ARGS="traits=controller,worker,lowlatency"
+                        BOOT_ARGS_SPECIFIC="traits=$traits_aio_rt defaultkernel=$default_kernel_rt"
                         ;;
                     *)
                         log_error "Invalid default boot menu option: ${INSTALL_TYPE}"
@@ -471,20 +477,26 @@ function generate_boot_cfg {
         done
     fi
     log_verbose "Parameters: ${PARAM_LIST}"
-    COMMON_ARGS="initrd=/initrd instdate=@$(date +%s) instw=60 instiso=instboot"
-    COMMON_ARGS="${COMMON_ARGS} biosplusefi=1 instnet=0"
-    COMMON_ARGS="${COMMON_ARGS} ks=file:///kickstart/miniboot.cfg"
-    COMMON_ARGS="${COMMON_ARGS} rdinit=/install instname=debian instbr=starlingx instab=0"
-    COMMON_ARGS="${COMMON_ARGS} insturl=${BASE_URL}/ostree_repo ip=${BOOT_IP_ARG}"
-    COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
-    COMMON_ARGS="${COMMON_ARGS} defaultkernel=vmlinuz-*[!t]-amd64"
+    BOOT_ARGS_COMMON="initrd=/initrd instdate=@$(date +%s) instw=60 instiso=instboot"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} biosplusefi=1 instnet=0"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ks=file:///kickstart/miniboot.cfg"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} rdinit=/install instname=debian instbr=starlingx instab=0"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} insturl=${BASE_URL}/ostree_repo ip=${BOOT_IP_ARG}"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${PARAM_LIST}"
     # Uncomment for debugging:
-    #COMMON_ARGS="${COMMON_ARGS} instsh=2"
-    COMMON_ARGS="${COMMON_ARGS} ${PARAM_LIST}"
-    log_verbose "COMMON_ARGS: $COMMON_ARGS"
+    #BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instsh=2 instpost=shell"
+    log_verbose "BOOT_ARGS_COMMON: $BOOT_ARGS_COMMON"
 
     local serial_args="console=ttyS0,115200 serial"
     local graphical_args="console=tty0"
+
+    # NOTES on kernel arguments for miniboot.iso:
+    # We never boot into the lowlatency/rt kernel in the miniboot ISO - in fact, we can't because
+    # it has been stripped out due to size. However, we do configure the 'traits' for Lowlatency
+    # in the miniboot grub/syslinux kernel arguments. The traits boot argument is then used during
+    # the miniboot.cfg kickstart to configure the proper kernel arguments for the lowlatency
+    # kernel when it reboots into the ostree-based installation.
 
     log_verbose "Generating isolinux.cfg, default: $DEFAULT_SYSLINUX_ENTRY, timeout: $TIMEOUT"
     for f in ${isodir}/isolinux/isolinux.cfg; do
@@ -504,13 +516,13 @@ LABEL 0
     menu label ^Serial Console
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${serial_args}
+    append ${BOOT_ARGS_COMMON} ${BOOT_ARGS_SPECIFIC} ${serial_args}
 
 LABEL 1
     menu label ^Graphical Console
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${graphical_args}
+    append ${BOOT_ARGS_COMMON} ${BOOT_ARGS_SPECIFIC} ${graphical_args}
 EOF
     done
 
@@ -526,12 +538,12 @@ menuentry "${NODE_ID}" {
 }
 
 menuentry 'UEFI Serial Console' --id=serial {
-    linux /bzImage-std ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${serial_args}
+    linux /bzImage-std ${BOOT_ARGS_COMMON} ${BOOT_ARGS_SPECIFIC} ${serial_args}
     initrd /initrd
 }
 
 menuentry 'UEFI Graphical Console' --id=graphical {
-    linux /bzImage-std ${COMMON_ARGS} ${INSTALL_SPECIFIC_BOOT_ARGS} ${graphical_args}
+    linux /bzImage-std ${BOOT_ARGS_COMMON} ${BOOT_ARGS_SPECIFIC} ${graphical_args}
     initrd /initrd
 }
 EOF
