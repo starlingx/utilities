@@ -104,6 +104,7 @@ RUN set -ex && \
         tcpdump \
         linux-cpupower \
         pciutils \
+        pcm \
         sysvinit-utils \
         dmidecode \
         python-is-python3 \
