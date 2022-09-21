@@ -614,6 +614,15 @@ while [[ ${#} -gt 0 ]] ; do
         if [ "${2}" == "" ] ; then
             report_error "need to specify a name with the --name option" ${FAIL_MISSING_PARAMETER}
             collect_exit ${FAIL_MISSING_PARAMETER}
+        else
+            name="${2}"
+            len=${#name}
+            max_length=$(expr 255 - 16 - 4) # Padding of timestamp and .tar
+
+            if [ ${len} -gt ${max_length} ] ; then
+                report_error "name must not be longer than ${$max_length} characters" ${FAIL_NAME_TOO_LONG}
+                collect_exit ${FAIL_NAME_TOO_LONG}
+            fi
         fi
         COLLECT_NAME="${2}"
         clear_variable_args

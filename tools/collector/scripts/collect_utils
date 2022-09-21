@@ -54,6 +54,7 @@ FAIL_CONTINUE=51
 FAIL_SUBCLOUDNAME=52
 FAIL_NO_SUBCLOUDS=53
 FAIL_NOT_SYSTEMCONTROLLER=54
+FAIL_NAME_TOO_LONG=55
 
 
 # Warnings are above 200
@@ -78,6 +79,7 @@ FAIL_SUBCLOUD_TIMEOUT_STR="subcloud collect timeout"
 FAIL_NO_FILE_SPECIFIED_STR="no file specified"
 FAIL_FILE_NOT_FOUND_STR="no such file or directory"
 FAIL_FILE_EMPTY_STR="file is empty"
+FAIL_NAME_TOO_LONG_STR="name too long"
 FAIL_PASSWORD_PROMPT_STR="password for"
 
 FAIL_DATE_FORMAT_STR="date format"
