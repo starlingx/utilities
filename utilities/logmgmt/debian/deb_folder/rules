@@ -5,7 +5,6 @@ export PYBUILD_NAME=logmgmt
 export ROOT = $(CURDIR)/debian/tmp
 export LOCAL_BINDIR = $(ROOT)/usr/bin
 export LOCAL_ETC_INITD = $(ROOT)/etc/init.d
-export LOCAL_ETC_PMOND = $(ROOT)/etc/pmon.d
 export PMONDIR = $(ROOT)/usr/share/starlingx/pmon.d
 export UNIT_DIR = $(ROOT)/usr/lib/systemd/system
 
@@ -26,9 +25,6 @@ override_dh_install:
 
 	install -d -m 755 $(LOCAL_ETC_INITD)
 	install -p -D -m 700 scripts/init.d/logmgmt $(LOCAL_ETC_INITD)/logmgmt
-
-	install -d -m 755 $(LOCAL_ETC_PMOND)
-	install -p -D -m 644 scripts/pmon.d/logmgmt $(LOCAL_ETC_PMOND)/logmgmt
 
 	install -d -m 755 $(PMONDIR)
 	install -p -D -m 644 scripts/pmon.d/logmgmt $(PMONDIR)/logmgmt
