@@ -620,7 +620,7 @@ while [[ ${#} -gt 0 ]] ; do
             max_length=$(expr 255 - 16 - 4) # Padding of timestamp and .tar
 
             if [ ${len} -gt ${max_length} ] ; then
-                report_error "name must not be longer than ${$max_length} characters" ${FAIL_NAME_TOO_LONG}
+                report_error "name must not be longer than ${max_length} characters" ${FAIL_NAME_TOO_LONG}
                 collect_exit ${FAIL_NAME_TOO_LONG}
             fi
         fi
