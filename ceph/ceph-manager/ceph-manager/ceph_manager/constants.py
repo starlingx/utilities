@@ -62,10 +62,6 @@ REPAIR_ACTION_MAJOR_CRITICAL_ALARM = _(
     'If problem persists, contact next level of support.')
 REPAIR_ACTION = _('If problem persists, contact next level of support.')
 
-SYSINV_CONDUCTOR_TOPIC = 'sysinv.conductor_manager'
-CEPH_MANAGER_TOPIC = 'sysinv.ceph_manager'
-SYSINV_CONFIG_FILE = '/etc/sysinv/sysinv.conf'
-
 # Titanium Cloud version strings
 TITANIUM_SERVER_VERSION_18_03 = '18.03'
 
