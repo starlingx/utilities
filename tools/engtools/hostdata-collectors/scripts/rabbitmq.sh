@@ -19,20 +19,20 @@ function print_rabbitmq {
     print_separator
     TOOL_HIRES_TIME
 
-  # IMPORTANT:
-  # - Difficulty getting rabbitmqctl to work from init.d script;
-  #   apparently it requires a psuedo-TTY, which is something you don't have
-  #   until post-init.
-  # - WORKAROUND: run command using 'sudo', even if you are 'root'
+    # IMPORTANT:
+    # - Difficulty getting rabbitmqctl to work from init.d script;
+    #   apparently it requires a psuedo-TTY, which is something you don't have
+    #   until post-init.
+    # - WORKAROUND: run command using 'sudo', even if you are 'root'
 
-  # Dump various rabbitmq related stats
+    # Dump various rabbitmq related stats
     MQ_STATUS="rabbitmqctl ${MQOPT} status"
     ${ECHO} "# ${MQ_STATUS}"
     sudo ${MQ_STATUS} | grep -e '{memory' -A30
     ${ECHO}
 
-  # THe following is useful in diagnosing rabbit memory leaks
-  # when end-users do not drain their queues (eg, due to RPC timeout issues, etc)
+    # THe following is useful in diagnosing rabbit memory leaks
+    # when end-users do not drain their queues (eg, due to RPC timeout issues, etc)
     MQ_QUEUES="rabbitmqctl ${MQOPT} list_queues messages name pid messages_ready messages_unacknowledged memory consumers"
     ${ECHO} "# ${MQ_QUEUES}"
     sudo ${MQ_QUEUES}

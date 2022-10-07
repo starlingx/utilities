@@ -15,7 +15,7 @@ OPT_USE_INTERVALS=1
 
 # Print key networking device statistics
 function print_netcmds {
-  # Configuration for netcmds
+    # Configuration for netcmds
     DEV=/proc/net/dev
     NETSTAT=/proc/net/netstat
 

@@ -17,7 +17,7 @@ OPT_USE_INTERVALS=1
 
 # Print key networking device statistics
 function print_memory {
-  # Configuration for netcmds
+    # Configuration for netcmds
     MEMINFO=/proc/meminfo
     NODEINFO=/sys/devices/system/node/node?/meminfo
     BUDDYINFO=/proc/buddyinfo
@@ -43,7 +43,7 @@ function print_memory {
     awk '/^Pss:/ {a += $2;} END {printf "%d MiB\n", a/1024.0;}'
     ${ECHO}
 
-  # use old slabinfo format (i.e. slub not enabled in kernel)
+    # use old slabinfo format (i.e. slub not enabled in kernel)
     ${ECHO} "# ${SLABINFO}"
     ${CAT} ${SLABINFO} | \
     awk -v page_size_B=${PAGE_SIZE} '

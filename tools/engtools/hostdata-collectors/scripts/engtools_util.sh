@@ -57,13 +57,13 @@ function tools_init {
     local error=0
     TOOLNAME=$(basename $0)
 
-  # Check for sufficient priviledges
+    # Check for sufficient priviledges
     if [ $UID -ne 0 ]; then
         ERRLOG "${NAME} requires sudo/root access."
         return 1
     fi
 
-  # Check for essential binaries
+    # Check for essential binaries
     ECHO=$(which echo 2>/dev/null)
     rc=$?
     if [ $rc -ne 0 ]; then
@@ -78,8 +78,8 @@ function tools_init {
         error=$rc
     fi
 
-  # Check for standard linux binaries, at least can use LOG functions now
-  # - these are used in tools_header
+    # Check for standard linux binaries, at least can use LOG functions now
+    # - these are used in tools_header
     CAT=$(which cat 2>/dev/null)
     rc=$?
     if [ $rc -ne 0 ]; then
@@ -157,38 +157,38 @@ function tools_init {
         error=$rc
     fi
 
-  # The following block is needed for LSB systems such as Windriver Linux.
-  # The utility is not available on CentOS so comment it out.
-  # Generic utility, but may not be available
-  # LSB=$(which lsb_release 2>/dev/null)
-  # rc=$?
-  # if [ $rc -ne 0 ]; then
-  #   WARNLOG "'lsb_release' not found, rc=$rc";
-  # fi
+    # The following block is needed for LSB systems such as Windriver Linux.
+    # The utility is not available on CentOS so comment it out.
+    # Generic utility, but may not be available
+    # LSB=$(which lsb_release 2>/dev/null)
+    # rc=$?
+    # if [ $rc -ne 0 ]; then
+    #   WARNLOG "'lsb_release' not found, rc=$rc";
+    # fi
 
-  # Let parent program decide what to do with the errors,
-  # give ominous warning
+    # Let parent program decide what to do with the errors,
+    # give ominous warning
     if [ $error -eq 1 ]; then
         WARNLOG "possibly cannot continue, missing linux binaries"
     fi
 
-  # Check if tool was previously running
+    # Check if tool was previously running
     if [ -e ${PIDFILE} ]; then
     # [ JGAULD - remove pidofproc() / LSB compatibility issue ]
     if check_pidfile -p "${PIDFILE}" >/dev/null; then
         ERRLOG "${PIDFILE} exists and ${TOOLNAME} is running"
         return 1
     else
-      # remove pid file
+        # remove pid file
         WARNLOG "${PIDFILE} exists but ${TOOLNAME} is not running; cleaning up"
         rm -f ${PIDFILE}
     fi
     fi
 
-  # Create pid file
+    # Create pid file
     echo $$ > ${PIDFILE}
 
-  # Setup trap handler - these signals trigger child shutdown and cleanup
+    # Setup trap handler - these signals trigger child shutdown and cleanup
     trap tools_exit_handler INT HUP TERM EXIT
     trap tools_usr1_handler USR1
     trap tools_usr2_handler USR2
@@ -198,7 +198,7 @@ function tools_init {
 
 # tools_cleanup() - terminate child processes
 function tools_cleanup {
-  # restore signal handling to default behaviour
+    # restore signal handling to default behaviour
     trap - INT HUP TERM EXIT
     trap - USR1 USR2
 
@@ -211,16 +211,16 @@ function tools_cleanup {
     fi
 
 
-  # stop all processes launched from this process
+    # stop all processes launched from this process
     pkill -TERM -P $$
     if [ "$1" -ne "0" ]; then
         sleep 1
     fi
 
-  # OK, if the above didn't work, use force
+    # OK, if the above didn't work, use force
     pkill -KILL -P $$
 
-  # remove pid file
+    # remove pid file
     if [ -e ${PIDFILE} ]; then
         rm -f ${VERBOSE_OPT} ${PIDFILE}
     fi
@@ -274,7 +274,7 @@ function set_affinity {
         return
     fi
 
-  # Set cpu affinity for current program
+    # Set cpu affinity for current program
     local TASKSET=$(which taskset 2>/dev/null)
     if [ -x "${TASKSET}" ]; then
         ${TASKSET} -pc ${CPULIST} $$ 2>/dev/null
@@ -312,26 +312,26 @@ function print_separator {
 function tools_header {
     local TOOLNAME=$(basename $0)
 
-  # Get timestamp
-  #local tstamp=$( date +"%Y-%0m-%0e %H:%M:%S" 2>/dev/null )
+    # Get timestamp
+    #local tstamp=$( date +"%Y-%0m-%0e %H:%M:%S" 2>/dev/null )
     local tstamp=$( date --rfc-3339=ns | cut -c1-23 2>/dev/null )
 
-  # Linux Generic
+    # Linux Generic
     local UPTIME=/proc/uptime
 
-  # Get number of online cpus
+    # Get number of online cpus
     local CPUINFO=/proc/cpuinfo
     local online_cpus=$( cat ${CPUINFO} | grep -i ^processor | wc -l 2>/dev/null )
 
-  # Get load average, run-queue size, and number of threads
+    # Get load average, run-queue size, and number of threads
     local LOADAVG=/proc/loadavg
     local LDAVG=( `cat ${LOADAVG} | sed -e 's#[/]# #g' 2>/dev/null` )
 
-  # Get current architecture
+    # Get current architecture
     local arch=$( uname -m )
 
-  # Determine processor name (there are many different formats... *sigh* )
-  # - build up info from multiple lines
+    # Determine processor name (there are many different formats... *sigh* )
+    # - build up info from multiple lines
     local processor='unk'
     local NAME=$( cat ${CPUINFO} | grep \
     -e '^cpu\W\W:' \
@@ -346,7 +346,7 @@ function tools_header {
         processor=${NAME}
     fi
 
-  # Determine processor speed (abort grep after first match)
+    # Determine processor speed (abort grep after first match)
     local speed='unk'
     local BOGO=$( cat ${CPUINFO} | grep -m1 -e ^BogoMIPS -e ^bogomips | \
     awk 'BEGIN{FS=":";} {printf "%.1f", $2;}' 2>/dev/null )
@@ -362,14 +362,14 @@ function tools_header {
         speed=${BOGO}
     fi
 
-  # Determine OS and kernel version
+    # Determine OS and kernel version
     local os_name=$( uname -s 2>/dev/null )
     local os_release=$( uname -r 2>/dev/null )
 
     declare -a arr
 
     local dist_id=""
-  # Determine OS distribution ID
+    # Determine OS distribution ID
     if [ lsb_pres == "yes" ]; then
         arr=( $( lsb_release -i 2>/dev/null ) )
         dist_id=${arr[2]}
@@ -379,13 +379,13 @@ function tools_header {
 
     local dist_rel=""
     if [ lsb_pres == "yes" ]; then
-  # Determine OS distribution release
+    # Determine OS distribution release
         arr=( $( cat /proc/version | awk '{print $3}' 2>/dev/null ) )
         local dist_rel=${arr[1]}
     else
         local dist_rel=$(cat /etc/centos-release | awk '{print $4}' 2>/dev/null)
     fi
-  # Print generic header
+    # Print generic header
     echo "${TOOLNAME} -- ${tstamp}  load average:${LDAVG[0]}, ${LDAVG[1]}, ${LDAVG[2]}  runq:${LDAVG[3]}  nproc:${LDAVG[4]}"
     echo " host:${HOSTNAME}  Distribution:${dist_id} ${dist_rel}  ${os_name} ${os_release}"
     echo " arch:${arch}  processor:${processor} speed:${speed} MHz  CPUs:${online_cpus}"
@@ -426,14 +426,14 @@ function tools_print_help {
 
 # tools_parse_options() -- parse common options for tools scripts
 function tools_parse_options {
-  # check for no arguments, print usage
+    # check for no arguments, print usage
     if [ $# -eq "0" ]; then
         tools_usage
         tools_cleanup 0
         exit 0
     fi
 
-  # parse the input arguments
+    # parse the input arguments
     while getopts "fp:i:c:h" Option; do
     case $Option in
     f)
@@ -459,7 +459,7 @@ function tools_parse_options {
     esac
     done
 
-  # validate input arguments
+    # validate input arguments
     PERIOD_MAX=$[4*24*60]
     INTERVAL_MAX=$[60*60]
 

@@ -64,7 +64,7 @@ function do_parallel_commands {
                 ${STDBUF} ${tool} --repeat=${repeat} --delay=${interval} > ${fname} 2>/dev/null &
             fi
         else
-          # run without file output (eg., ticker)
+            # run without file output (eg., ticker)
             ${STDBUF} ${tool} -p ${period} -i ${interval} 2>/dev/null &
         fi
     done
@@ -83,7 +83,7 @@ function get_current_avail_usage {
 # purge_oldest_files() - remove oldest files based on file-system available space,
 #                        and maximum collection size
 function purge_oldest_files {
-  # get current file-system usage
+    # get current file-system usage
     get_current_avail_usage
     msg=$(printf "avail %d MB, headroom %d MB;  used %d MB, max %d MB" \
         $[$df_avail_bytes/1024/1024] $[$tgt_avail_bytes/1024/1024] \
@@ -110,8 +110,8 @@ function purge_oldest_files {
         return
     fi
 
-  # remove files in oldest time sorted order until we meet usage targets,
-  # incrementally updating usage as we remve files
+    # remove files in oldest time sorted order until we meet usage targets,
+    # incrementally updating usage as we remve files
     for file in $( ls -rt ${TOOL_DEST_DIR}/${HOSTNAME}_* 2>/dev/null ); do
         if [[ $df_avail_bytes -ge $tgt_avail_bytes ]] && \
             [[ $du_used_bytes  -le $tgt_used_bytes ]]; then
@@ -286,7 +286,7 @@ if [[ ${ENABLE_STATIC_COLLECTION} == "Y" ]] || [[ ${ENABLE_STATIC_COLLECTION} ==
         tlist+=( "tool=${LBINDIR}/vswitch.sh name=vswitch period=${PERIOD_MIN} interval=${DUR_1MIN_IN_SEC}" )
     fi
 
-  # ticker - shows progress on the screen
+    # ticker - shows progress on the screen
     tlist+=( "tool=${LBINDIR}/ticker.sh name= period=${PERIOD_MIN} interval=${DUR_1MIN_IN_SEC}" )
 fi
 
@@ -301,7 +301,7 @@ OPT_DEBUG=0
 REP=0
 
 if [ ${#tlist[@]} -ne 0 ]; then
-  # Static stats collection is turned on
+    # Static stats collection is turned on
     while [[ ${TOOL_USR1_SIGNAL} -eq 0 ]] && [[ ${OPT_FOREVER} -eq 1 || ${REP} -lt ${REPEATS} ]]; do
         # increment loop counter
         ((REP++))
@@ -322,7 +322,7 @@ if [ ${#tlist[@]} -ne 0 ]; then
         ${CMD_IDLE} bzip2 -q -f ${parallel_outfiles[@]} 2>/dev/null &
     done
 
-  # Wait for the compression to complete
+    # Wait for the compression to complete
     wait
     tools_cleanup 0
 fi

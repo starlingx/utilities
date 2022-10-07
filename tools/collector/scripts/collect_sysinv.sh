@@ -50,8 +50,8 @@ function collect_inventory {
     delimiter ${LOGFILE} "system service-list"
     system service-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
-   # delimiter ${LOGFILE} "vm-topology"
-   # timeout 60 vm-topology --show all 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    # delimiter ${LOGFILE} "vm-topology"
+    # timeout 60 vm-topology --show all 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
     delimiter ${LOGFILE} "system network-list"
     system network-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}

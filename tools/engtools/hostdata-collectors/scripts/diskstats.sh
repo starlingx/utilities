@@ -18,12 +18,12 @@ function print_disk {
     print_separator
     TOOL_HIRES_TIME
 
-  # NOTES:
-  # --total (grand-total) is a new option, but don't necessarily want to add tmpfs
-  #   or dummy filesystems.
-  # - use -H to print in SI (eg, GB, vs GiB)
-  # - can use -a to print all filesystems including dummy filesystems, but then
-  #   there can be double-counting:
+    # NOTES:
+    # --total (grand-total) is a new option, but don't necessarily want to add tmpfs
+    #   or dummy filesystems.
+    # - use -H to print in SI (eg, GB, vs GiB)
+    # - can use -a to print all filesystems including dummy filesystems, but then
+    #   there can be double-counting:
     print_separator
     cmd='df -h -H -T --local -t ext2 -t ext3 -t ext4 -t xfs --total'
     ${ECHO} "Disk space usage ext2,ext3,ext4,xfs,tmpfs (SI):"
@@ -63,7 +63,7 @@ function print_disk_static {
     ${cmd}
     ${ECHO}
 
-  # fdisk - requires sudo/root
+    # fdisk - requires sudo/root
     print_separator
     cmd='fdisk -l'
     if [ $UID -eq 0 ]; then
@@ -74,7 +74,7 @@ function print_disk_static {
     fi
     ${ECHO}
 
-  # parted - requires sudo/root
+    # parted - requires sudo/root
     print_separator
     cmd='parted -l'
     if [ $UID -eq 0 ]; then

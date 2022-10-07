@@ -18,16 +18,16 @@ function print_postgres {
     print_separator
     TOOL_HIRES_TIME
 
-  # postgressql command: set user, disable pagination, and be quiet
+    # postgressql command: set user, disable pagination, and be quiet
     PSQL="sudo -u postgres psql --pset pager=off -q"
 
-  # List postgres databases
+    # List postgres databases
     db_list=( $(${PSQL} -t -c "SELECT datname FROM pg_database WHERE datistemplate = false;") )
     ${ECHO} "# postgres databases"
     echo "db_list = ${db_list[@]}"
     ${ECHO}
 
-  # List sizes of all postgres databases (similar to "\l+")
+    # List sizes of all postgres databases (similar to "\l+")
     ${ECHO} "# postgres database sizes"
     ${PSQL} -c "
 SELECT
@@ -38,7 +38,7 @@ FROM pg_database
 ORDER BY pg_database_size DESC;
 "
 
-  # For each database, list tables and their sizes (similar to "\dt+")
+    # For each database, list tables and their sizes (similar to "\dt+")
     for db in "${db_list[@]}"; do
     ${ECHO} "# postgres database: ${db}"
     ${PSQL} -d ${db} -c "
@@ -85,11 +85,11 @@ FROM pg_stat_user_tables;
 "
     done
 
-  # Specific table counts (This is very SLOW, look at "live tuples" instead)
-  # Number of keystone tokens
-  #${ECHO} "# keystone token count"
+    # Specific table counts (This is very SLOW, look at "live tuples" instead)
+    # Number of keystone tokens
+    #${ECHO} "# keystone token count"
 
-  # Number of postgres connections
+    # Number of postgres connections
     ${ECHO} "# postgres database connections"
     CONN=$(ps -C postgres -o cmd= | wc -l)
     CONN_T=$(ps -C postgres -o cmd= | awk '/postgres: / {print $3}' | awk '{for(i=1;i<=NF;i++) a[$i]++} END {for(k in a) print k, a[k]}' | sort -k 2 -nr )

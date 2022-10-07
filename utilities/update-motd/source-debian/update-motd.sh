@@ -12,7 +12,7 @@ eval_gettext() {
 
 # Only display this information in interactive shells
 if echo "$-" | grep -qs "i"; then
-	# Also, don't display if .hushlogin exists or MOTD was shown recently
+        # Also, don't display if .hushlogin exists or MOTD was shown recently
         if [ ! -e "$HOME/.hushlogin" ] && [ -z "$MOTD_SHOWN" ] && ! find $stamp -newermt 'today 0:00' 2> /dev/null | grep -q -m 1 '.'; then
                 [ $(id -u) -eq 0 ] || SHOW="--show-only"
                 update-motd $SHOW
