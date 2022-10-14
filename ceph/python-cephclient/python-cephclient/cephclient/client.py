@@ -102,16 +102,31 @@ class CephClient(object):
             raise exception.CephMgrMissingRestfulService(
                 status.get('services', ''))
 
+    def _get_service_hostname(self):
+        try:
+            output = subprocess.check_output(
+                ('ceph mgr metadata '
+                 '--connect-timeout {}').format(
+                    CEPH_CLI_TIMEOUT_SEC),
+                shell=True)
+        except subprocess.CalledProcessError as e:
+            raise exception.CephMgrDumpError(str(e))
+        try:
+            status = json.loads(output)
+        except (KeyError, ValueError):
+            raise exception.CephMgrJsonError(output)
+        return status[0]["hostname"]
+
     def _get_certificate(self):
         self._cleanup_certificate()
-        url = urlparse(self.service_url)
+        hostname = self._get_service_hostname()
         try:
             certificate = subprocess.check_output(
                 ('ceph config-key get '
                  '--connect-timeout {} '
                  'mgr/restful/{}/crt').format(
                      CEPH_CLI_TIMEOUT_SEC,
-                     url.hostname),
+                     hostname),
                 shell=True)
         except subprocess.CalledProcessError:
             return
