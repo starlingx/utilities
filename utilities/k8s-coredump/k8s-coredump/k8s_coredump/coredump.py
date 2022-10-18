@@ -1,22 +1,26 @@
+################################################################################
+# Copyright (c) 2022 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+################################################################################
 import io
 import json
-import logging
 import os
 import re
 import subprocess
 import sys
 
-import nsenter
 import requests
 
 from .common.constants import K8S_COREDUMP_CONF
-from .common.constants import K8S_COREDUMP_LOG
 from .common.constants import K8S_COREDUMP_TOKEN
 from .common.constants import LOCALHOST_URL
+from .common.constants import LOG
 from .common.constants import SYSTEMD_COREDUMP
-
-logging.basicConfig(filename=K8S_COREDUMP_LOG, level=logging.DEBUG)
-LOG = logging.getLogger("k8s-coredump")
+from .config_functions import get_annotations_config
+from .config_functions import parse_core_pattern
+from .config_functions import write_coredump_file
 
 
 def _getToken():
@@ -28,11 +32,6 @@ def _getToken():
     except IOError:
         LOG.error("Error: File does not appear to exist.")
     return None
-
-
-# TODO (spresato) Need to be implemented
-def _parseCoredumpPattern(pattern):
-    pass
 
 
 def _getPodUID(pid):
@@ -74,13 +73,15 @@ def _systemCoreFile():
     # delegate handling to systemd coredump handler
     try:
         cmd = [SYSTEMD_COREDUMP] + sys.argv[1:]
+        LOG.info(f"No pod information was found, using default system coredump. Command: {cmd}")
         subprocess.run(cmd)
+        LOG.info("Dumped through default core process")
     except subprocess.CalledProcessError as e:
         LOG.error("Failed to call systemd-coredump: {}".format(e))
         sys.exit(-1)
 
 
-def _podCoreFile(pid, corefile):
+def _podCoreFile(pid, corefile, annotations_config):
     # create core file relative to dumping process if not an absolute path
     if not os.path.isabs(corefile):
         try:
@@ -93,14 +94,7 @@ def _podCoreFile(pid, corefile):
 
     LOG.debug("podCoreFile: corefile={}".format(corefile))
 
-    with nsenter.Namespace(pid, 'mnt') as ns:
-        try:
-            with io.open(corefile, "wb") as f:
-                f.write(sys.stdin.buffer.read())
-                f.flush()
-        except IOError as e:
-            LOG.error("failed to create core file: {}".format(e))
-            sys.exit(-1)
+    write_coredump_file(pid, corefile, annotations_config)
 
 
 def CoreDumpHandler(**kwargs):
@@ -114,19 +108,18 @@ def CoreDumpHandler(**kwargs):
     if pod:
         try:
             metadata = pod['metadata']
-            annotations = metadata['annotations']
-            core_pattern = annotations.get("starlingx.io/core_pattern")
-            if core_pattern is not None:
+            annotations_config = get_annotations_config(pod)
+            if annotations_config['core_pattern'] is not None:
                 LOG.info("Pod %s/%s handling core dump for %s" % \
                          (metadata['namespace'], metadata['name'], pid))
-                if not core_pattern:
+                if not annotations_config['core_pattern']:
                     # default core pattern
                     corefile = "core.%s.%s" % (exe, pid)
                 else:
                     # https://man7.org/linux/man-pages/man5/core.5.html
-                    corefile = _parseCoredumpPattern(core_pattern)
+                    corefile = parse_core_pattern(annotations_config['core_pattern'], **kwargs)
 
-                _podCoreFile(pid, corefile)
+                _podCoreFile(pid, corefile, annotations_config)
                 return  # core dump handled by Pod
             else:
                 LOG.debug("Pod %s/%s does not define annotation core_pattern" % \
