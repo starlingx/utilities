@@ -49,7 +49,7 @@ echo
 
 source /etc/platform/openrc
 
-for REGISTRY in "${REGISTRY_LIST}"; do
+for REGISTRY in ${REGISTRY_LIST}; do
     echo -n "Checking ${REGISTRY} url. "
     registry_url=$(system service-parameter-list | grep -F ${REGISTRY} |\
         grep -F url | awk '{print $10}')
