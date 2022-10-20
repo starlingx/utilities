@@ -95,6 +95,9 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     CMDS+=("kubectl get roles.rbac.authorization.k8s.io --all-namespaces")
     CMDS+=("kubectl get clusterrolebindings.rbac.authorization.k8s.io")
     CMDS+=("kubectl get clusterroles.rbac.authorization.k8s.io")
+    CMDS+=("kubectl get helmrepositories.source.toolkit.fluxcd.io -A")
+    CMDS+=("kubectl get helmcharts.source.toolkit.fluxcd.io -A")
+    CMDS+=("kubectl get helmreleases.helm.toolkit.fluxcd.io -A")
     for CMD in "${CMDS[@]}" ; do
         delimiter ${LOGFILE_KUBE} "${CMD}"
         eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_KUBE}
