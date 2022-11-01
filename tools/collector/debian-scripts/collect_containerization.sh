@@ -150,12 +150,23 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
             helm status ${APPNAME} > ${HELM_DIR}/${APPNAME}.status
             helm get values ${APPNAME} --revision ${APPREVISION} \
                 > ${HELM_DIR}/${APPNAME}.v${APPREVISION}
+            helm history ${APPNAME} > ${HELM_DIR}/${APPNAME}.history
         done <<< "${APPLIST}"
     elif [[ $HELM_VERSION =~ v3 ]]; then
         # NOTE: helm environment not configured for root user
         CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
         delimiter ${LOGFILE_HELM} "${CMD}"
         ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+
+        # Save history for each helm release
+        mapfile -t RELEASES < <( ${CMD} 2>>${COLLECT_ERROR_LOG} )
+        for RELEASE in "${RELEASES[@]:1}"; do
+            NAME=$(echo ${RELEASE} | awk '{print $1}')
+            NAMESPACE=$(echo ${RELEASE} | awk '{print $2}')
+            CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm history -n ${NAMESPACE} ${NAME}"
+            delimiter ${HELM_DIR}/helm-history.info "${CMD}"
+            ${CMD} >> ${HELM_DIR}/helm-history.info 2>>${COLLECT_ERROR_LOG}
+        done
 
         CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm search repo"
         delimiter ${LOGFILE_HELM} "${CMD}"
@@ -183,6 +194,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
             ${HELM2CLI} -- helm status ${APPNAME} > ${HELM_DIR}/${APPNAME}.status
             ${HELM2CLI} -- helm get values ${APPNAME} --revision ${APPREVISION} \
                 > ${HELM_DIR}/${APPNAME}.v${APPREVISION}
+            ${HELM2CLI} -- helm history ${APPNAME} > ${HELM_DIR}/${APPNAME}.history
         done <<< "${APPLIST}"
 
         CMD="helmv2-cli -- helm search"
