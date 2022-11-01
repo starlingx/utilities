@@ -98,6 +98,10 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     CMDS+=("kubectl get helmrepositories.source.toolkit.fluxcd.io -A")
     CMDS+=("kubectl get helmcharts.source.toolkit.fluxcd.io -A")
     CMDS+=("kubectl get helmreleases.helm.toolkit.fluxcd.io -A")
+    CMDS+=("kubectl describe helmrepositories.source.toolkit.fluxcd.io -A")
+    CMDS+=("kubectl describe helmcharts.source.toolkit.fluxcd.io -A")
+    CMDS+=("kubectl describe helmreleases.helm.toolkit.fluxcd.io -A")
+
     for CMD in "${CMDS[@]}" ; do
         delimiter ${LOGFILE_KUBE} "${CMD}"
         eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_KUBE}
