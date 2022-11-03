@@ -13,7 +13,7 @@
 
 dev=$1
 
-rootdev=$(lsblk --ascii -oPKNAME -n $(findmnt -n -T / -o SOURCE))
+rootdev=$(lsblk --ascii -oPKNAME -n $(findmnt -n -T / -o SOURCE | cut -d'[' -f1))
 if [ $# -eq 0 ]; then
     echo "ROOTDISK_DEVICE=${rootdev}"
 else
