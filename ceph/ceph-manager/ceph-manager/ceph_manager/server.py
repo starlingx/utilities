@@ -44,51 +44,6 @@ CONF.logging_default_format_string = (
 logging.register_options(CONF)
 logging.setup(CONF, __name__)
 LOG = logging.getLogger(__name__)
-CONF.rpc_backend = 'rabbit'
-
-
-class RpcEndpoint(PeriodicTasks):
-
-    def __init__(self, service=None):
-        self.service = service
-
-    def get_primary_tier_size(self, _):
-        """Get the ceph size for the primary tier.
-
-        returns: an int for the size (in GB) of the tier
-        """
-
-        tiers_size = self.service.monitor.tiers_size
-        primary_tier_size = tiers_size.get(
-            self.service.monitor.primary_tier_name, 0)
-        LOG.debug(_LI("Ceph cluster primary tier size: %s GB") %
-                  str(primary_tier_size))
-        return primary_tier_size
-
-    def get_tiers_size(self, _):
-        """Get the ceph cluster tier sizes.
-
-        returns: a dict of sizes (in GB) by tier name
-        """
-
-        tiers_size = self.service.monitor.tiers_size
-        LOG.debug(_LI("Ceph cluster tiers (size in GB): %s") %
-                  str(tiers_size))
-        return tiers_size
-
-    def is_cluster_up(self, _):
-        """Report if the last health check was successful.
-
-        This is an independent view of the cluster accessibility that can be
-        used by the sysinv conductor to gate ceph API calls which would timeout
-        and potentially block other operations.
-
-        This view is only updated at the rate the monitor checks for a cluster
-        uuid or a health check (CEPH_HEALTH_CHECK_INTERVAL)
-
-        returns: boolean True if last health check was successful else False
-        """
-        return self.service.monitor.cluster_is_up
 
 
 class Service(service.Service):
@@ -96,7 +51,6 @@ class Service(service.Service):
     def __init__(self, conf):
         super(Service, self).__init__()
         self.conf = conf
-        self.rpc_server = None
         self.ceph_api = None
         self.entity_instance_id = ''
         self.fm_api = fm_api.FaultAPIs()
@@ -107,38 +61,12 @@ class Service(service.Service):
 
     def start(self):
         super(Service, self).start()
-
-        # pylint: disable=protected-access
-        sysinv_conf = self.conf._namespace._normalized[0]['DEFAULT']
-        url = "rabbit://{user}:{password}@{host}:{port}"\
-              "".format(user=sysinv_conf['rabbit_userid'][0],
-                        password=sysinv_conf['rabbit_password'][0],
-                        host=utils.ipv6_bracketed(
-                            sysinv_conf['rabbit_host'][0]),
-                        port=sysinv_conf['rabbit_port'][0])
-        transport = messaging.get_transport(self.conf, url=url)
-
         self.ceph_api = wrapper.CephWrapper(
             endpoint='http://localhost:{}'.format(constants.CEPH_MGR_PORT))
-
-        # Get initial config from sysinv and send it to
-        # services that need it before starting them
-        self.rpc_server = messaging.get_rpc_server(
-            transport,
-            messaging.Target(topic=constants.CEPH_MANAGER_TOPIC,
-                             server=self.conf.sysinv_api_bind_ip),
-            [RpcEndpoint(self)],
-            executor='eventlet')
-        self.rpc_server.start()
         eventlet.spawn_n(self.monitor.run)
 
-    def stop(self):
-        try:
-            self.rpc_server.stop()
-            self.rpc_server.wait()
-        except Exception:
-            pass
-        super(Service, self).stop()
+    def stop(self, graceful=False):
+        super(Service, self).stop(graceful)
 
 
 def run_service():
