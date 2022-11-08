@@ -94,6 +94,113 @@ function check_requirements {
     common_check_requirements mkisofs isohybrid cpio cp find
 }
 
+function mkdir_on_iso {
+    local dir="${1}"
+
+    local final_dir="${BUILDDIR}/${dir}"
+
+    mkdir -p "${final_dir}"
+    if [ $? -ne 0 ]; then
+        log_error "Error: mkdir_on_iso: Failed to create directory '${dir}'"
+        exit 1
+    fi
+}
+
+function normalized_path {
+    local path="${1}"
+    local default_fn="${2}"
+
+    local path_name="$(basename "${path}")"
+    local path_dir="$(dirname "${path}")"
+
+    # If 'path' ends in '/' then path was intended to be a directory
+    if [ "${path:(-1):1}" == "/" ]; then
+        # Drop the trailing '/'
+        path_dir="${path:0:(-1)}"
+        path_name="${default_fn}"
+    fi
+
+    # drop leading '.' from path_dir
+    if [ "${path_dir:0:1}" == "." ]; then
+        path_dir="${path_dir:1}"
+    fi
+
+    # drop leading '/' from path_dir
+    if [ "${path_dir:0:1}" == "/" ]; then
+        path_dir="${path_dir:1}"
+    fi
+
+    if [ -z "${path_dir}" ]; then
+        echo "${path_name}"
+    else
+        echo "${path_dir}/${path_name}"
+    fi
+}
+
+function copy_to_iso {
+    local src="${1}"
+    local dest="${2}"
+    local md5="${3}"
+    local overwrite="${4}"
+
+    local default_dest=
+    local final_dest=
+    local final_dest_dir=
+    local final_md5=
+    local final_md5_dir=
+
+    if [ -z "${src}" ] || [ -z "${dest}" ]; then
+        log_error "Error: copy_to_iso: missing argument"
+        exit 1
+    fi
+
+    if [ ! -f "${src}" ]; then
+        log_error "Error: copy_to_iso: source file doesn't exist '${src}'"
+        exit 1
+    fi
+
+    default_dest="$(basename "${src}")"
+    dest="$(normalized_path "${dest}" "${default_dest}")"
+    final_dest="${BUILDDIR}/${dest}"
+    final_dest_dir="$(dirname "${final_dest}")"
+
+    if [ ! -z "${md5}" ]; then
+
+        case "${md5}" in
+            y | Y | yes | YES )
+                # Use a default name, in same dir as dest
+                md5="$(dirname "${dest}")"
+                ;;
+        esac
+
+        final_md5="${BUILDDIR}/${md5}"
+    fi
+
+    if [ -z "${overwrite}" ] || [ "${overwrite}" == 'n' ]; then
+        if [ -f "${final_dest}" ]; then
+            log_error "Error: copy_to_iso: destination already exists '${final_dest}'"
+            exit 1
+        fi
+    fi
+
+    if [ ! -d "${final_dest_dir}" ]; then
+        log_error "Error: copy_to_iso: destination directory does not exist '${final_dest_dir}'"
+        exit 1
+    fi
+
+    cp -f "${src}" "${final_dest}"
+    if [ $? -ne 0 ]; then
+        log_error "Error: Failed to copy '${src}' to '${final_dest}'"
+        exit 1
+    fi
+
+    if [ ! -z "${final_md5}" ]; then
+        pushd ${final_dest_dir} > /dev/null
+            md5sum "$(basename "${final_dest}")" >> "${final_md5}"
+        popd > /dev/null
+    fi
+}
+
 function generate_boot_cfg {
     local isodir=$1
 
@@ -102,7 +209,7 @@ function generate_boot_cfg {
     fi
 
     local PARAM_LIST=
-    log_info "Generating miniboot.iso from params: ${PARAMS[*]}"
+    log "Generating prestage.iso from params: ${PARAMS[*]}"
     # Set/update boot parameters
     if [ ${#PARAMS[@]} -gt 0 ]; then
         for p in "${PARAMS[@]}"; do
@@ -110,14 +217,14 @@ function generate_boot_cfg {
             value=${p#*=}
             # Pull the boot device out of PARAMS and convert to instdev
             if [ "$param" = "boot_device" ]; then
-                log_info "Setting instdev=$value from boot_device param"
+                log "Setting instdev=$value from boot_device param"
                 instdev=$value
             fi
             PARAM_LIST="${PARAM_LIST} ${param}=${value}"
         done
     fi
 
-    log_verbose "Parameters: ${PARAM_LIST}"
+    log "Parameters: ${PARAM_LIST}"
 
     COMMON_ARGS="initrd=/initrd instdate=@$(date +%s) instw=60 instiso=instboot"
     COMMON_ARGS="${COMMON_ARGS} biosplusefi=1 instnet=0"
@@ -168,7 +275,7 @@ done
         cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
-search --no-floppy --set=root -l 'oe_iso_boot'
+search --no-floppy --set=root -l 'instboot'
 
 menuentry 'Serial Console' --id=serial {
     linux /bzImage-std ${COMMON_ARGS} traits=controller console=ttyS0,115200 serial
@@ -208,6 +315,8 @@ declare DEFAULT_SYSLINUX_ENTRY=1
 declare DEFAULT_GRUB_ENTRY="graphical"
 declare UPDATE_TIMEOUT="no"
 declare FORCE_INSTALL=
+declare PLATFORM_ROOT="opt/platform-backup"
+declare MD5_FILE="container-image.tar.gz.md5"
 
 ###############################################################################
 # Get the command line arguments.
@@ -332,8 +441,8 @@ check_requirements
 check_required_param "--input" "${INPUT_ISO}"
 check_required_param "--output" "${OUTPUT_ISO}"
 
-check_files_exist ${INPUT_ISO} ${KS_SETUP} ${KS_ADDON}
-check_files_size  ${INPUT_ISO} ${KS_SETUP} ${KS_ADDON}
+check_files_exist ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON}
+check_files_size  ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON}
 
 if [[ -e "${OUTPUT_ISO}" ]]; then
     log_fatal "${OUTPUT_ISO} exists. Delete before you execute this script."
@@ -350,6 +459,20 @@ fi
 echo ${BUILDDIR}
 mount_iso "${INPUT_ISO}"
 
+#
+# Determine release version from ISO
+#
+if [ ! -f ${MNTDIR}/upgrades/version ]; then
+    log_error "Version info not found on ${INPUT_ISO}"
+    exit 1
+fi
+
+ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
+if [ -z "${ISO_VERSION}" ]; then
+    log_error "Failed to determine version of installation ISO"
+    exit 1
+fi
+
 # Copy the contents of the input iso to the build directory.
 # This ensures that the ostree, kernel and the initramfs are all copied over
 # to the prestage iso.
@@ -362,6 +485,22 @@ if [[ "${rc}" -ne 0 ]]; then
 fi
 
 unmount_iso
+
+#
+# Copy ISO, patches, and docker image bundles to /opt on the iso.
+# These will be processed by the prestaged installer kickstart.
+# RPM has no role in the installation of these files.
+#
+PLATFORM_PATH="${PLATFORM_ROOT}/${ISO_VERSION}"
+mkdir_on_iso "${PLATFORM_PATH}"
+
+for PATCH in ${PATCHES[@]}; do
+    copy_to_iso "${PATCH}" "${PLATFORM_PATH}/"
+done
+
+for IMAGE in ${IMAGES[@]}; do
+    copy_to_iso "${IMAGE}" "${PLATFORM_PATH}/" "${PLATFORM_PATH}/${MD5_FILE}"
+done
 
 # generate the grub and isolinux cmd line parameters
 
