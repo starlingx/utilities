@@ -237,6 +237,10 @@ function collect_extra()
         topology >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
     fi
 
+    # CPU C-state power info
+    delimiter ${LOGFILE} "cpupower monitor"
+    cpupower monitor >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
     LOGFILE="${EXTRA_DIR}/memory.info"
     echo    "${hostname}: Memory Info .......: ${LOGFILE}"
 
