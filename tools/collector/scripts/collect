@@ -1085,6 +1085,47 @@ pw=${pw/\[/\\\[} # replace '[' with '\['
 pw=${pw/$/\\$}   # replace '$' with '\$'
 pw=${pw/\"/\\\"} # replace '"' with '\"'
 
+###########################################################################
+#
+# Name       : passwordless_sudo_test
+#
+# Purpose    : Verify to detect passwordless sudo for getting password promptand
+#               fails the collect if there is no password prompt
+#
+# Description: cat the content of the /usr/local/sbin/expect_done
+#
+###########################################################################
+
+function passwordless_sudo_test()
+{
+
+/usr/bin/expect  << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout 60
+    expect -re $
+    send "sudo cat /usr/local/sbin/expect_done\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${cmd_done_sig}" { exit ${PASS}           }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                timeout           { exit ${FAIL_TIMEOUT1}  }
+            }
+        }
+        "${pw_error}"     { exit ${FAIL_PASSWORD} }
+        timeout           { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "Timeout waiting for password prompt. Passwordless sudo may be enabled. Please disable and retry." ${rc}
+        collect_exit ${rc}
+    fi
+}
+
+passwordless_sudo_test
 
 ###########################################################################
 #
