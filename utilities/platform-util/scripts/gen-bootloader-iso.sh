@@ -483,6 +483,8 @@ function generate_boot_cfg {
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} rdinit=/install instname=debian instbr=starlingx instab=0"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} insturl=${BASE_URL}/ostree_repo ip=${BOOT_IP_ARG}"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} inst_ostree_root=/dev/mapper/cgts--vg-root--lv"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${PARAM_LIST}"
     # Uncomment for debugging:
     #BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instsh=2 instpost=shell"
