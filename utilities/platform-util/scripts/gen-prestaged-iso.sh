@@ -216,19 +216,31 @@ function generate_boot_cfg {
             param=${p%%=*}
             value=${p#*=}
             # Pull the boot device out of PARAMS and convert to instdev
-            if [ "$param" = "boot_device" ]; then
-                log "Setting instdev=$value from boot_device param"
-                instdev=$value
+            if [[ "${param}" == "boot_device" ]]; then
+                log "Setting instdev=${value} from boot_device param"
+                instdev=${value}
+            elif [[ "${param}" == "rootfs_device" ]]; then
+                log "Setting instdev=${value} from boot_device param"
+                instdev=${value}
             fi
+
             PARAM_LIST="${PARAM_LIST} ${param}=${value}"
         done
     fi
 
     log "Parameters: ${PARAM_LIST}"
 
+    if [[ "${KS_PATCH}" == "true" ]]; then
+        log "Setting Kickstart patch from the kickstart_patches directory"
+        ks="${KICKSTART_PATCH_DIR}"/kickstart.cfg
+    else
+        log "Setting Kickstart patch from the kickstart directory"
+        ks=kickstart/kickstart.cfg
+    fi
+
     COMMON_ARGS="initrd=/initrd instdate=@$(date +%s) instw=60 instiso=instboot"
     COMMON_ARGS="${COMMON_ARGS} biosplusefi=1 instnet=0"
-    COMMON_ARGS="${COMMON_ARGS} ks=file:///kickstart/kickstart.cfg"
+    COMMON_ARGS="${COMMON_ARGS} ks=file:///${ks}"
     COMMON_ARGS="${COMMON_ARGS} rdinit=/install instname=debian instbr=starlingx instab=0"
     COMMON_ARGS="${COMMON_ARGS} insturl=file://NOT_SET prestage ip=${BOOT_IP_ARG}"
     COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instl=/ostree_repo instdev=${instdev}"
@@ -317,6 +329,7 @@ declare UPDATE_TIMEOUT="no"
 declare FORCE_INSTALL=
 declare PLATFORM_ROOT="opt/platform-backup"
 declare MD5_FILE="container-image.tar.gz.md5"
+declare KS_PATCH=false
 
 ###############################################################################
 # Get the command line arguments.
@@ -441,8 +454,8 @@ check_requirements
 check_required_param "--input" "${INPUT_ISO}"
 check_required_param "--output" "${OUTPUT_ISO}"
 
-check_files_exist ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON}
-check_files_size  ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON}
+check_files_exist ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
+check_files_size  ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
 
 if [[ -e "${OUTPUT_ISO}" ]]; then
     log_fatal "${OUTPUT_ISO} exists. Delete before you execute this script."
@@ -502,6 +515,14 @@ for IMAGE in ${IMAGES[@]}; do
     copy_to_iso "${IMAGE}" "${PLATFORM_PATH}/" "${PLATFORM_PATH}/${MD5_FILE}"
 done
 
+KICKSTART_PATCH_DIR="kickstart_patch"
+mkdir_on_iso "${KICKSTART_PATCH_DIR}"
+for PATCH in ${KICKSTART_PATCHES[@]}; do
+    log "Found kickstart patch"
+    copy_to_iso "${PATCH}" "${KICKSTART_PATCH_DIR}"
+    KS_PATCH="true"
+done
+
 # generate the grub and isolinux cmd line parameters
 
 generate_boot_cfg "${BUILDDIR}"
@@ -529,3 +550,4 @@ mkisofs -o "${OUTPUT_ISO}" \
 
 isohybrid --uefi "${OUTPUT_ISO}"
 
+log "Prestage ISO created successfully"
