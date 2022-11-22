@@ -244,6 +244,8 @@ function generate_boot_cfg {
     COMMON_ARGS="${COMMON_ARGS} rdinit=/install instname=debian instbr=starlingx instab=0"
     COMMON_ARGS="${COMMON_ARGS} insturl=file://NOT_SET prestage ip=${BOOT_IP_ARG}"
     COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instl=/ostree_repo instdev=${instdev}"
+    COMMON_ARGS="${COMMON_ARGS} inst_ostree_root=/dev/mapper/cgts--vg-root--lv"
+    COMMON_ARGS="${COMMON_ARGS} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
     COMMON_ARGS="${COMMON_ARGS} defaultkernel=vmlinuz*[!t]-amd64"
 
     if [[ -n "${FORCE_INSTALL}" ]]; then
