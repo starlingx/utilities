@@ -290,6 +290,12 @@ done
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
 search --no-floppy --set=root -l 'instboot'
+set color_normal='light-gray/black'
+set color_highlight='light-green/blue'
+
+menuentry 'Debian Local Install : Select kernel options and boot kernel' --id=title {
+    set fallback=1
+}
 
 menuentry 'Serial Console' --id=serial {
     linux /bzImage-std ${COMMON_ARGS} traits=controller console=ttyS0,115200 serial
