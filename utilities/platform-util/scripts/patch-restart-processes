@@ -260,6 +260,9 @@ do
       "registry-token-server")
          process_list=(${process_list[@]} "sm:registry-token-server:registry-token-server:controller:/var/run/registry-token-server.pid:0")
          ;;
+      "dockerd")
+         process_list=(${process_list[@]} "pmon:dockerd:docker:all:/var/run/dockerd.pid:0")
+         ;;
 
       *)
          echo "Unknown process:${process}"
