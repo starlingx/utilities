@@ -13,8 +13,10 @@ override_dh_auto_install:
 
 	install -m 755 -d $(SYSCONFDIR)/collect.d
 	install -m 755 -d $(SYSCONFDIR)/collect
+	install -m 755 -d $(SYSCONFDIR)/collect/plugins # Report Tool
 	install -m 755 -d $(ROOT)/usr/local/sbin
 	install -m 755 -d $(ROOT)/usr/local/bin
+	install -m 755 -d $(ROOT)/usr/local/bin/report/tool # Report Tool
 	install -m 755 -d $(SBINDIR)
 
 	install -m 755 -p collect $(ROOT)/usr/local/sbin/collect
@@ -25,6 +27,24 @@ override_dh_auto_install:
 	install -m 755 -p collect_mask_passwords $(ROOT)/usr/local/sbin/collect_mask_passwords
 	install -m 755 -p expect_done $(ROOT)/usr/local/sbin/expect_done
 	install -m 755 -p mariadb-cli.sh $(ROOT)/usr/local/sbin/mariadb-cli
+
+    # Report Tool
+	install -m 755 -p report/report.py $(ROOT)/usr/local/bin/report/tool/report.py
+	install -m 755 -p report/execution_engine.py $(ROOT)/usr/local/bin/report/tool/execution_engine.py
+	install -m 755 -p report/algorithms.py $(ROOT)/usr/local/bin/report/tool/algorithms.py
+	install -m 755 -p report/plugin.py $(ROOT)/usr/local/bin/report/tool/plugin.py
+	install -m 755 -p report/correlator.py $(ROOT)/usr/local/bin/report/tool/correlator.py
+	install -m 755 -p report/README $(ROOT)/usr/local/bin/report/tool/README
+	install -m 755 -p report/plugins/alarm $(SYSCONFDIR)/collect/plugins/alarm
+	install -m 755 -p report/plugins/daemon_failures $(SYSCONFDIR)/collect/plugins/daemon_failures
+	install -m 755 -p report/plugins/heartbeat_loss $(SYSCONFDIR)/collect/plugins/heartbeat_loss
+	install -m 755 -p report/plugins/maintenance_errors $(SYSCONFDIR)/collect/plugins/maintenance_errors
+	install -m 755 -p report/plugins/process_failures $(SYSCONFDIR)/collect/plugins/process_failures
+	install -m 755 -p report/plugins/puppet_errors $(SYSCONFDIR)/collect/plugins/puppet_errors
+	install -m 755 -p report/plugins/state_changes $(SYSCONFDIR)/collect/plugins/state_changes
+	install -m 755 -p report/plugins/substring $(SYSCONFDIR)/collect/plugins/substring
+	install -m 755 -p report/plugins/swact_activity $(SYSCONFDIR)/collect/plugins/swact_activity
+	install -m 755 -p report/plugins/system_info $(SYSCONFDIR)/collect/plugins/system_info
 
 	install -m 755 -p collect_sysinv.sh $(SYSCONFDIR)/collect.d/collect_sysinv
 	install -m 755 -p collect_psqldb.sh $(SYSCONFDIR)/collect.d/collect_psqldb

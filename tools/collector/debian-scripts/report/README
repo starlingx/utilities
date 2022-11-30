@@ -1,0 +1,81 @@
+Refer to report.py file header for a description of the tool
+
+Example:
+
+Consider the following collect bundle structure
+
+SELECT_NODES_20220527.193605
+├── controller-0_20220527.193605
+│   ├── etc
+│   ├── root
+│   └── var
+├── controller-1_20220527.193605
+│   ├── etc
+│   ├── root
+│   └── var
+├── report
+    ├── plugins   (where the plugin files will be placed)
+    │   ├── alarm
+    │   ├── substring
+    │   └── ...
+    ├── tool      (where the tool will be placed)
+    └── output    (where the output files will be placed)
+
+
+> cat plugins/alarm
+
+algorithm=alarm
+alarm_exclude=400., 800.
+entity_exclude=subsystem=vim
+
+> cat plugins/substring
+
+algorithm=substring
+files=var/log/mtcAgent.log, var/log/sm.log
+hosts=controllers
+substring=operation failed
+substring=Failed to send message
+
+> report/tool/report.py --start 20220501 --end 20220530
+
+Running the command above will populate the report folder with output files.
+The tool also provides default values, more details are in 'report.py -h'.
+
+The substring algorithm creates an output file for every host of the
+specified host type. The files will contain log events within the
+provided date range containing the substring 'operation failed' and 'Failed
+to send message'.
+
+The alarm algorithm creates two output file: 'log' and 'alarm'
+'log' contains customer log messages created within the provided date range,
+and 'alarm' contains system alarms created within the provided date range, as
+long as the alarm ids and entity ids are not included in the alarm plugin file.
+
+For more detailed information about an algorithm use 'report.py <algorithm> -h'.
+
+Here is the report directory after running the above command
+
+report
+├── output
+│   └── SELECT_NODES_20220527.193605 (collect bundle that the report tool was run on)
+│       ├── plugins      (output files for plugins)
+│       │   ├── alarm
+│       │   └── ...
+│       ├── correlator_failures
+│       ├── correlator_events
+│       ├── correlator_state_changes
+│       ├── report.log   (log file for report tool)
+│       └── untar.log    (log file for untarring collect bundle and host tar files)
+├── plugins   (where the plugins files are)
+└── tool      (where the report tool is)
+
+The report tool also allows users to point it at any collect bundle and
+have it automatically extract the tarball and tar files for each host
+before running.
+
+> report/tool/report.py -d CGTS-19143
+
+Users may specify if they want the correlator to only find events
+and state changes for a specific host.
+
+> report/tool/report.py --hostname controller-0
