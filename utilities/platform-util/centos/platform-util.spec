@@ -61,10 +61,10 @@ install %{_buildsubdir}/scripts/tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/remotelogging_tc_setup.sh %{buildroot}%{local_bindir}
 install %{_buildsubdir}/scripts/connectivity_test %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/is-rootdisk-device.sh %{buildroot}%{local_bindir}
-install -m 555 %{_buildsubdir}/scripts/update-iso.sh %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/update-iso-centos.sh %{buildroot}%{local_bindir}/update-iso.sh
 install -m 555 %{_buildsubdir}/scripts/gen-bootloader-iso-centos.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/prepare-prestage-packages.sh %{buildroot}%{local_bindir}
-install -m 555 %{_buildsubdir}/scripts/stx-iso-utils.sh %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/stx-iso-utils-centos.sh %{buildroot}%{local_bindir}/stx-iso-utils.sh
 install -m 555 %{_buildsubdir}/scripts/show-certs.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/update_docker_registry_auth.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/change_system_private_registry.sh %{buildroot}%{local_bindir}
