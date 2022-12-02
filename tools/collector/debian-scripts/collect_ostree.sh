@@ -42,4 +42,14 @@ do
     ostree log ${OSTREE_REF} --repo=${feed_dir} >> ${LOGFILE}  2>>${COLLECT_ERROR_LOG}
 done
 
+###############################################################################
+# ostree repo summary for the feed ostrees
+###############################################################################
+
+for feed_dir in ${FEED_OSTREE_BASE_DIR}/*/ostree_repo
+do
+    delimiter ${LOGFILE} "ostree summary -v --repo=${feed_dir}"
+    ostree summary -v --repo=${feed_dir} >> ${LOGFILE}  2>>${COLLECT_ERROR_LOG}
+done
+
 exit 0
