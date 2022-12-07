@@ -24,6 +24,7 @@ from cephclient import exception
 CEPH_MON_RESTFUL_USER = 'admin'
 CEPH_MON_RESTFUL_SERVICE = 'restful'
 CEPH_CLIENT_RETRY_COUNT = 2
+CEPH_GET_SERVICE_RETRY_COUNT = 15
 CEPH_CLIENT_RETRY_TIMEOUT_SEC = 5
 CEPH_CLI_TIMEOUT_SEC = 15
 API_SUPPORTED_RESPONSE_FORMATS = [
@@ -84,20 +85,29 @@ class CephClient(object):
             raise exception.CephMonRestfulMissingUserCredentials(self.username)
 
     def _get_service_url(self):
+        attempts = 1
+        while attempts <= CEPH_GET_SERVICE_RETRY_COUNT:
+            try:
+                output = subprocess.check_output(
+                    ('ceph mgr services '
+                    '--connect-timeout {}').format(
+                        CEPH_CLI_TIMEOUT_SEC),
+                    shell=True)
+            except subprocess.CalledProcessError as e:
+                raise exception.CephMgrDumpError(str(e))
+            try:
+                status = json.loads(output)
+                if not status:
+                    LOG.info("Unable to get service url")
+                    time.sleep(CEPH_CLIENT_RETRY_TIMEOUT_SEC)
+                    attempts += 1
+                    continue
+            except (KeyError, ValueError):
+                raise exception.CephMgrJsonError(output)
+            LOG.info("Service url retrieved successfully")
+            break
         try:
-            output = subprocess.check_output(
-                ('ceph mgr dump '
-                 '--connect-timeout {}').format(
-                    CEPH_CLI_TIMEOUT_SEC),
-                shell=True)
-        except subprocess.CalledProcessError as e:
-            raise exception.CephMgrDumpError(str(e))
-        try:
-            status = json.loads(output)
-        except (KeyError, ValueError):
-            raise exception.CephMgrJsonError(output)
-        try:
-            self.service_url = status["services"][CEPH_MON_RESTFUL_SERVICE]
+            self.service_url = status[CEPH_MON_RESTFUL_SERVICE]
         except (KeyError, TypeError):
             raise exception.CephMgrMissingRestfulService(
                 status.get('services', ''))
