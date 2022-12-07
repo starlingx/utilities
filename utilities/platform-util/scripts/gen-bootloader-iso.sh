@@ -533,7 +533,7 @@ EOF
         cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
-search --no-floppy --set=root -l 'oe_iso_boot'
+search --no-floppy --set=root -l 'instboot'
 
 menuentry "${NODE_ID}" {
     echo " "
