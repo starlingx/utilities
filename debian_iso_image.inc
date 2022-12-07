@@ -10,9 +10,6 @@ ceph-manager
 #collector
 collector
 
-#debian-integration
-debian-integration
-
 #hostdata-collectors
 engtools
 

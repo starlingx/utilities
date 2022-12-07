@@ -1,7 +1,0 @@
-
-after_bootstrap_workarounds.sh usr/share/debian-integration
-before_bootstrap_workarounds.sh usr/share/debian-integration
-helm.py.patched  usr/share/debian-integration
-interfaces.vm.example usr/share/debian-integration
-README.md usr/share/debian-integration
-worker_reserved.conf  usr/share/debian-integration
