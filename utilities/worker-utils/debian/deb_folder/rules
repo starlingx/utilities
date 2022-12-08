@@ -14,7 +14,7 @@ override_dh_auto_install:
 	$(MAKE) BINDIR=$(ROOT)/usr/bin \
 			INITDDIR=$(ROOT)/etc/init.d \
 			GOENABLEDDIR=$(ROOT)/etc/goenabled.d \
-			PLATFORMCONFDIR=$(ROOT)/etc/platform \
+			PLATFORMCONFDIR=$(ROOT)/usr/share/worker-utils/config \
 			SYSTEMDDIR=$(ROOT)/lib/systemd/system install
 
 override_dh_installsystemd:
