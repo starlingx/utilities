@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2021 Wind River Systems, Inc.
+# Copyright (c) 2021-2022 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,12 +20,12 @@ function log_error {
 
 # Source shared utility functions
 DIR_NAME=$(dirname $0)
-if [ ! -f ${DIR_NAME}/stx-iso-utils.sh ]; then
-    log_error "Unable to find required utility: stx-iso-utils.sh"
+if [ ! -f ${DIR_NAME}/stx-iso-utils-centos.sh ]; then
+    log_error "Unable to find required utility: stx-iso-utils-centos.sh"
     exit 1
 fi
 
-source $(dirname $0)/stx-iso-utils.sh
+source $(dirname $0)/stx-iso-utils-centos.sh
 
 function usage {
     cat <<ENDUSAGE
