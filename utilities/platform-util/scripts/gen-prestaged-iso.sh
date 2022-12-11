@@ -312,6 +312,25 @@ EOF
     unmount_efiboot_img
 }
 
+function generate_ostree_checkum {
+    # Generate a directory-based md5 checksum across the ostree repo.
+    # This checksum is used to validate the ostree_repo before installation.
+    # We use a checksum instead of ostree fsck due to the length of time
+    # required for the fsck to complete.
+    local dest_dir=${1}
+    if [ ! -d "${dest_dir}" ]; then
+        log_fatal "generate_ostree_checkum: ${dest_dir} does not exist"
+    fi
+    (
+        # subshell:
+        log "Calculating new checksum for ostree_repo at ${dest_dir}"
+        cd "${dest_dir}" || log_fatal "generate_ostree_checkum: cd ${dest_dir} failed"
+        find ostree_repo -type f -exec md5sum {} + | LC_ALL=C sort | md5sum | awk '{ print $1; }' \
+            > .ostree_repo_checksum
+        log "ostree_repo checksum: $(cat .ostree_repo_checksum)"
+    )
+}
+
 # Constants
 DIR_NAME=$(dirname "$0")
 if [[ ! -e "${DIR_NAME}"/stx-iso-utils.sh ]]; then
@@ -509,6 +528,8 @@ if [[ "${rc}" -ne 0 ]]; then
     unmount_iso
     log_fatal "Unable to rsync content from the ISO: Error rc=${rc}"
 fi
+
+generate_ostree_checkum "${BUILDDIR}"
 
 unmount_iso
 
