@@ -2943,6 +2943,56 @@ collect_subclouds()
 
 ############################################################################
 #
+# Name      : get_report_tool
+#
+# Purpose   : Fetch report tool from current host
+#
+# Parameters: $1 - local path destination
+#
+############################################################################
+
+function get_report_tool()
+{
+    local local_dest=${1}
+
+    mkdir -p ${local_dest}
+    cp -r /usr/local/bin/report/tool ${local_dest}
+
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to get report tool from /usr/local/bin" ${rc}
+    else
+        ilog "copied report tool from host"
+    fi
+}
+
+############################################################################
+#
+# Name      : get_report_plugins
+#
+# Purpose   : Fetch plugins for report tool from current host
+#
+# Parameters: $1 - local path destination
+#
+############################################################################
+
+function get_report_plugins()
+{
+    local local_dest=${1}
+
+    mkdir -p ${local_dest}
+    cp -r /etc/collect/plugins ${local_dest}
+
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to get report plugins from /etc/collect" ${rc}
+    else
+        ilog "copied plugins for report tool from host"
+    fi
+}
+
+############################################################################
+#
 #         Handle subcloud and system hosts batched collect
 #
 ############################################################################
@@ -3031,6 +3081,17 @@ echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
 
 remove_file_local ${COLLECT_ERROR_LOG}
 remove_file_local ${HOST_COLLECT_ERROR_LOG}
+get_report_tool ${COLLECT_DIR}/report
+get_report_plugins ${COLLECT_DIR}/report
+
+cd ${COLLECT_DIR}
+tar -czf report_tool.tgz report
+rc=${?}
+if [ ${rc} -ne ${PASS} ] ; then
+    report_error "failed to tar report tool" ${rc}
+else
+    rm -r report
+fi
 
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}

@@ -40,8 +40,8 @@ class Plugin:
             "files": [],
             "hosts": [],
             "substring": [],
-            "alarm_ids": [],
-            "entity_ids": [],
+            "alarm_exclude": [],
+            "entity_exclude": [],
             "start": None,
             "end": None,
         }
@@ -93,10 +93,11 @@ class Plugin:
                 self.state["substring"].append(data[1])
             elif label == "hosts":
                 self.state["hosts"] = value.replace(" ", "").split(",")
-            elif label == "alarm_ids":
-                self.state["alarm_ids"] = value.replace(" ", "").split(",")
-            elif label == "entity_ids":
-                self.state["entity_ids"] = value.replace(" ", "").split(",")
+            elif label == "alarm_exclude":
+                self.state["alarm_exclude"] = value.replace(" ", "").split(",")
+            elif label == "entity_exclude":
+                self.state["entity_exclude"] = value.replace(
+                    " ", "").split(",")
             elif label == "files":
                 self.state["files"] = value.replace(" ", "").split(",")
             elif label == "start":
@@ -117,74 +118,77 @@ class Plugin:
         """
 
         plugin_name = os.path.basename(self.file)
+        HOSTS_ERR = f"plugin: {plugin_name} should not have hosts specified"
 
         if self.state["algorithm"] == algorithms.SUBSTRING:
-            if len(self.state["files"]) == 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} needs files specified for substring algorithm"
-                )
-            if len(self.state["hosts"]) == 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} needs hosts specified for substring algorithm"
-                )
-            if len(self.state["substring"]) == 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} need substring specified for substring algorithm"
-                )
+            self.validate_state(plugin_name, "files")
+            self.validate_state(plugin_name, "hosts")
+            self.validate_state(plugin_name, "substring")
         elif self.state["algorithm"] == algorithms.ALARM:
             if len(self.state["hosts"]) > 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} should not have hosts to be specified"
-                )
+                raise ValueError(HOSTS_ERR)
         elif self.state["algorithm"] == algorithms.SYSTEM_INFO:
             if len(self.state["hosts"]) > 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} should not have hosts to be specified"
-                )
-        elif self.state["algorithm"] == algorithms.SWACT:
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.SWACT_ACTIVITY:
             if len(self.state["hosts"]) > 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} should not have hosts to be specified"
-                )
-        elif self.state["algorithm"] == algorithms.PUPPET:
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.PUPPET_ERRORS:
             if len(self.state["hosts"]) > 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} should not have hosts to be specified"
-                )
-        elif self.state["algorithm"] == algorithms.PROCESS_FAILURE:
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.PROCESS_FAILURES:
             if len(self.state["hosts"]) > 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} should not have hosts to be specified"
-                )
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.HEARTBEAT_LOSS:
+            if len(self.state["hosts"]) > 0:
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.MAINTENANCE_ERR:
+            if len(self.state["hosts"]) > 0:
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.DAEMON_FAILURES:
+            if len(self.state["hosts"]) > 0:
+                raise ValueError(HOSTS_ERR)
+        elif self.state["algorithm"] == algorithms.STATE_CHANGES:
+            if len(self.state["hosts"]) > 0:
+                raise ValueError(HOSTS_ERR)
         elif self.state["algorithm"] == algorithms.AUDIT:
             if len(self.state["hosts"]) > 0:
-                raise ValueError(
-                    f"plugin: {plugin_name} should not have hosts to be specified"
-                )
+                raise ValueError(HOSTS_ERR)
 
             try:
                 datetime.strptime(self.state["start"], "%Y-%m-%d %H:%M:%S")
             except:
                 raise ValueError(
-                    f"plugin : {plugin_name} needs a start time in YYYY-MM-DD HH:MM:SS format"
+                    f"plugin : {plugin_name} needs a start time in YYYY-MM-DD "
+                    f"HH:MM:SS format"
                 )
 
             try:
                 datetime.strptime(self.state["end"], "%Y-%m-%d %H:%M:%S")
             except:
                 raise ValueError(
-                    f"plugin : {plugin_name} needs an end time in YYYY-MM-DD HH:MM:SS format"
+                    f"plugin : {plugin_name} needs an end time in YYYY-MM-DD "
+                    f"HH:MM:SS format"
                 )
         else:
             raise ValueError(
-                f"plugin: {plugin_name} unknown algorithm {self.state['algorithm']}"
+                f"plugin: {plugin_name} unknown algorithm "
+                f"{self.state['algorithm']}"
             )
 
         for host in self.state["hosts"]:
             if host not in ["controllers", "workers", "storages", "all"]:
                 raise ValueError(
-                    f"host not recognized: '{host}', accepted hosts are 'controllers', 'workers', 'storages', 'all'"
+                    f"host not recognized: '{host}', accepted hosts are "
+                    f"'controllers', 'workers', 'storages', 'all'"
                 )
+
+    def validate_state(self, plugin_name, key):
+        if len(self.state[key]) == 0:
+            raise ValueError(
+                f"plugin: {plugin_name} needs {key} specified for "
+                f"substring algorithm"
+            )
 
     def __str__(self) -> str:
         return f"{json.dumps(self.state)} File: {self.file}"

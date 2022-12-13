@@ -1,0 +1,3 @@
+algorithm=alarm
+alarm_exclude=400., 800.
+entity_exclude=subsystem=vim
