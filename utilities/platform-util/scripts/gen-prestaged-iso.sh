@@ -327,13 +327,18 @@ declare -a IMAGES
 declare ORIG_PWD=$PWD
 declare KS_SETUP=
 declare KS_ADDON=
+declare UPDATE_TIMEOUT="no"
+declare -i FOREVER_GRUB_TIMEOUT=-1
+declare -i DEFAULT_GRUB_TIMEOUT=30
+declare -i DEFAULT_TIMEOUT=(DEFAULT_GRUB_TIMEOUT*10)
+declare -i TIMEOUT=${DEFAULT_TIMEOUT}
+declare -i GRUB_TIMEOUT=${DEFAULT_GRUB_TIMEOUT}
 declare -a PARAMS
 declare -a PATCHES
 declare -a KICKSTART_PATCHES
 declare DEFAULT_LABEL=0
 declare DEFAULT_SYSLINUX_ENTRY=1
 declare DEFAULT_GRUB_ENTRY="graphical"
-declare UPDATE_TIMEOUT="no"
 declare FORCE_INSTALL=
 declare PLATFORM_ROOT="opt/platform-backup"
 declare MD5_FILE="container-image.tar.gz.md5"
