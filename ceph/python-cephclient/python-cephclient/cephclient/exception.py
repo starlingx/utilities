@@ -99,3 +99,6 @@ class CephClientNoSuchUser(CephClientException):
 
 class CephClientIncorrectPassword(CephClientException):
     message = ("Incorrect password for user '{user}'.")
+
+class CephCliTimeoutExpired(CephClientException):
+    message = "Timeout was reached while executing the command. {}"
