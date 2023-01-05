@@ -161,7 +161,8 @@ def check_available_space(path):
             "free_space": free,
         }
         LOG.info(
-            f'Space info for {path}: Total - {total} bytes | Used - {used} bytes ({"%.2f" % ((used * 100) / total)} %) | '
+            f'Space info for {path}: Total - {total} bytes | '
+            f'Used - {used} bytes ({"%.2f" % ((used * 100) / total)} %) | '
             f'Free - {free} bytes ({"%.2f" % ((free * 100) / total)} %)')
         return space_info
     except FileNotFoundError as e:
@@ -237,7 +238,7 @@ def write_coredump_file(pid, corefile, annotations_config):
              f'Size limit? {size_limit_in_bytes if size_limit_in_bytes > 0 else "No size limit"} |'
              f'Buffer read size = {buffer_read_size}')
 
-    with nsenter.Namespace(pid, 'mnt') as ns:
+    with nsenter.Namespace(pid, 'mnt'):
         LOG.info(f'Entered namespace for pid = {pid}')
         try:
             with io.open(corefile, "wb") as f:
@@ -298,7 +299,7 @@ def get_file_size_limit(corefile, annotations_config, pid):
     Value of the calculated size limit or 0 if no limit is set.
     """
     # Enter namespace to check size inside the container
-    with nsenter.Namespace(pid, 'mnt') as ns:
+    with nsenter.Namespace(pid, 'mnt'):
         # Set starting information
         core_path = os.path.dirname(corefile)
         space_info = check_available_space(core_path)
@@ -316,21 +317,24 @@ def get_file_size_limit(corefile, annotations_config, pid):
     if annotations_config['file_size_config']:
         file_size_config = parse_size_config(annotations_config['file_size_config'])
         if not file_size_config:
-            LOG.error("Invalid starlingx.io/core_max_size configuration: {}".format(annotations_config['file_size_config']))
+            LOG.error("Invalid starlingx.io/core_max_size configuration: {}".format(
+                annotations_config['file_size_config']))
             sys.exit(-1)
         has_max_file_config = True
 
     if annotations_config['max_use_config']:
         max_use_config = parse_size_config(annotations_config['max_use_config'])
         if not max_use_config:
-            LOG.error("Invalid starlingx.io/core_max_used configuration: {}".format(annotations_config['max_use_config']))
+            LOG.error("Invalid starlingx.io/core_max_used configuration: {}".format(
+                annotations_config['max_use_config']))
             sys.exit(-1)
         has_max_use_config = True
 
     if annotations_config['keep_free_config']:
         keep_free_config = parse_size_config(annotations_config['keep_free_config'])
         if not keep_free_config:
-            LOG.error("Invalid starlingx.io/core_min_free configuration: {}".format(annotations_config['keep_free_config']))
+            LOG.error("Invalid starlingx.io/core_min_free configuration: {}".format(
+                annotations_config['keep_free_config']))
             sys.exit(-1)
         has_keep_free_config = True
 

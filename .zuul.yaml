@@ -11,6 +11,7 @@
         - stx-utilities-pci-irq-affinity-agent-tox-py27
         - stx-utilities-pci-irq-affinity-agent-tox-py39
         - stx-utilities-pci-irq-affinity-agent-tox-pep8
+        - stx-utilities-k8s-coredump-tox-py39
     gate:
       jobs:
         - stx-utilities-tox-linters
@@ -22,6 +23,7 @@
         - stx-utilities-pci-irq-affinity-agent-tox-py27
         - stx-utilities-pci-irq-affinity-agent-tox-py39
         - stx-utilities-pci-irq-affinity-agent-tox-pep8
+        - stx-utilities-k8s-coredump-tox-py39
     post:
       jobs:
         - stx-utilities-upload-git-mirror
@@ -135,6 +137,17 @@
     vars:
       tox_envlist: pep8
       tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
+
+- job:
+    name: stx-utilities-k8s-coredump-tox-py39
+    parent: tox-py39
+    description: Run py39 tests for k8s-coredump
+    nodeset: debian-bullseye
+    files:
+      - utilities/k8s-coredump/k8s-coredump/*
+    vars:
+      tox_envlist: py39
+      tox_extra_args: -c utilities/k8s-coredump/k8s-coredump/tox.ini
 
 - secret:
     name: stx-utilities-github-secret
