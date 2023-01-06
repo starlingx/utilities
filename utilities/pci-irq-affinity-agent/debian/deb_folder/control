@@ -1,0 +1,21 @@
+Source: pci-irq-affinity-agent
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13),
+ dh-python,
+ python3-all,
+ python3-setuptools,
+ python3-systemd,
+ python3-wheel
+Standards-Version: 4.5.1
+Homepage: https://www.starlingx.io
+
+Package: pci-irq-affinity-agent-wheels
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+ python3-wheel
+Description: StarlingX PCI Interrupt Affinity Agent Wheels
+ Contains python wheels for pci-irq-affinity-agent.

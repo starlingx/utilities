@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+# export DH_VERBOSE=1
+
+export PYBUILD_NAME=pci-irq-affinity-agent
+export ROOT=debian/tmp
+
+export DATA_DIR=$(ROOT)/usr/share
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_install:
+	python3 setup.py bdist_wheel --universal -d $(DATA_DIR)/python-wheels
+
+	dh_install
+
+override_dh_python3:
+	dh_python3 --shebang=/usr/bin/python3
