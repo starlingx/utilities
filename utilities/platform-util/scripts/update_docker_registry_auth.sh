@@ -1,6 +1,6 @@
 #!/bin/bash -e
 #
-# Copyright (c) 2021-2022 Wind River Systems, Inc.
+# Copyright (c) 2021-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -42,7 +42,7 @@ fi
 # Constant variables
 NEW_CREDS="username:${usr} password:${pw}"
 REGISTRY_LIST="docker-registry quay-registry elastic-registry gcr-registry \
-k8s-registry ghcr-registry"
+k8s-registry ghcr-registry registryk8s-registry"
 CENTRAL_REGISTRY_URL="registry.central"
 
 echo
