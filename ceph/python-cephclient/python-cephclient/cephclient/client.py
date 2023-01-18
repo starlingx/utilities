@@ -69,12 +69,13 @@ class CephClient(object):
     def _get_password(self):
         try:
             output = subprocess.check_output(
-                ('ceph restful list-keys '
-                 '--connect-timeout {}').format(
-                    CEPH_CLI_TIMEOUT_SEC),
+                'ceph restful list-keys',
+                timeout=CEPH_CLI_TIMEOUT_SEC,
                 shell=True)
         except subprocess.CalledProcessError as e:
             raise exception.CephMonRestfulListKeysError(str(e))
+        except subprocess.TimeoutExpired as e:
+            raise exception.CephCliTimeoutExpired(str(e))
         try:
             keys = json.loads(output)
         except (KeyError, ValueError):
@@ -89,12 +90,13 @@ class CephClient(object):
         while attempts <= CEPH_GET_SERVICE_RETRY_COUNT:
             try:
                 output = subprocess.check_output(
-                    ('ceph mgr services '
-                    '--connect-timeout {}').format(
-                        CEPH_CLI_TIMEOUT_SEC),
+                    'ceph mgr services',
+                    timeout=CEPH_CLI_TIMEOUT_SEC,
                     shell=True)
             except subprocess.CalledProcessError as e:
                 raise exception.CephMgrDumpError(str(e))
+            except subprocess.TimeoutExpired as e:
+                raise exception.CephCliTimeoutExpired(str(e))
             try:
                 status = json.loads(output)
                 if not status:
@@ -115,12 +117,13 @@ class CephClient(object):
     def _get_service_hostname(self):
         try:
             output = subprocess.check_output(
-                ('ceph mgr metadata '
-                 '--connect-timeout {}').format(
-                    CEPH_CLI_TIMEOUT_SEC),
+                'ceph mgr metadata',
+                timeout=CEPH_CLI_TIMEOUT_SEC,
                 shell=True)
         except subprocess.CalledProcessError as e:
             raise exception.CephMgrDumpError(str(e))
+        except subprocess.TimeoutExpired as e:
+            raise exception.CephCliTimeoutExpired(str(e))
         try:
             status = json.loads(output)
         except (KeyError, ValueError):
@@ -133,12 +136,11 @@ class CephClient(object):
         try:
             certificate = subprocess.check_output(
                 ('ceph config-key get '
-                 '--connect-timeout {} '
                  'mgr/restful/{}/crt').format(
-                     CEPH_CLI_TIMEOUT_SEC,
                      hostname),
+                timeout=CEPH_CLI_TIMEOUT_SEC,
                 shell=True)
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return
         with tempfile.NamedTemporaryFile(delete=False) as self.cert_file:
             self.cert_file.write(certificate)
