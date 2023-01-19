@@ -42,7 +42,7 @@ fi
 # Constant variables
 NEW_CREDS="username:${usr} password:${pw}"
 REGISTRY_LIST="docker-registry quay-registry elastic-registry gcr-registry \
-k8s-registry ghcr-registry registryk8s-registry"
+k8s-registry ghcr-registry registryk8s-registry icr-registry"
 CENTRAL_REGISTRY_URL="registry.central"
 
 echo
