@@ -22,12 +22,12 @@
 # $4 - registry password (optional)
 #
 # This script manipulates the parameters 'url', 'type' and 'auth-secret'
-# of docker service.Each one of these three parameters may exist inside 
-# the docker service sections docker-registry, elastic-registry, 
-# gcr-registry, ghcr-registry, k8s-registry, quay-registry and
-# registryk8s-registry so 19 parameters are manipulated in total.
-# Each section of service docker is referred also as registry in this
-# script.
+# of docker service.Each one of these three parameters may exist inside
+# the docker service sections docker-registry, elastic-registry,
+# gcr-registry, ghcr-registry, k8s-registry, quay-registry,
+# registryk8s-registry and icr.io so 24 parameters are manipulated in
+# total.Each section of service docker is referred also as registry in
+# this script.
 
 if (( $# != 2 && $# != 4 )); then
     echo "The format of the command: $0 registry_base_url registry_type [registry_username] [registry_password]"
@@ -54,6 +54,7 @@ REGISTRY_DICT['ghcr-registry']='ghcr.io'
 REGISTRY_DICT['k8s-registry']='k8s.gcr.io'
 REGISTRY_DICT['quay-registry']='quay.io'
 REGISTRY_DICT['registryk8s-registry']='registry.k8s.io'
+REGISTRY_DICT['icr-registry']='icr.io'
 
 source /etc/platform/openrc
 
