@@ -103,7 +103,7 @@ def parse_size_config(string_config):
     if match:
         value = match.group(1)
         size_type_str = match.group(2)
-        size_properties = file_size_properties[size_type_str]
+        size_properties = file_size_properties[size_type_str.lower()]
         LOG.info(f'Size config parsed to {value} {size_properties["size"]} '
                  f'(Multiplier of bytes: {size_properties["multiplier"]})')
         return float(value), size_properties
