@@ -1,0 +1,5 @@
+algorithm=substring
+files=var/log/mtcClient.log, var/log/pmond.log, var/log/lmond.log, var/log/hbsClient.log
+hosts=all
+substring=FAILED
+substring=Error:

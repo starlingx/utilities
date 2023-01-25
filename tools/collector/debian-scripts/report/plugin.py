@@ -14,7 +14,6 @@
 #
 ########################################################################
 
-
 from datetime import datetime
 import json
 import logging
@@ -157,19 +156,18 @@ class Plugin:
 
             try:
                 datetime.strptime(self.state["start"], "%Y-%m-%d %H:%M:%S")
-            except:
-                raise ValueError(
-                    f"plugin : {plugin_name} needs a start time in YYYY-MM-DD "
-                    f"HH:MM:SS format"
-                )
+            except ValueError as e:
+                logger.error(
+                    "plugin : %s needs a valid start time in YYYY-MM-DD \
+                     HH:MM:SS format", plugin_name)
 
             try:
                 datetime.strptime(self.state["end"], "%Y-%m-%d %H:%M:%S")
-            except:
-                raise ValueError(
-                    f"plugin : {plugin_name} needs an end time in YYYY-MM-DD "
-                    f"HH:MM:SS format"
-                )
+            except ValueError as e:
+                logger.error(
+                    "plugin : %s needs a valid end time in YYYY-MM-DD \
+                     HH:MM:SS format", plugin_name)
+
         else:
             raise ValueError(
                 f"plugin: {plugin_name} unknown algorithm "

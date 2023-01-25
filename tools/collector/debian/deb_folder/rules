@@ -13,10 +13,12 @@ override_dh_auto_install:
 
 	install -m 755 -d $(SYSCONFDIR)/collect.d
 	install -m 755 -d $(SYSCONFDIR)/collect
-	install -m 755 -d $(SYSCONFDIR)/collect/plugins # Report Tool
+	install -m 755 -d $(SYSCONFDIR)/collect/plugins
 	install -m 755 -d $(ROOT)/usr/local/sbin
 	install -m 755 -d $(ROOT)/usr/local/bin
-	install -m 755 -d $(ROOT)/usr/local/bin/report/tool # Report Tool
+	install -m 755 -d $(ROOT)/usr/local/bin/report
+	install -m 755 -d $(ROOT)/usr/local/bin/report/plugins
+	install -m 755 -d $(ROOT)/usr/local/bin/report/plugin_algs
 	install -m 755 -d $(SBINDIR)
 
 	install -m 755 -p collect $(ROOT)/usr/local/sbin/collect
@@ -29,23 +31,40 @@ override_dh_auto_install:
 	install -m 755 -p mariadb-cli.sh $(ROOT)/usr/local/sbin/mariadb-cli
 
     # Report Tool
-	install -m 755 -p report/report.py $(ROOT)/usr/local/bin/report/tool/report.py
-	install -m 755 -p report/execution_engine.py $(ROOT)/usr/local/bin/report/tool/execution_engine.py
-	install -m 755 -p report/algorithms.py $(ROOT)/usr/local/bin/report/tool/algorithms.py
-	install -m 755 -p report/plugin.py $(ROOT)/usr/local/bin/report/tool/plugin.py
-	install -m 755 -p report/correlator.py $(ROOT)/usr/local/bin/report/tool/correlator.py
-	install -m 755 -p report/README $(ROOT)/usr/local/bin/report/tool/README
-	install -m 755 -p report/plugins/alarm $(SYSCONFDIR)/collect/plugins/alarm
-	install -m 755 -p report/plugins/daemon_failures $(SYSCONFDIR)/collect/plugins/daemon_failures
-	install -m 755 -p report/plugins/heartbeat_loss $(SYSCONFDIR)/collect/plugins/heartbeat_loss
-	install -m 755 -p report/plugins/maintenance_errors $(SYSCONFDIR)/collect/plugins/maintenance_errors
-	install -m 755 -p report/plugins/process_failures $(SYSCONFDIR)/collect/plugins/process_failures
-	install -m 755 -p report/plugins/puppet_errors $(SYSCONFDIR)/collect/plugins/puppet_errors
-	install -m 755 -p report/plugins/state_changes $(SYSCONFDIR)/collect/plugins/state_changes
-	install -m 755 -p report/plugins/substring $(SYSCONFDIR)/collect/plugins/substring
-	install -m 755 -p report/plugins/swact_activity $(SYSCONFDIR)/collect/plugins/swact_activity
-	install -m 755 -p report/plugins/system_info $(SYSCONFDIR)/collect/plugins/system_info
+	install -m 755 -p report/report.py $(ROOT)/usr/local/bin/report/report.py
+	install -m 755 -p report/execution_engine.py $(ROOT)/usr/local/bin/report/execution_engine.py
+	install -m 755 -p report/algorithms.py $(ROOT)/usr/local/bin/report/algorithms.py
+	install -m 755 -p report/plugin.py $(ROOT)/usr/local/bin/report/plugin.py
+	install -m 755 -p report/correlator.py $(ROOT)/usr/local/bin/report/correlator.py
+	install -m 755 -p report/README $(ROOT)/usr/local/bin/report/README
 
+    # Report Tool Plugin Algorithms
+	install -m 755 -p report/plugin_algs/alarm.py $(ROOT)/usr/local/bin/report/plugin_algs/alarm.py
+	install -m 755 -p report/plugin_algs/audit.py $(ROOT)/usr/local/bin/report/plugin_algs/audit.py
+	install -m 755 -p report/plugin_algs/daemon_failures.py $(ROOT)/usr/local/bin/report/plugin_algs/daemon_failures.py
+	install -m 755 -p report/plugin_algs/heartbeat_loss.py $(ROOT)/usr/local/bin/report/plugin_algs/heartbeat_loss.py
+	install -m 755 -p report/plugin_algs/maintenance_errors.py $(ROOT)/usr/local/bin/report/plugin_algs/maintenance_errors.py
+	install -m 755 -p report/plugin_algs/process_failures.py $(ROOT)/usr/local/bin/report/plugin_algs/process_failures.py
+	install -m 755 -p report/plugin_algs/puppet_errors.py $(ROOT)/usr/local/bin/report/plugin_algs/puppet_errors.py
+	install -m 755 -p report/plugin_algs/state_changes.py $(ROOT)/usr/local/bin/report/plugin_algs/state_changes.py
+	install -m 755 -p report/plugin_algs/substring.py $(ROOT)/usr/local/bin/report/plugin_algs/substring.py
+	install -m 755 -p report/plugin_algs/swact_activity.py $(ROOT)/usr/local/bin/report/plugin_algs/swact_activity.py
+	install -m 755 -p report/plugin_algs/system_info.py $(ROOT)/usr/local/bin/report/plugin_algs/system_info.py
+
+    # Report Tool Plugins
+	install -m 755 -p report/plugins/alarm $(ROOT)/usr/local/bin/report/plugins/alarm
+	install -m 755 -p report/plugins/daemon_failures $(ROOT)/usr/local/bin/report/plugins/daemon_failures
+	install -m 755 -p report/plugins/heartbeat_loss $(ROOT)/usr/local/bin/report/plugins/heartbeat_loss
+	install -m 755 -p report/plugins/maintenance_errors $(ROOT)/usr/local/bin/report/plugins/maintenance_errors
+	install -m 755 -p report/plugins/process_failures $(ROOT)/usr/local/bin/report/plugins/process_failures
+	install -m 755 -p report/plugins/puppet_errors $(ROOT)/usr/local/bin/report/plugins/puppet_errors
+	install -m 755 -p report/plugins/state_changes $(ROOT)/usr/local/bin/report/plugins/state_changes
+	install -m 755 -p report/plugins/substring $(ROOT)/usr/local/bin/report/plugins/substring
+	install -m 755 -p report/plugins/swact_activity $(ROOT)/usr/local/bin/report/plugins/swact_activity
+	install -m 755 -p report/plugins/system_info $(ROOT)/usr/local/bin/report/plugins/system_info
+	install -m 755 -p report/plugins/substring_hosts $(SYSCONFDIR)/collect/plugins/substring_hosts
+
+    # Collect Plugins
 	install -m 755 -p collect_sysinv.sh $(SYSCONFDIR)/collect.d/collect_sysinv
 	install -m 755 -p collect_psqldb.sh $(SYSCONFDIR)/collect.d/collect_psqldb
 	install -m 755 -p collect_mariadb.sh $(SYSCONFDIR)/collect.d/collect_mariadb
