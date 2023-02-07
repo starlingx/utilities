@@ -768,6 +768,23 @@ while [[ ${#} -gt 0 ]] ; do
 done
 
 
+date -d $STARTDATE > /dev/null 2>/dev/null
+rc_start_date=${?}
+date -d $ENDDATE > /dev/null 2>/dev/null
+rc_end_date=${?}
+
+if [ $rc_start_date != 0 -a "$STARTDATE" != "any" ] ; then
+    report_error "the start date is invalid" ${FAIL_INVALID_START_DATE}
+    collect_exit ${FAIL_INVALID_START_DATE}
+elif [ $rc_end_date != 0 -a "$ENDDATE" != "any" ] ; then
+    report_error "the end date is invalid" ${FAIL_INVALID_END_DATE}
+    collect_exit ${FAIL_INVALID_END_DATE}
+elif (( STARTDATE > ENDDATE )) && [ "$STARTDATE" != "any" -a "$ENDDATE" != "any" ] ; then
+    report_error "the start date is greater than the end date" ${FAIL_INVALID_DATE_RANGE}
+    collect_exit ${FAIL_INVALID_DATE_RANGE}
+fi
+
+
 # startup state debug logs
 dlog "${TOOL_NAME} ver ${TOOL_REV}.${TOOL_REV} (pid:$$)"
 dlog "USERNAME  = ${USER}"
