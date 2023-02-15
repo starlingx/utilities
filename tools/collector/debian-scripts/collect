@@ -736,7 +736,6 @@ while [[ ${#} -gt 0 ]] ; do
 
         --skip-mask)
         SKIP_MASK=true
-        shift
         ;;
 
         -in|--inline)
