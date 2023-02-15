@@ -342,6 +342,11 @@ function print_help()
     echo " collect -a -sc [--inline | -in]                ... collect logs for all subclouds one after the other"
     echo " collect --subcloud --continue                  ... continue a suspended subcloud collect"
     echo ""
+    echo "Collect Timeout"
+    echo ""
+    echo "collect [--timeout | -t] <minutes>              ... collect with user specified timeout"
+    echo "                                                    valid change range is 10-120 minutes"
+    echo "                                                    default: 20 mins"
     echo "Dated Collect:"
     echo ""
     echo "collect [--start-date | -s] YYYYMMDD            ... collection of logs on and  after this date"
@@ -415,10 +420,16 @@ COLLECT_CONTINUE_MSG_NEEDED=false
 SUBCLOUD_COLLECT_CONTINUE=false
 SUBCLOUD_COLLECT_CONTINUE_LIST_FILE="/tmp/collect_continue.lst"
 
+declare -i TIMEOUT_MIN_MINS=10
+declare -i TIMEOUT_MAX_MINS=120
+declare -i TIMEOUT_DEF_MINS=20
+declare -i TIMEOUT_MIN_SECS=$(($TIMEOUT_MAX_MINS*60))
+declare -i TIMEOUT_MAX_SECS=$(($TIMEOUT_MAX_MINS*60))
+declare -i TIMEOUT_DEF_SECS=$(($TIMEOUT_DEF_MINS*60)) # 20 minutes
+
 # overall collect timeout
-TIMEOUT=1000
+declare -i TIMEOUT=${TIMEOUT_DEF_SECS}
 SECONDS=0
-let UNTIL=${SECONDS}+${TIMEOUT}
 
 COLLECT_NAME=""
 
@@ -707,6 +718,22 @@ while [[ ${#} -gt 0 ]] ; do
         clear_variable_args
         ;;
 
+        -t|--timeout)
+        if [[ ${2} =~ ^[0-9]+$ ]] ; then
+            if [ ${2} -lt ${TIMEOUT_MIN_MINS} -o \
+                 ${2} -gt ${TIMEOUT_MAX_MINS} ] ; then
+                elog "timeout must be between ${TIMEOUT_MIN_MINS} and ${TIMEOUT_MAX_MINS} minutes"
+                collect_exit ${FAIL_TIMEOUT_ARG}
+            else
+                TIMEOUT="$((${2}*60))"
+            fi
+        else
+            elog "timeout value must be an integer"
+            collect_exit ${FAIL_TIMEOUT_ARG}
+        fi
+        shift
+        ;;
+
         --skip-mask)
         SKIP_MASK=true
         shift
@@ -758,6 +785,9 @@ while [[ ${#} -gt 0 ]] ; do
     shift # past argument or value
 done
 
+# The default TIMEOUT may have been revised with the --timeout option.
+# Update UNTIL with updated global timeout time in secs.
+let UNTIL=${SECONDS}+${TIMEOUT}
 
 date -d $STARTDATE > /dev/null 2>/dev/null
 rc_start_date=${?}
@@ -1092,6 +1122,8 @@ pw=${pw/\]/\\\]} # replace ']' with '\]'
 pw=${pw/\[/\\\[} # replace '[' with '\['
 pw=${pw/$/\\$}   # replace '$' with '\$'
 pw=${pw/\"/\\\"} # replace '"' with '\"'
+
+ilog "collect bundle timeout set to $((${TIMEOUT}/60)) minutes"
 
 ###########################################################################
 #
@@ -1908,6 +1940,10 @@ function collect_subcloud_run()
         collect_cmd+=("-v")
     fi
 
+    # pass the timeout to the subcloud
+    collect_cmd+=("-t $((${TIMEOUT}/60))")
+
+    # pass the date range to the subcloud
     collect_cmd+=("--start-date ${STARTDATE}")
     collect_cmd+=("--end-date $ENDDATE")
 
@@ -3068,7 +3104,7 @@ if [ "${SUBCLOUD_COLLECT}" = true ] ; then
     if [ ${SUBCLOUDS} -gt ${TIMEOUT_THRESHOLD_FACTOR} -a "${PARALLEL_COLLECT_MODE}" = true ] ; then
         # adjust overall timeout to account for the large number of subclouds
         let UNTIL=$(((SUBCLOUDS*SUBCLOUDS_TIMEOUT_BOOST)+TIMEOUT))
-        ilog "adjusted subcloud collect timout from ${TIMEOUT} to ${UNTIL} secs to account for ${SUBCLOUDS} subclouds"
+        ilog "adjusted subcloud collect timeout from ${TIMEOUT} to ${UNTIL} secs to account for ${SUBCLOUDS} subclouds"
     fi
     if [ "${ALLHOSTS}" = true ] ; then
         if [ ${SUBCLOUDS} -gt ${MAX_LIST_PRINT} ] ; then
