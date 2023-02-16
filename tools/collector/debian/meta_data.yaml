@@ -5,3 +5,5 @@ src_path: debian-scripts
 revision:
   dist: $STX_DIST
   PKG_GITREVCOUNT: true
+  SRC_GITREVCOUNT:
+    SRC_BASE_SRCREV: 6bc8d4db5d436339b836e7cb58e90f0b14b2f214
