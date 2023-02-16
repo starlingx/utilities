@@ -6,4 +6,6 @@ src_files:
   - files
 revision:
   dist: $STX_DIST
-  PKG_GITREVCOUNT: true
+  GITREVCOUNT:
+    BASE_SRCREV: b9a9f07a66ab2fdfbd17f461b0c6a989690c6cb2
+    SRC_DIR: ${MY_REPO}/stx/utilities/utilities/update-motd
