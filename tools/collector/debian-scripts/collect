@@ -400,8 +400,6 @@ STARTDATE=$(date +%Y%m%d -d "-1 month")
 STARTTIME="any"
 ENDDATE="any"
 ENDTIME="any"
-GETSTARTDATE=false
-GETENDDATE=false
 DCROLE=""
 
 # host selection variables
@@ -437,8 +435,6 @@ COLLECT_NAME=""
 function clear_variable_args()
 {
     LISTING=false
-    GETSTARTDATE=false
-    GETENDDATE=false
 }
 
 
@@ -661,8 +657,6 @@ while [[ ${#} -gt 0 ]] ; do
             HOSTLIST=(${2})
             HOSTS=1
             LISTING=true
-            GETSTARTDATE=false
-            GETENDDATE=false
             shift
         fi
         ;;
@@ -689,8 +683,6 @@ while [[ ${#} -gt 0 ]] ; do
         fi
         STARTDATE="${2}"
         LISTING=false
-        GETSTARTDATE=true
-        GETENDDATE=false
         shift
         ;;
 
@@ -704,8 +696,6 @@ while [[ ${#} -gt 0 ]] ; do
         fi
         ENDDATE="${2}"
         LISTING=false
-        GETSTARTDATE=false
-        GETENDDATE=true
         shift
         ;;
 
@@ -768,17 +758,11 @@ while [[ ${#} -gt 0 ]] ; do
         if [ "${LISTING}" = true ] ; then
             HOSTS=$((HOSTS+1))
             HOSTLIST+=(${key})
-        elif [ "${GETSTARTDATE}" = true ] ; then
-            dlog "accepting but ignoring legacy starttime specification"
-        elif [ "${GETENDDATE}" = true ] ; then
-            dlog "accepting but ignoring legacy endtime specification"
         else
             HOSTLIST=(${key})
             HOSTS=1
             LISTING=true
         fi
-        GETSTARTDATE=false
-        GETENDDATE=false
         ;;
     esac
     shift # past argument or value
