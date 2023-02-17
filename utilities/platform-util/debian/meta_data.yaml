@@ -7,4 +7,6 @@ src_files:
   - scripts
 revision:
   dist: $STX_DIST
-  PKG_GITREVCOUNT: true
+  GITREVCOUNT:
+    BASE_SRCREV: 6d7ee3067ffb0a7adbc409e4a52e2e7a5d43faa2
+    SRC_DIR: ${MY_REPO}/stx/utilities/utilities/platform-util
