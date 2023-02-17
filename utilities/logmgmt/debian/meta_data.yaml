@@ -6,4 +6,6 @@ src_files:
   - scripts
 revision:
   dist: $STX_DIST
-  PKG_GITREVCOUNT: true
+  GITREVCOUNT:
+    BASE_SRCREV: f8720338820bf6b82a446176c7018b8001a967bd
+    SRC_DIR: ${MY_REPO}/stx/utilities/utilities/logmgmt
