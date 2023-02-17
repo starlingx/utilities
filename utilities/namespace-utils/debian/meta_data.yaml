@@ -5,3 +5,5 @@ src_path: namespace-utils
 revision:
   dist: $STX_DIST
   PKG_GITREVCOUNT: true
+  SRC_GITREVCOUNT:
+    SRC_BASE_SRCREV: 74f135fe500e863466e8b782ecebd2e8c9aac07a
