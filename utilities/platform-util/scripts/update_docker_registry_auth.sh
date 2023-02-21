@@ -51,7 +51,7 @@ source /etc/platform/openrc
 
 for REGISTRY in ${REGISTRY_LIST}; do
     echo -n "Checking ${REGISTRY} url. "
-    registry_url=$(system service-parameter-list | grep -F ${REGISTRY} |\
+    registry_url=$(system service-parameter-list | grep -wF ${REGISTRY} |\
         grep -F url | awk '{print $10}')
     if [[ -z "${registry_url}" ]] ||\
         [[ "${registry_url}" != *"${CENTRAL_REGISTRY_URL}"* ]]; then
@@ -61,7 +61,7 @@ for REGISTRY in ${REGISTRY_LIST}; do
     fi
 
     echo -n "Updating ${REGISTRY} credentials ."
-    SECRET_UUID=$(system service-parameter-list | grep -F ${REGISTRY} |\
+    SECRET_UUID=$(system service-parameter-list | grep -wF ${REGISTRY} |\
         grep -F auth-secret | awk '{print $10}')
     if [ -z "${SECRET_UUID}" ]; then
         echo "No ${REGISTRY} entry in service-parameters"
@@ -85,7 +85,7 @@ for REGISTRY in ${REGISTRY_LIST}; do
     openstack secret store -n ${REGISTRY}-secret -p "${NEW_SECRET_VALUE}" \
         >/dev/null
     echo -n "."
-    NEW_SECRET_REF=$(openstack secret list | grep -F ${REGISTRY}-secret |\
+    NEW_SECRET_REF=$(openstack secret list | grep -wF ${REGISTRY}-secret |\
         awk '{print $2}')
     NEW_SECRET_UUID=$(echo "${NEW_SECRET_REF}" | awk -F/ '{print $6}')
     system service-parameter-modify docker "${REGISTRY}" \
@@ -94,7 +94,7 @@ for REGISTRY in ${REGISTRY_LIST}; do
     echo " done."
 
     echo -n "Validating ${REGISTRY} credentials updated to:  "
-    SECRET_UUID=$(system service-parameter-list | grep -F ${REGISTRY} |\
+    SECRET_UUID=$(system service-parameter-list | grep -wF ${REGISTRY} |\
         grep -F auth-secret | awk '{print $10}')
     if [ -z "${SECRET_UUID}" ]; then
         continue
