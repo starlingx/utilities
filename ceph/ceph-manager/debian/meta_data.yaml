@@ -8,3 +8,5 @@ src_files:
 revision:
   dist: $STX_DIST
   PKG_GITREVCOUNT: true
+  SRC_GITREVCOUNT:
+    SRC_BASE_SRCREV: 52eeba8c32a47309d133101e68beb6941909d975
