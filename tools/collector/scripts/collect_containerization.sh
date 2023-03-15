@@ -135,61 +135,18 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
     echo >>${LOGFILE_HELM}
 
-    HELM_VERSION=$(helm version --client --short)
-    if [[ $HELM_VERSION =~ v2 ]]; then
-        CMD="helm list -a"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        APPLIST=$(${CMD} 2>>${COLLECT_ERROR_LOG} | tee -a ${LOGFILE_HELM})
-        APPLIST=$(echo "${APPLIST}" | awk '{if (NR!=1) {print}}')
-        while read -r app; do
-            APPNAME=$(echo ${app} | awk '{print $1}')
-            APPREVISION=$(echo ${app} | awk '{print $2}')
-            helm status ${APPNAME} > ${HELM_DIR}/${APPNAME}.status
-            helm get values ${APPNAME} --revision ${APPREVISION} \
-                > ${HELM_DIR}/${APPNAME}.v${APPREVISION}
-        done <<< "${APPLIST}"
-    elif [[ $HELM_VERSION =~ v3 ]]; then
-        # NOTE: helm environment not configured for root user
-        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+    # NOTE: helm environment not configured for root user
+    CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
+    delimiter ${LOGFILE_HELM} "${CMD}"
+    ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
-        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm search repo"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+    CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm search repo"
+    delimiter ${LOGFILE_HELM} "${CMD}"
+    ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
-        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm repo list"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
-    fi
-
-    HELM2CLI=$(which helmv2-cli)
-    if [ $? -eq 0 ]; then
-        CMD="helmv2-cli -- helm version --short"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
-
-        CMD="helmv2-cli -- helm list -a"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        mapfile -t ARR < <( ${CMD} 2>>${COLLECT_ERROR_LOG} )
-        printf "%s\n" "${ARR[@]}" >> ${LOGFILE_HELM}
-        for((i=1; i < ${#ARR[@]}; i++))
-        do
-            APPNAME=$(echo ${ARR[$i]} | awk '{print $1}')
-            APPREVISION=$(echo ${ARR[$i]} | awk '{print $2}')
-            ${HELM2CLI} -- helm status ${APPNAME} > ${HELM_DIR}/${APPNAME}.status
-            ${HELM2CLI} -- helm get values ${APPNAME} --revision ${APPREVISION} \
-                > ${HELM_DIR}/${APPNAME}.v${APPREVISION}
-        done <<< "${APPLIST}"
-
-        CMD="helmv2-cli -- helm search"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
-
-        CMD="helmv2-cli -- helm repo list"
-        delimiter ${LOGFILE_HELM} "${CMD}"
-        ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
-    fi
+    CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm repo list"
+    delimiter ${LOGFILE_HELM} "${CMD}"
+    ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
     CMD="cp -r /opt/platform/helm_charts ${HELM_DIR}/"
     delimiter ${LOGFILE} "${CMD}"
