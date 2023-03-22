@@ -31,7 +31,9 @@ override_dh_auto_install:
 	install -d $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/update-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/gen-bootloader-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/gen-bootloader-iso-centos.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/stx-iso-utils.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/stx-iso-utils-centos.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/show-certs.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/update_docker_registry_auth.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/change_system_private_registry.sh $(DEBIAN_BUILDDIR)/usr/local/bin/

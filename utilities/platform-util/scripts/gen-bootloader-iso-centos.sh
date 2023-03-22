@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2020 Wind River Systems, Inc.
+# Copyright (c) 2020-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,7 +14,7 @@
 #
 
 # Source shared utility functions
-source $(dirname $0)/stx-iso-utils.sh
+source "$(dirname "$0")"/stx-iso-utils-centos.sh
 
 declare LOG_TAG=$(basename $0)
 
@@ -58,9 +58,9 @@ https, generated for a specific node.
 
 Mandatory parameters for setup:
     --input <file>:          Specify input ISO file
-    --www-root <dir>:        Specify www-serviced directory
-    --baseurl <url>:         Specify URL for www-root dir
-    --id <node id>:          Specify ID for target node
+    --www-root <dir>:        Specify www-serviced directory (for target mini bootimage.iso)
+    --base-url <url>:        Specify URL for www-root dir
+    --id <node id>:          Specify ID for target node (typically subcloud name)
     --boot-interface <intf>: Specify target node boot interface
     --boot-ip <ip address>:  Specify address for boot interface
     --default-boot <0-5>:    Specify install type:
@@ -762,7 +762,7 @@ if [ -z "${WORKDIR}" -o ! -d ${WORKDIR} ]; then
     exit 1
 fi
 
-mount_iso ${INPUT_ISO}
+mount_iso ${INPUT_ISO} /scratch
 
 # Determine release version from ISO
 if [ ! -f ${MNTDIR}/upgrades/version ]; then
