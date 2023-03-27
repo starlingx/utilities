@@ -10,9 +10,10 @@
 # The Correlator class contains algorithms that search for failures.
 #
 # The Correlator class reads through all the output files created by
-# the plugins and detects failures. A summary of the failures and their
-# causes are printed to standard output and an output file is created
-# in the report directory.
+# the plugins and determines failures and their root causes, as well as
+# finds significant events, alarms transitions, and state changes.
+# A summary of the findings are printed to standard output and output
+# files are created in the report directory.
 #
 # TODO: Modularize code and separate methods into their own files
 #
@@ -23,7 +24,6 @@ from datetime import timedelta
 import logging
 import os
 import re
-
 
 logger = logging.getLogger(__name__)
 

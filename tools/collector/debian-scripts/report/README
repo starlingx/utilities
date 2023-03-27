@@ -13,14 +13,7 @@ SELECT_NODES_20220527.193605
 │   ├── etc
 │   ├── root
 │   └── var
-├── report
-    ├── plugins   (where the plugin files will be placed)
-    │   ├── alarm
-    │   ├── substring
-    │   └── ...
-    ├── tool      (where the tool will be placed)
-    └── output    (where the output files will be placed)
-
+└── report_analysis (where the output files will be placed)
 
 > cat plugins/alarm
 
@@ -36,7 +29,7 @@ hosts=controllers
 substring=operation failed
 substring=Failed to send message
 
-> report/tool/report.py --start 20220501 --end 20220530
+> report/report.py --start 20220501 --end 20220530
 
 Running the command above will populate the report folder with output files.
 The tool also provides default values, more details are in 'report.py -h'.
@@ -55,27 +48,48 @@ For more detailed information about an algorithm use 'report.py <algorithm> -h'.
 
 Here is the report directory after running the above command
 
-report
-├── output
-│   └── SELECT_NODES_20220527.193605 (collect bundle that the report tool was run on)
-│       ├── plugins      (output files for plugins)
-│       │   ├── alarm
-│       │   └── ...
-│       ├── correlator_failures
-│       ├── correlator_events
-│       ├── correlator_state_changes
-│       ├── report.log   (log file for report tool)
-│       └── untar.log    (log file for untarring collect bundle and host tar files)
-├── plugins   (where the plugins files are)
-└── tool      (where the report tool is)
+.
+├── ALL_NODES_20221211.214001.tar
+└── report_analysis
+    ├── correlator_alarms
+    ├── correlator_events
+    ├── correlator_failures
+    ├── correlator_state_changes
+    ├── plugins
+    │   ├── alarm
+    │   ├── daemon_failures
+    │   ├── heartbeat_loss
+    │   ├── log
+    │   ├── maintenance_errors
+    │   ├── process_failures
+    │   ├── puppet_errors
+    │   ├── state_changes
+    │   ├── substring_compute-0
+    │   ├── substring_compute-1
+    │   ├── substring_compute-2
+    │   ├── substring_controller-0
+    │   ├── substring_controller-1
+    │   ├── swact_activity
+    │   └── system_info
+    ├── report.log
+    └── untar.log
 
 The report tool also allows users to point it at any collect bundle and
 have it automatically extract the tarball and tar files for each host
 before running.
 
-> report/tool/report.py -d CGTS-19143
+The report tool can be run to analyze a collect bundle either on or off
+system by specifying the bundle to analyze using the --directory or
+-d <directory> command option.
 
-Users may specify if they want the correlator to only find events
-and state changes for a specific host.
+> report/tool/report.py -d <directory containing collect bundle>
+
+Users may specify if they want the correlator to only find events,
+alarm transitions, and state changes for a specific host.
 
 > report/tool/report.py --hostname controller-0
+
+The report tool can also be run automatically during the collect
+by using the collect --report or -r option. The report_analysis
+will be tared and included in the collect bundle when the --report
+option is used.

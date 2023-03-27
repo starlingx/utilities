@@ -368,6 +368,10 @@ function print_help()
     echo ""
     echo "collect [--skip-mask]                           ... skip masking of collect data"
     echo ""
+    echo "Create a collect report"
+    echo ""
+    echo "collect [--report | -r ]                        ... run the collect report tool on the collected bundle"
+    echo ""
     echo "Examples:"
     echo ""
     echo "collect                                                      ... all logs for current host"
@@ -387,6 +391,7 @@ function print_help()
 # command line arguement variables ; defaulted
 DEBUG=false
 CLEAN=false
+REPORT=false
 VERBOSE=false
 SKIP_MASK=false
 INVENTORY=false
@@ -632,6 +637,10 @@ while [[ ${#} -gt 0 ]] ; do
         -v|--verbose)
         USER_LOG_MODE=1
         VERBOSE=true
+        ;;
+
+        -r| --report)
+        REPORT=true
         ;;
 
         --clean)
@@ -1337,14 +1346,14 @@ function delete_remote_dir_or_file()
     local remote_hostname=${1}
     local dir_or_file=${2}
     local login_prompt="${3}"
-    
+
     # alt_login_prompt is optional. Used when the actual prompt does not
     # match the expected login_prompt (as contained in $login_prompt)
     local alt_login_prompt="${4}"
-    
+
     # if ${4} is empty, use $login_prompt instead.
     if test -z "${4}";
-    then 
+    then
         alt_login_prompt=${login_prompt};
     fi
 
@@ -1915,9 +1924,14 @@ function collect_subcloud_run()
     # all hosts in a subcloud are collected
     collect_cmd+=("-a")
 
+    # pass the report option to the subcloud if specified
+    if [ "${REPORT}" = true ] ; then
+        collect_cmd+=("-r")
+    fi
+
     # all subcloud hosts are collected in parallel unless legacy more is specified
     if [ "${PARALLEL_COLLECT_MODE}" = false ] ; then
-        collect_cmd+=("-in") ;
+        collect_cmd+=("-in")
     fi
     if [ "${DEBUG}" = true ] ; then
         collect_cmd+=("-d")
@@ -3033,16 +3047,15 @@ collect_subclouds()
 
 function get_report_tool()
 {
-    local local_dest=${1}
+    local local_dest="${1}"
+    local local_path="/usr/local/bin/report"
 
-    mkdir -p ${local_dest}
-    cp -r /usr/local/bin/report/tool ${local_dest}
+    mkdir -p "${local_dest}"
+    cp -a "${local_path}" "${local_dest}"
 
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
-        report_error "failed to get report tool from /usr/local/bin" ${rc}
-    else
-        ilog "copied report tool from host"
+        report_error "failed to get report tool from ${local_path}" ${rc}
     fi
 }
 
@@ -3058,16 +3071,15 @@ function get_report_tool()
 
 function get_report_plugins()
 {
-    local local_dest=${1}
+    local local_dest="${1}"
+    local local_path="/etc/collect/plugins"
 
-    mkdir -p ${local_dest}
-    cp -r /etc/collect/plugins ${local_dest}
+    mkdir -p "${local_dest}"
+    cp -a "${local_path}" "${local_dest}"
 
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
-        report_error "failed to get report plugins from /etc/collect" ${rc}
-    else
-        ilog "copied plugins for report tool from host"
+        report_error "failed to get report plugins from ${local_path}" ${rc}
     fi
 }
 
@@ -3157,22 +3169,50 @@ fi
 #
 ############################################################################
 
-echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
 
 remove_file_local ${COLLECT_ERROR_LOG}
 remove_file_local ${HOST_COLLECT_ERROR_LOG}
-get_report_tool ${COLLECT_DIR}/report
-get_report_plugins ${COLLECT_DIR}/report
 
 cd ${COLLECT_DIR}
-tar -czf report_tool.tgz report
-rc=${?}
-if [ ${rc} -ne ${PASS} ] ; then
-    report_error "failed to tar report tool" ${rc}
-else
-    rm -r report
+if [ "${SUBCLOUD_COLLECT}" = false ] ; then
+
+    # Copy the Report tool to the collect bundle
+    get_report_tool ${COLLECT_DIR}
+
+    # Copy developer report tool plugins to the collect bundle
+    get_report_plugins ${COLLECT_DIR}/report
+
+    if [ ${?} -eq 0 -a -e ./report ] ; then
+        if [ "${REPORT}" = true ] ; then
+            echo ""
+            echo "------------- Collect Report ------------------"
+            # run the report tool
+            ${COLLECT_DIR}/report/report.py -d ${COLLECT_DIR}
+            echo "-----------------------------------------------"
+            echo ""
+
+            # cleanup and tar the report tool and analysis
+            rm -rf ${COLLECT_DIR}/report/plugin_algs/__pycache__
+            rm -rf ${COLLECT_DIR}/report/__pycache__
+
+            # include the report analysis in the bundle
+            if [ -d ${COLLECT_DIR}/report_analysis ] ; then
+                tar -czf report_analysis.tgz report_analysis
+            fi
+        fi
+    fi
+
+    # include the report tool in the bundle.
+    tar -czf report_tool.tgz report
+
+    # cleanup after the report tool so that the extracted collect
+    # tarballs are not included in the bundling below.
+    for d in `ls` ; do
+        [ -d ./$d ] && remove_dir_local "./$d"
+    done
 fi
 
+echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
