@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim: filetype=sh shiftwidth=4 expandtab
 #
-# Copyright (c) 2020-2022 Wind River Systems, Inc.
+# Copyright (c) 2020-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -135,9 +135,9 @@ https, generated for a specific node.
 
 Mandatory parameters for setup:
     --input <file>:          Specify input ISO file
-    --www-root <dir>:        Specify www-serviced directory
-    --baseurl <url>:         Specify URL for www-root dir
-    --id <node id>:          Specify ID for target node
+    --www-root <dir>:        Specify www-serviced directory (for target mini bootimage.iso)
+    --base-url <url>:        Specify URL for www-root dir
+    --id <node id>:          Specify ID for target node (typically subcloud name)
     --boot-interface <intf>: Specify target node boot interface
     --boot-ip <ip address>:  Specify address for boot interface
     --default-boot <0-5>:    Specify install type:
@@ -485,6 +485,10 @@ function generate_boot_cfg {
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} inst_ostree_root=/dev/mapper/cgts--vg-root--lv"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
+    if [ -n "$VERBOSE" ]; then
+        # pass this through to the miniboot.cfg kickstart to turn on debug:
+        BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} debug_kickstart"
+    fi
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${PARAM_LIST}"
     # Uncomment for debugging:
     #BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instsh=2 instpost=shell"
@@ -510,7 +514,7 @@ serial 0 115200
 
 ui vesamenu.c32
 menu background   #ff555555
-menu title Select kernel options and boot kernel
+menu title Debian Miniboot Install ${NODE_ID}
 menu tabmsg Press [Tab] to edit, [Return] to select
 
 DEFAULT ${DEFAULT_SYSLINUX_ENTRY}
@@ -534,8 +538,10 @@ EOF
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
 search --no-floppy --set=root -l 'instboot'
+set color_normal='light-gray/black'
+set color_highlight='light-green/blue'
 
-menuentry "${NODE_ID}" {
+menuentry "Debian Miniboot Install ${NODE_ID}" --id=title {
     echo " "
 }
 
