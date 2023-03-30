@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2019-2022 Wind River Systems, Inc.
+# Copyright (c) 2019-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -52,6 +52,7 @@ function usage {
         -d|--default <default menu option>
         -t|--timeout <menu timeout>
         -m|--mount <guestmount point>
+        --initial-password <password>
         -v|--verbose
         -h|--help
 
@@ -60,6 +61,7 @@ function usage {
         -i <path/file>: Specify input ISO file
         -o <path/file>: Specify output ISO file
         -a <path/file>: Specify ks-addon.cfg file
+        --initial-password <password>: Specify the initial login password for sysadmin user
         -p <p=v>:  Specify boot parameter
 
             Example:
@@ -218,6 +220,7 @@ function set_timeout {
 declare INPUT_ISO=
 declare OUTPUT_ISO=
 declare ADDON=
+declare INITIAL_PASSWORD=
 declare -a PARAMS
 declare DEFAULT_LABEL=
 declare DEFAULT_GRUB_ENTRY=
@@ -228,7 +231,7 @@ declare VERBOSE=false
 
 script=$(basename "$0")
 OPTS=$(getopt -o a:d:hi:m:o:p:t:v \
-                --long addon:,default:,help,input:,mount:,output:,param:,timeout:,verbose \
+                --long addon:,initial-password:,default:,help,input:,mount:,output:,param:,timeout:,verbose \
                 -n "${script}" -- "$@")
 if [ $? != 0 ]; then
     echo "Failed parsing options." >&2
@@ -258,6 +261,10 @@ while true; do
             ;;
         -o|--output)
             OUTPUT_ISO="${2}"
+            shift 2
+            ;;
+        --initial-password)
+            INITIAL_PASSWORD="${2}"
             shift 2
             ;;
         -a|--addon)
@@ -380,6 +387,23 @@ if [ -n "${ADDON}" ]; then
     if [ $? -ne 0 ]; then
         elog "Failed to copy ${ADDON}"
     fi
+fi
+
+# From testing: We need to insert a chpasswd at a very specific spot inside
+# the kickstart.cfg, in between the 'useradd' and the 'chage' commands.
+#
+# There are two passes through the kickstart at this point (LAT 'install'
+# script runs 'lat-installer.sh post-install' with rootfs set for both
+# ${PHYS_SYSROOT}_b/ostree/1 and ${PHYS_SYSROOT}_b/ostree/2). The first
+# pass creates the user with password, and the second pass then updates
+# the user back to the original password. There is also an interaction with
+# the call to /usr/sbin/grpconv below this. Testing indicates that only a
+# chpasswd inserted between the useradd and the chage command has the desired
+# effect of properly asserting a new default password.
+
+if [ -n "${INITIAL_PASSWORD}" ]; then
+    ilog "Patching kickstart.cfg for custom default password"
+    sed -i.bak 's@sudo --password 4SuW8cnXFyxsk@sudo --password 4SuW8cnXFyxsk; echo "sysadmin:'"$(openssl passwd --crypt "$INITIAL_PASSWORD")"'" | chpasswd -e@' "${BUILDDIR}/kickstart/kickstart.cfg"
 fi
 
 unmount_efiboot_img
