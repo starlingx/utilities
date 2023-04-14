@@ -2714,11 +2714,12 @@ function collect_hosts()
             index=0
             monitoring=false
             for HOST in "${collect_host_ctrl_list[@]}" ; do
+                sleep 5
                 info=(${HOST//:/ })
                 # collect_host_ctrl_list_index_print ${index}
                 if [ "${info[${INDEX_STAGE}]}" == "${STAGE_MON}" ] ; then
 
-                    # check to see if this collect_host pocess is done collecting
+                    # check to see if this collect_host process is done collecting
                     kill -0 "${info[${INDEX_PID}]}" 2>/dev/null
                     rc=${?}
                     if [ ${rc} -ne 0 ] ; then
