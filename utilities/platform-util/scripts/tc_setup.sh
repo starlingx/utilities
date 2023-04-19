@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright (c) 2017-2019 Wind River Systems, Inc.
+# Copyright (c) 2017-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -336,23 +336,22 @@ function get_tc_protocol {
     echo "${PROTOCOL}"
 }
 
-## Create a filter to deliver system maintenance heartbeats to the high
-## priority class
-function setup_tc_sm_filter {
+## Create IPv4 and IPv6 filters for one UDP port used for management network
+## heartbeat traffic
+function setup_tc_heartbeat_port_filter {
     local DEVICE=$1
     local FLOWID=$2
     local ETHERTYPE=$3
+    local PORT=$4
+    local PORTMASK=$5
+    local PORTTYPE="dst"
     local PRIORITY=${DEFAULT_FILTER_PRIORITY}
+
+    local SM_TOS=${IPTOS_CLASS_CS6}
+    local SM_PROTO=${IPPROTO_UDP}
 
     # Setup filters for both IPv4 and IPv6
     local IP_VERSIONS=(4 6)
-
-    # SM uses UDP over ports 2222-2223 with a TOS of 12
-    local SM_PORT=2222
-    local SM_PORTMASK=0xfffe
-    local SM_PORTTYPE="dst"
-    local SM_TOS=${IPTOS_CLASS_CS6}
-    local SM_PROTO=${IPPROTO_UDP}
 
     # specifies attaching the filter to the root qdisc
     local QDISC_ID=${ROOT_HANDLE_MAJOR}:${QDISC_HANDLE_MINOR}
@@ -364,7 +363,7 @@ function setup_tc_sm_filter {
         local TOS_MATCH=$(get_tc_tos_match ${IP_VERSION} ${SM_TOS})
         local PROTO_MATCH=$(get_tc_l4_protocol_match ${IP_VERSION} ${SM_PROTO})
         local PORT_MATCH=$(get_tc_port_match \
-            ${IP_VERSION} ${SM_PORT} ${SM_PORTMASK} ${SM_PORTTYPE})
+            ${IP_VERSION} ${PORT} ${PORTMASK} ${PORTTYPE})
         local MATCH_PARAMS="${TOS_MATCH} ${PROTO_MATCH} ${PORT_MATCH}"
 
         tc filter add dev ${DEVICE} protocol ${PROTOCOL} parent ${QDISC_ID} \
@@ -372,6 +371,22 @@ function setup_tc_sm_filter {
 
         PRIORITY=$(($PRIORITY+1))
     done
+}
+
+## Create filters to deliver management network heartbeat traffic to the high
+## priority class
+function setup_tc_heartbeat_filters {
+    # This setup is intended only for the management interface
+
+    # System Management heartbeat, ports 2222 and 2223. Since those numbers
+    # vary by only one bit (the LSB), a mask can be used to cover both of them
+    setup_tc_heartbeat_filter_port "$1" "$2" "$3" 2222 0xfffe
+
+    # Maintenance management network heartbeat pulse request, port 2103
+    setup_tc_heartbeat_filter_port "$1" "$2" "$3" 2103 0xffff
+
+    # Maintenance management network heartbeat pulse response, port 2106
+    setup_tc_heartbeat_filter_port "$1" "$2" "$3" 2106 0xffff
 }
 
 function setup_tc_port_filter {
@@ -451,7 +466,7 @@ function setup_hiprio_tc {
         perturb ${DEFAULT_SFQ_PERTUBATION}
 
     # Treat system maintenance heartbeats as high priority traffic
-    setup_tc_sm_filter "${DEVICE}" "${FLOWID}" "${ETHERTYPE}"
+    setup_tc_heartbeat_filters "${DEVICE}" "${FLOWID}" "${ETHERTYPE}"
 }
 
 if ! is_valid_networktype $NETWORKTYPE; then
