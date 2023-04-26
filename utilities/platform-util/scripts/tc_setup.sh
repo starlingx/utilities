@@ -347,8 +347,8 @@ function setup_tc_heartbeat_port_filter {
     local PORTTYPE="dst"
     local PRIORITY=${DEFAULT_FILTER_PRIORITY}
 
-    local SM_TOS=${IPTOS_CLASS_CS6}
-    local SM_PROTO=${IPPROTO_UDP}
+    local HB_TOS=${IPTOS_CLASS_CS6}
+    local HB_PROTO=${IPPROTO_UDP}
 
     # Setup filters for both IPv4 and IPv6
     local IP_VERSIONS=(4 6)
@@ -360,8 +360,8 @@ function setup_tc_heartbeat_port_filter {
         IP_VERSION=${IP_VERSIONS[$idx]}
 
         local PROTOCOL=$(get_tc_protocol ${IP_VERSION} ${ETHERTYPE})
-        local TOS_MATCH=$(get_tc_tos_match ${IP_VERSION} ${SM_TOS})
-        local PROTO_MATCH=$(get_tc_l4_protocol_match ${IP_VERSION} ${SM_PROTO})
+        local TOS_MATCH=$(get_tc_tos_match ${IP_VERSION} ${HB_TOS})
+        local PROTO_MATCH=$(get_tc_l4_protocol_match ${IP_VERSION} ${HB_PROTO})
         local PORT_MATCH=$(get_tc_port_match \
             ${IP_VERSION} ${PORT} ${PORTMASK} ${PORTTYPE})
         local MATCH_PARAMS="${TOS_MATCH} ${PROTO_MATCH} ${PORT_MATCH}"
@@ -380,13 +380,13 @@ function setup_tc_heartbeat_filters {
 
     # System Management heartbeat, ports 2222 and 2223. Since those numbers
     # vary by only one bit (the LSB), a mask can be used to cover both of them
-    setup_tc_heartbeat_filter_port "$1" "$2" "$3" 2222 0xfffe
+    setup_tc_heartbeat_port_filter "$1" "$2" "$3" 2222 0xfffe
 
     # Maintenance management network heartbeat pulse request, port 2103
-    setup_tc_heartbeat_filter_port "$1" "$2" "$3" 2103 0xffff
+    setup_tc_heartbeat_port_filter "$1" "$2" "$3" 2103 0xffff
 
     # Maintenance management network heartbeat pulse response, port 2106
-    setup_tc_heartbeat_filter_port "$1" "$2" "$3" 2106 0xffff
+    setup_tc_heartbeat_port_filter "$1" "$2" "$3" 2106 0xffff
 }
 
 function setup_tc_port_filter {
