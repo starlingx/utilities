@@ -8,3 +8,5 @@ dl_hook: dl_hook
 revision:
   dist: $STX_DIST
   PKG_GITREVCOUNT: true
+  SRC_GITREVCOUNT:
+    SRC_BASE_SRCREV: 08900b32af5556ab5e3a517db1341f990b6d691d
