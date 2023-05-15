@@ -1112,11 +1112,11 @@ fi
 # input for the purposes of storing it in ${pw}, expect
 # will need certain special characters to be backslash
 # delimited
-pw=${pw/\\/\\\\} # replace '\' with '\\'
-pw=${pw/\]/\\\]} # replace ']' with '\]'
-pw=${pw/\[/\\\[} # replace '[' with '\['
-pw=${pw/$/\\$}   # replace '$' with '\$'
-pw=${pw/\"/\\\"} # replace '"' with '\"'
+pw=$(echo "${pw}" | sed 's/\\/\\\\/g') # replace all '\' with '\\'
+pw=$(echo "${pw}" | sed 's/\]/\\]/g')  # replace all ']' with '\]'
+pw=$(echo "${pw}" | sed 's/\[/\\[/g')  # replace all '[' with '\['
+pw=$(echo "${pw}" | sed 's/\$/\\$/g')  # replace all '$' with '\$'
+pw=$(echo "${pw}" | sed 's/\"/\\"/g')  # replace all '"' with '\"'
 
 ilog "collect bundle timeout set to $((${TIMEOUT}/60)) minutes"
 
