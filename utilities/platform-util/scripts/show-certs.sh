@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2021 Wind River Systems, Inc.
+# Copyright (c) 2021-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -24,6 +24,8 @@ TMP_TLS_SECRETS_FILE=$(mktemp)
 TMP_GEN_SECRETS_FILE=$(mktemp)
 TMP_SECRET_SECRET_FILE=$(mktemp)
 TMP_GEN_SECRET_FILE=$(mktemp)
+TMP_KUBELET_CA_CERT_FILE=$(mktemp)
+
 
 chmod +r $TMP_SUBCLOUD_SECRETS_FILE
 
@@ -214,6 +216,7 @@ CleanUp () {
     rm -rf $TMP_GEN_SECRETS_FILE
     rm -rf $TMP_SECRET_SECRET_FILE
     rm -rf $TMP_GEN_SECRET_FILE
+    rm -rf $TMP_KUBELET_CA_CERT_FILE
 }
 
 
@@ -358,13 +361,6 @@ fi
 
 PrintCertInfo-fromFile "DC-AdminEp-Server" "/etc/ssl/private/admin-ep-cert.pem" "${GREEN}$AUTO_LABEL${RESET}"
 
-# ETCD CA
-# ETCD certificates are automatically renewed by kube_root_ca_rotation cron job
-PrintCertInfo-fromFile "etcd CA certificate" "/etc/etcd/ca.crt" "${RED}Manual${RESET}"
-PrintCertInfo-fromFile "etcd client certificate" "/etc/etcd/etcd-client.crt" "${GREEN}Automatic${RESET}"
-PrintCertInfo-fromFile "etcd server certificate" "/etc/etcd/etcd-server.crt" "${GREEN}Automatic${RESET}"
-PrintCertInfo-fromFile "etcd apiserver client certificate" "/etc/kubernetes/pki/apiserver-etcd-client.crt" "${GREEN}Automatic${RESET}"
-
 # OpenStack Certificates
 PrintCertInfo-fromFile "openstack" "/etc/ssl/private/openstack/cert.pem" "${RED}Manual${RESET}"
 PrintCertInfo-fromFile "openstack CA" "/etc/ssl/private/openstack/ca-cert.pem" "${RED}Manual${RESET}"
@@ -392,6 +388,21 @@ if [ $? -eq 0 ]; then
 else
     kubeadm alpha certs check-expiration
 fi
+
+# ETCD certificates
+# ETCD certificates are automatically renewed by kube_root_ca_rotation cron job
+PrintCertInfo-fromFile "etcd CA certificate" "/etc/etcd/ca.crt" "${RED}Manual${RESET}"
+PrintCertInfo-fromFile "etcd client certificate" "/etc/etcd/etcd-client.crt" "${GREEN}Automatic${RESET}"
+PrintCertInfo-fromFile "etcd server certificate" "/etc/etcd/etcd-server.crt" "${GREEN}Automatic${RESET}"
+PrintCertInfo-fromFile "etcd apiserver client certificate" "/etc/kubernetes/pki/apiserver-etcd-client.crt" "${GREEN}Automatic${RESET}"
+
+# kubelet client certificates
+PrintCertInfo-fromFile "kubelet client" "/var/lib/kubelet/pki/kubelet-client-current.pem" "${GREEN}Automatically by k8s${RESET}"
+PrintCertInfo-fromFile "kubelet server" "/var/lib/kubelet/pki/kubelet.crt" "${RED}Manual${RESET}"
+
+cat /var/lib/kubelet/pki/kubelet.crt | sed -n '/-----END CERTIFICATE/,/END CERTIFICATE-----$/p' | tail -n +2 > $TMP_KUBELET_CA_CERT_FILE
+PrintCertInfo-fromFile "kubelet CA" "$TMP_KUBELET_CA_CERT_FILE" "${RED}Manual${RESET}" "/var/lib/kubelet/pki/kubelet.crt"
+
 echo
 CleanUp
 exit 0
