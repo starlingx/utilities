@@ -1,6 +1,6 @@
 ########################################################################
 #
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022 - 2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -109,8 +109,8 @@ class Correlator:
                         ctrlr_link_down = re.findall(
                             r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3} (.+) "
                             "sm:", line)[0]
-                elif (re.search("Neighbor (.+) is now in the down", line)
-                        and start_time and not ctrlr_down):
+                elif (re.search("Neighbor (.+) is now in the down", line) and
+                        start_time and not ctrlr_down):
                     ctrlr_down = re.findall(
                         r"Neighbor \((.+)\) received event", line)[0]
                 elif (re.search("Service (.+) is failed and has reached max "
@@ -121,8 +121,8 @@ class Correlator:
                         r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3} (.+) sm:",
                         line)[0]
                 elif (svc_failed and re.search(
-                        "active-failed\\s+\\| disabling-failed\\s+\\| "
-                        + svc_failed, line)):
+                        "active-failed\\s+\\| disabling-failed\\s+\\| " +
+                        svc_failed, line)):
                     if re.search(r"\| go-active-failed\s+\|", line):
                         go_active_failed = True
                     else:
@@ -140,40 +140,40 @@ class Correlator:
                     start_time = start_time.strftime("%Y-%m-%dT%H:%M:%S")
                     end_time = end_time.strftime("%Y-%m-%dT%H:%M:%S")
                     if link_down:
-                        data.append(start_time + " to " + end_time
-                                    + " Uncontrolled swact, refer to SM logs "
+                        data.append(start_time + " to " + end_time +
+                                    " Uncontrolled swact, refer to SM logs "
                                     "for in-depth analysis, original active "
                                     "controller: " + ctrlr_link_down + "\n")
                     elif ctrlr_down:
                         if hb_loss:
-                            data.append(start_time + " to " + end_time
-                                        + " Uncontrolled swact due to "
+                            data.append(start_time + " to " + end_time +
+                                        " Uncontrolled swact due to "
                                         "spontaneous reset of active "
                                         "controller " + ctrlr_down + "\n")
                         else:
-                            data.append(start_time + " to " + end_time
-                                        + " Uncontrolled swact likely due to "
+                            data.append(start_time + " to " + end_time +
+                                        " Uncontrolled swact likely due to "
                                         "spontaneous reset of active "
                                         "controller " + ctrlr_down + "\n")
                     elif svc_failed:
                         if active_failed and go_active_failed:
-                            data.append(start_time + " to " + end_time
-                                        + " Uncontrolled swact due to service "
+                            data.append(start_time + " to " + end_time +
+                                        " Uncontrolled swact due to service "
                                         "failure (" + svc_failed + ") twice "
                                         "in 2 minutes was unsuccessful so "
                                         "\"bounced back\" to original active "
                                         "controller " + ctrlr_svc_fail + "\n")
                         elif active_failed:
-                            data.append(start_time + " to " + end_time
-                                        + " Uncontrolled swact due to service "
+                            data.append(start_time + " to " + end_time +
+                                        " Uncontrolled swact due to service "
                                         "failure (" + svc_failed + ") twice "
-                                        "in 2 minutes on active controller "
-                                        + ctrlr_svc_fail + "\n")
+                                        "in 2 minutes on active controller " +
+                                        ctrlr_svc_fail + "\n")
                         else:
-                            data.append(start_time + " to " + end_time
-                                        + " Uncontrolled swact likely due to "
-                                        "service failure (" + svc_failed
-                                        + ") twice in 2 minutes on active "
+                            data.append(start_time + " to " + end_time +
+                                        " Uncontrolled swact likely due to "
+                                        "service failure (" + svc_failed +
+                                        ") twice in 2 minutes on active "
                                         "controller " + ctrlr_svc_fail + "\n")
 
                     start_time = end_time = svc_failed = None
@@ -218,19 +218,19 @@ class Correlator:
                                 host[0] + " auto recovery disabled", line)):
                             old = data[-1].split("due", 1)
                             if len(old) == 1:
-                                data[-1] = (data[-1][:-1]
-                                            + " (auto recovery disabled)\n")
+                                data[-1] = (data[-1][:-1] +
+                                            " (auto recovery disabled)\n")
                             else:
-                                data[-1] = (old[0]
-                                            + "(auto recovery disabled) due"
-                                            + old[1])
+                                data[-1] = (old[0] +
+                                            "(auto recovery disabled) due" +
+                                            old[1])
                             auto_recov_dis = True
                 elif "GOENABLED Failed" in line and not goenable_start:
                     goenable_start, auto_recov_dis = line[0:19], False
                     goenable_host = re.findall(
                         "Error : (.+) got GOENABLED Failed", line)[0]
-                elif ("configuration failed or incomplete" in line
-                        and not config_start):
+                elif ("configuration failed or incomplete" in line and not
+                        config_start):
                     config_start = datetime.strptime(line[0:19],
                                                      "%Y-%m-%dT%H:%M:%S")
                     auto_recov_dis = False
@@ -248,8 +248,8 @@ class Correlator:
                         if (re.search(host + " (.+) Heartbeat Loss (.+) "
                                       "\\(during recovery soak\\)", line)):
                             old = data[-1]
-                            data[-1] = (old[0:23] + line[0:19] + old[42:-1]
-                                        + " (recovery over disabled due to "
+                            data[-1] = (old[0:23] + line[0:19] + old[42:-1] +
+                                        " (recovery over disabled due to "
                                         "heartbeat soak failure)\n")
                     else:
                         hb_loss_start = line[0:19]
@@ -257,15 +257,15 @@ class Correlator:
                         hb_loss_host = re.findall("Error : (.+) [CM]", line)[0]
                 # Check if previous failure recorded was heartbeat loss due to
                 # missing heartbeat messages
-                elif ("regained MTCALIVE from host that has rebooted" in line
-                        and data and re.search(r"Heartbeat loss failure (.+) "
-                                               r"\(recovery over disabled\)",
-                                               data[-1])):
+                elif ("regained MTCALIVE from host that rebooted" in line and
+                        data and re.search(
+                            r"Heartbeat loss failure (.+) "
+                            r"\(recovery over disabled\)", data[-1])):
                     host = re.findall("failure on (.+) due to", data[-1])[0]
                     if re.search(host + " regained MTCALIVE", line):
                         old = data[-1].split("due", 1)[0]
-                        data[-1] = (old[0:23] + line[0:19] + old[42:]
-                                    + "due to uncontrolled reboot\n")
+                        data[-1] = (old[0:23] + line[0:19] + old[42:] +
+                                    "due to uncontrolled reboot\n")
                 elif (hb_loss_start and not comm_loss and hb_loss_host and
                       re.search(hb_loss_host + " Loss Of Communication for 5 "
                                 "seconds", line)):
@@ -282,14 +282,14 @@ class Correlator:
                                 "threshold reached", line)):
                     goenable_end = line[0:19]
                     if goenable_tst_f:
-                        data.append(goenable_start + " to " + goenable_end
-                                    + " Go-enable test failure on "
-                                    + goenable_host + " due to failing of "
-                                    + goenable_tst_f + "\n")
+                        data.append(goenable_start + " to " + goenable_end +
+                                    " Go-enable test failure on " +
+                                    goenable_host + " due to failing of " +
+                                    goenable_tst_f + "\n")
                     else:
-                        data.append(goenable_start + " to " + goenable_end
-                                    + " Go-enable test failure on "
-                                    + goenable_host + " due to unknown test "
+                        data.append(goenable_start + " to " + goenable_end +
+                                    " Go-enable test failure on " +
+                                    goenable_host + " due to unknown test "
                                     "failing\n")
 
                     goenable_start = goenable_end = goenable_host = None
@@ -299,8 +299,8 @@ class Correlator:
                                 "threshold reached", line)):
                     config_end = datetime.strptime(line[0:19],
                                                    "%Y-%m-%dT%H:%M:%S")
-                    if (config_tst_f
-                            != "/etc/goenabled.d/config_goenabled_check.sh"):
+                    if (config_tst_f !=
+                            "/etc/goenabled.d/config_goenabled_check.sh"):
                         try:
                             daemon_fail = self.search_daemon_fail(
                                 config_start, config_end, config_host)
@@ -308,8 +308,8 @@ class Correlator:
                             logger.error(e)
 
                     if (config_tst_f ==
-                        "/etc/goenabled.d/config_goenabled_check.sh"
-                            or daemon_fail):
+                        "/etc/goenabled.d/config_goenabled_check.sh" or
+                            daemon_fail):
                         try:
                             puppet_error = self.search_puppet_error(
                                 config_start, config_end)
@@ -320,22 +320,22 @@ class Correlator:
                             "%Y-%m-%dT%H:%M:%S")
                         config_end = config_end.strftime("%Y-%m-%dT%H:%M:%S")
                         if puppet_error:
-                            data.append(config_start + " to " + config_end
-                                        + " Configuration failure on "
-                                        + config_host + " due to:\n"
-                                        + puppet_error)
+                            data.append(config_start + " to " + config_end +
+                                        " Configuration failure on " +
+                                        config_host + " due to:\n" +
+                                        puppet_error)
                         else:
-                            data.append(config_start + " to " + config_end
-                                        + " Configuration failure on "
-                                        + config_host
-                                        + " due to unknown cause\n")
+                            data.append(config_start + " to " + config_end +
+                                        " Configuration failure on " +
+                                        config_host +
+                                        " due to unknown cause\n")
                     else:
                         config_start = config_start.strftime(
                             "%Y-%m-%dT%H:%M:%S")
                         config_end = config_end.strftime("%Y-%m-%dT%H:%M:%S")
-                        data.append(config_start + " to " + config_end
-                                    + " Possible configuration failure on "
-                                    + config_host + "\n")
+                        data.append(config_start + " to " + config_end +
+                                    " Possible configuration failure on " +
+                                    config_host + "\n")
 
                     config_start = config_end = config_host = None
                     config_tst_f = puppet_error = None
@@ -344,9 +344,9 @@ class Correlator:
                       re.search(hb_loss_host + " Connectivity Recovered ",
                                 line)):
                     hb_loss_end = line[0:19]
-                    data.append(hb_loss_start + " to " + hb_loss_end
-                                + " Heartbeat loss failure on " + hb_loss_host
-                                + " due to too many missing heartbeat "
+                    data.append(hb_loss_start + " to " + hb_loss_end +
+                                " Heartbeat loss failure on " + hb_loss_host +
+                                " due to too many missing heartbeat "
                                 "messages\n")
 
                     hb_loss_start = hb_loss_end = hb_loss_host = None
@@ -355,9 +355,9 @@ class Correlator:
                       hb_loss_host and re.search(
                           hb_loss_host + " Graceful Recovery Wait", line)):
                     hb_loss_end = line[0:19]
-                    data.append(hb_loss_start + " to " + hb_loss_end
-                                + " Heartbeat loss failure on " + hb_loss_host
-                                + " due to too many missing heartbeat "
+                    data.append(hb_loss_start + " to " + hb_loss_end +
+                                " Heartbeat loss failure on " + hb_loss_host +
+                                " due to too many missing heartbeat "
                                 "messages (recovery over disabled)\n")
 
                     hb_loss_start = hb_loss_end = hb_loss_host = None
@@ -383,8 +383,8 @@ class Correlator:
                 if (re.search("Error : " + host + " (.+) Heartbeat Loss ",
                               line)):
                     date = datetime.strptime(line[0:19], "%Y-%m-%dT%H:%M:%S")
-                    if (date >= start_time - timedelta(minutes=1)
-                            and date <= end_time):
+                    if (date >= start_time - timedelta(minutes=1) and
+                            date <= end_time):
                         hb_loss = True
                         break
 
@@ -405,12 +405,12 @@ class Correlator:
 
         with open(file_path, "r") as daemon_failures:
             for line in daemon_failures:
-                if (re.search("\\d " + host
-                              + " (.+) Failed to run the puppet manifest",
+                if (re.search("\\d " + host +
+                              " (.+) Failed to run the puppet manifest",
                               line)):
                     date = datetime.strptime(line[0:19], "%Y-%m-%dT%H:%M:%S")
-                    if (date >= start_time - timedelta(seconds=10)
-                            and date <= end_time):
+                    if (date >= start_time - timedelta(seconds=10) and
+                            date <= end_time):
                         daemon_fail = True
                         break
 
@@ -433,8 +433,8 @@ class Correlator:
             for line in puppet_errors:
                 if "Error: " in line:
                     date = datetime.strptime(line[0:19], "%Y-%m-%dT%H:%M:%S")
-                    if (date >= start_time - timedelta(seconds=10)
-                            and date <= end_time):
+                    if (date >= start_time - timedelta(seconds=10) and
+                            date <= end_time):
                         puppet_log = line
                         break
 
@@ -460,13 +460,13 @@ class Correlator:
                 if "force failed by SM" in line:
                     host = re.findall("Error : (.+) is being", line)[0]
                     if hostname == "all" or host == hostname:
-                        data.append(line[0:19] + " " + host
-                                    + " force failed by SM\n")
+                        data.append(line[0:19] + " " + host +
+                                    " force failed by SM\n")
                 elif "Graceful Recovery Failed" in line:
                     host = re.findall("Info : (.+) Task:", line)[0]
                     if hostname == "all" or host == hostname:
-                        data.append(line[0:19] + " " + host
-                                    + " graceful recovery failed\n")
+                        data.append(line[0:19] + " " + host +
+                                    " graceful recovery failed\n")
                 elif "MNFA ENTER" in line:
                     mnfa_start = datetime.strptime(line[0:19],
                                                    "%Y-%m-%dT%H:%M:%S")
@@ -487,9 +487,9 @@ class Correlator:
                                                       "%Y-%m-%dT%H:%M:%S")
                     mnfa_duration -= mnfa_start
                     mnfa_start = mnfa_start.strftime("%Y-%m-%dT%H:%M:%S")
-                    data.append(mnfa_start + " Multi-node failure avoidance "
-                                + "(duration: " + str(mnfa_duration)
-                                + "; history:" + mnfa_hist + ")\n")
+                    data.append(mnfa_start + " Multi-node failure avoidance " +
+                                "(duration: " + str(mnfa_duration) +
+                                "; history:" + mnfa_hist + ")\n")
 
                     mnfa_start, mnfa_hist = None, ""
 
@@ -506,9 +506,9 @@ class Correlator:
                     svc_failed = re.findall(
                         r"Service \((.+)\) is failed", line)[0]
                     if hostname == "all" or host == hostname:
-                        data.append(line[0:19] + " " + host
-                                    + " service failure (" + svc_failed
-                                    + ")\n")
+                        data.append(line[0:19] + " " + host +
+                                    " service failure (" + svc_failed +
+                                    ")\n")
 
         return data
 
@@ -524,7 +524,9 @@ class Correlator:
 
         # Open 'alarm' output file from alarm plugin and read it
         file_path = os.path.join(self.plugin_output_dir, "alarm")
-
+        if not os.path.exists(file_path):
+            logger.debug("No alarms found")
+            return data
         with open(file_path, "r") as alarm:
             extract = False
             for line in alarm:
@@ -547,8 +549,8 @@ class Correlator:
 
         temp = []
         for entry in data:
-            temp.append(entry["name"] + " - set: " + str(entry["set"])
-                        + ", clear: " + str(entry["clear"]) + "\n")
+            temp.append(entry["name"] + " - set: " + str(entry["set"]) +
+                        ", clear: " + str(entry["clear"]) + "\n")
         data = temp
 
         return data
@@ -572,8 +574,8 @@ class Correlator:
                     host = re.findall("Info : (.+) is ENABLED", line)[0]
                     state = re.findall("is (.+)\n", line)[0].lower()
                     if hostname == "all" or hostname in host:
-                        data.append(line[0:19] + " " + host + " " + state
-                                    + "\n")
+                        data.append(line[0:19] + " " + host + " " +
+                                    state + "\n")
                 elif "locked-disabled" in line:
                     host = re.findall(
                         "Info : (.+) u?n?locked-disabled", line)[0]

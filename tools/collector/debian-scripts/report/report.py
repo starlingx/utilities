@@ -446,6 +446,7 @@ bundle_names = []
 bundles = []
 ignore_list = [analysis_folder_name]
 ignore_list += ["apps", "horizon", "lighttpd", "lost+found", "sysinv-tmpdir"]
+ignore_list += ["patch-api-proxy-tmpdir", "platform-api-proxy-tmpdir"]
 
 with open(os.path.join(output_dir, "untar.log"), "a") as logfile:
     for obj in (os.scandir(input_dir)):
@@ -463,6 +464,9 @@ with open(os.path.join(output_dir, "untar.log"), "a") as logfile:
             date_time = obj.name[-15:]
             if args.debug:
                 logger.debug("Found Dir : %s : %s", obj.name, date_time)
+        elif os.path.islink(obj.path):
+            # ignore sym links
+            continue
         else:
             if not tarfile.is_tarfile(obj.path):
                 continue
@@ -559,6 +563,7 @@ elif args.debug:
 
 # create the output directory ; report_analysis
 output_dir = os.path.join(path_file, analysis_folder_name)
+print("\nReport: %s\n" % output_dir)
 if not os.path.exists(output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
@@ -567,7 +572,7 @@ try:
     engine = ExecutionEngine(args, path_file, output_dir)
 except ValueError as e:
     logger.error(str(e))
-    sys.exit("Confirm you are running the report tool on a collect bundle")
+    logger.error("Confirm you are running the report tool on a collect bundle")
 
 if args.algorithm:
     plugins.append(Plugin(opts=vars(args)))

@@ -1,5 +1,5 @@
 algorithm=substring
-files=var/log/mtcAgent.log, var/log/sm.log
+files=var/log/mtcAgent.log
 hosts=controllers
 substring=operation failed
 substring=Failed to send message

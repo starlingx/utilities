@@ -1,6 +1,6 @@
 ########################################################################
 #
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022 - 2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -39,6 +39,7 @@ class Plugin:
             "files": [],
             "hosts": [],
             "substring": [],
+            "exclude": [],
             "alarm_exclude": [],
             "entity_exclude": [],
             "start": None,
@@ -78,6 +79,10 @@ class Plugin:
             line (string): Line from plugin file to extract
         """
 
+        # allow plugins to have empty lines or comments starting with #
+        if len(line) <= 1 or line[0] == '#':
+            return
+
         # split string from first '=', left side is label right side is value
         data = line.strip().split("=", 1)
         if len(data) <= 1:
@@ -85,11 +90,17 @@ class Plugin:
         label = data[0]
         value = data[1]
         label = label.replace(" ", "")
+
+        # ignore labels that don't start with an alphabetical char
+        if label[0].isalpha() is False:
+            raise ValueError("Invalid label value")
         try:
             if label == "algorithm":
                 self.state["algorithm"] = value.replace(" ", "")
             elif label == "substring":
                 self.state["substring"].append(data[1])
+            elif label == "exclude":
+                self.state["exclude"].append(data[1])
             elif label == "hosts":
                 self.state["hosts"] = value.replace(" ", "").split(",")
             elif label == "alarm_exclude":
