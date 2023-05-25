@@ -1,0 +1,14 @@
+algorithm=substring
+files=var/log/sm.log
+hosts=controllers
+
+# logs to exclude
+substring=ERROR: sm
+exclude=Failed to set alarm
+exclude=Failed to set log
+exclude=Failed to clear alarm
+exclude=Failed to get all alarms
+exclude=Failed to query service based on pid
+exclude=Failed to look up interface name
+exclude=Failed to stop service heartbeat thread
+exclude=Heartbeat is not required

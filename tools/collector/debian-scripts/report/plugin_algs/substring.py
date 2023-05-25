@@ -1,6 +1,6 @@
 ########################################################################
 #
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022 - 2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -24,7 +24,7 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 
-def substring(start, end, substr, files):
+def substring(start, end, substr, files, exclude_list=None):
     """Substring algorithm
     Looks for all substrings in substr within files
 
@@ -33,7 +33,7 @@ def substring(start, end, substr, files):
         end (string): End time for analysis
         substr (string list): List of substrings to look for
         files  (string list): List of absolute filepaths to search in
-
+        exclude_list (string list): list of strings to exclude from report
     Errors:
         FileNotFoundError
     """
@@ -49,15 +49,17 @@ def substring(start, end, substr, files):
                 if (re.search("controller-1_(.+)/var/log/mtcAgent.log",
                               file)):
                     continue
-                raise FileNotFoundError(f"File not found: {file}")
+                else:
+                    data.append("File not found: " + file)
+                    continue
             cont = True
             # Searching through file
             command = (f"""grep -Ea "{'|'.join(s for s in substr)}" """
                        f"""{file} 2>/dev/null""")
             status = _continue(start, end, file)
 
-            if (status == CONTINUE_CURRENT
-                    or status == CONTINUE_CURRENT_OLD):
+            if (status == CONTINUE_CURRENT or
+                    status == CONTINUE_CURRENT_OLD):
                 # continue with current file
                 if status == CONTINUE_CURRENT:
                     cont = False
@@ -70,8 +72,8 @@ def substring(start, end, substr, files):
                            f"""{file}.{n} 2>/dev/null""")
                 status = _continue(start, end, f"{file}.{n}")
 
-                if (status == CONTINUE_CURRENT
-                        or status == CONTINUE_CURRENT_OLD):
+                if (status == CONTINUE_CURRENT or
+                        status == CONTINUE_CURRENT_OLD):
                     if status == CONTINUE_CURRENT:
                         cont = False
                     _evaluate_substring(start, end, data, command)
@@ -85,8 +87,8 @@ def substring(start, end, substr, files):
                 status = _continue(start, end, f"{file}.{n}.gz",
                                    compressed=True)
 
-                if (status == CONTINUE_CURRENT
-                        or status == CONTINUE_CURRENT_OLD):
+                if (status == CONTINUE_CURRENT or
+                        status == CONTINUE_CURRENT_OLD):
                     if status == CONTINUE_CURRENT:
                         cont = False
                     _evaluate_substring(start, end, data, command)
@@ -97,6 +99,17 @@ def substring(start, end, substr, files):
             logger.error(e)
             continue
 
+    # now remove any logs that contain substrings in the exclude_list
+    if exclude_list:
+        filtered_data = []
+        for e in data:
+            found = False
+            for exclude in exclude_list:
+                if e.find(exclude) != -1:
+                    found = True
+            if found is False:
+                filtered_data.append(e)
+        return sorted(filtered_data)
     return sorted(data)
 
 

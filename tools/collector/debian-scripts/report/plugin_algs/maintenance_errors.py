@@ -19,7 +19,7 @@ import os
 from plugin_algs.substring import substring
 
 
-def maintenance_errors(hosts, start, end):
+def maintenance_errors(hosts, start, end, exclude_list=None):
     """Maintenance errors algorithm
     Presents maintenance errors and other relevant log messages in system,
     such as "Configuration failure"
@@ -51,6 +51,6 @@ def maintenance_errors(hosts, start, end):
                       "auto recovery disabled",
                       "Graceful Recovery Failed",
                       "MNFA ENTER", "MNFA EXIT", "MNFA POOL"]
-    data = substring(start, end, mtc_substrings, mtc_files)
+    data = substring(start, end, mtc_substrings, mtc_files, exclude_list)
 
     return sorted(data)

@@ -46,8 +46,8 @@ def audit(start, end, audit_log_path):
         # Counts sum of audits from all subclouds
     ]
     INDEX_MIDDLE_WORD = 1
-    data = [("These rates and totals represent the sum of audits from "
-             + "all subclouds")]
+    data = [("These rates and totals represent the sum of audits " +
+             "from all subclouds")]
 
     def command(text):
 

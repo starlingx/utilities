@@ -30,7 +30,7 @@ override_dh_auto_install:
 	install -m 755 -p expect_done $(ROOT)/usr/local/sbin/expect_done
 	install -m 755 -p mariadb-cli.sh $(ROOT)/usr/local/sbin/mariadb-cli
 
-    # Report Tool
+	# Report Tool
 	install -m 755 -p report/report.py $(ROOT)/usr/local/bin/report/report.py
 	install -m 755 -p report/execution_engine.py $(ROOT)/usr/local/bin/report/execution_engine.py
 	install -m 755 -p report/algorithms.py $(ROOT)/usr/local/bin/report/algorithms.py
@@ -38,7 +38,7 @@ override_dh_auto_install:
 	install -m 755 -p report/correlator.py $(ROOT)/usr/local/bin/report/correlator.py
 	install -m 755 -p report/README $(ROOT)/usr/local/bin/report/README
 
-    # Report Tool Plugin Algorithms
+	# Report Tool Plugin Algorithms
 	install -m 755 -p report/plugin_algs/alarm.py $(ROOT)/usr/local/bin/report/plugin_algs/alarm.py
 	install -m 755 -p report/plugin_algs/audit.py $(ROOT)/usr/local/bin/report/plugin_algs/audit.py
 	install -m 755 -p report/plugin_algs/daemon_failures.py $(ROOT)/usr/local/bin/report/plugin_algs/daemon_failures.py
@@ -51,20 +51,21 @@ override_dh_auto_install:
 	install -m 755 -p report/plugin_algs/swact_activity.py $(ROOT)/usr/local/bin/report/plugin_algs/swact_activity.py
 	install -m 755 -p report/plugin_algs/system_info.py $(ROOT)/usr/local/bin/report/plugin_algs/system_info.py
 
-    # Report Tool Plugins
+	# Report Tool Plugins
 	install -m 755 -p report/plugins/alarm $(ROOT)/usr/local/bin/report/plugins/alarm
 	install -m 755 -p report/plugins/daemon_failures $(ROOT)/usr/local/bin/report/plugins/daemon_failures
 	install -m 755 -p report/plugins/heartbeat_loss $(ROOT)/usr/local/bin/report/plugins/heartbeat_loss
 	install -m 755 -p report/plugins/maintenance_errors $(ROOT)/usr/local/bin/report/plugins/maintenance_errors
 	install -m 755 -p report/plugins/process_failures $(ROOT)/usr/local/bin/report/plugins/process_failures
 	install -m 755 -p report/plugins/puppet_errors $(ROOT)/usr/local/bin/report/plugins/puppet_errors
+	install -m 755 -p report/plugins/sm_errors $(ROOT)/usr/local/bin/report/plugins/sm_errors
 	install -m 755 -p report/plugins/state_changes $(ROOT)/usr/local/bin/report/plugins/state_changes
 	install -m 755 -p report/plugins/substring $(ROOT)/usr/local/bin/report/plugins/substring
 	install -m 755 -p report/plugins/swact_activity $(ROOT)/usr/local/bin/report/plugins/swact_activity
 	install -m 755 -p report/plugins/system_info $(ROOT)/usr/local/bin/report/plugins/system_info
 	install -m 755 -p report/plugins/substring_hosts $(SYSCONFDIR)/collect/plugins/substring_hosts
 
-    # Collect Plugins
+	# Collect Plugins
 	install -m 755 -p collect_sysinv.sh $(SYSCONFDIR)/collect.d/collect_sysinv
 	install -m 755 -p collect_psqldb.sh $(SYSCONFDIR)/collect.d/collect_psqldb
 	install -m 755 -p collect_mariadb.sh $(SYSCONFDIR)/collect.d/collect_mariadb
