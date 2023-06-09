@@ -1,95 +1,212 @@
+The Report tool is used to gather relevant log, events
+and information about the system from a collect bundle
+and present that data for quick / easy issue analysis.
+
+Report can run directly from a cloned starlingX utilities git
+
+    ${MY_REPO}/stx/utilities/tools/collector/debian-scripts/report/report.py {options}
+
+Report is installed and can be run on any 22.12 POSTGA system node.
+
+    /usr/local/bin/report/report.py --directory /scratch
+
+Report can also be commanded to automatically run during a collect operation
+
+    collect all --report
+
+See Report's --help option for additional optional command line arguments.
+
+    report.py --help
+
+Selecting the right command option for your collect bundle:
+
+   Report is designed to analyze a host or subcloud 'collect bundle'.
+   Report needs to be told where to find the collect bundle to analyze
+   using one of three options
+
+   Analyze Host Bundle: --bundle or -b option
+   -------------------
+
+      Use this option to point to a 'directory' that 'contains'
+      host tarball files.
+
+          report.py --bundle /scratch/ALL_NODES_YYYYMMDD_hhmmss
+
+      Point to a directory containing host tarballs.
+      Such directory contains hostname's tarballs ; ending in tgz
+
+          /scratch/ALL_NODES_YYYYMMDD_hhmmss
+          ├── controller-0_YYYMMDD_hhmmss.tgz
+          └── controller-1_YYYMMDD_hhmmss.tgz
+
+      This is the option collect uses to auto analyze a just
+      collected bundle with the collect --report option.
+
+    Analyze Directory: --directory or -d option
+    -----------------
+
+       Use this option when a collect bundle 'tar file' is in a
+       in a specific 'directory'. If there are multiple collect
+       bundles in that directory then the tool will prompt the
+       user to select one from a list.
+
+           report.py --directory /scratch
+
+           0 - exit
+           1 - ALL_NODES_20230608.235225
+           2 - ALL_NODES_20230609.004604
+           Please select bundle to analyze:
+
+       Analysis proceeds automatically if there is only a
+       single collect bundle found.
+
+    Analyze Specific Collect Bundle tar file: --file or -f option
+    ----------------------------------------
+
+        Use this option to point to a specific collect bundle
+        tar file to analyze.
+
+            report.py --file /scratch/ALL_NODES_YYYYMMDD_hhmmss.tar
+
+Host vs Subcloud Collect Bundles:
+
+Expected Host Bundle Format:
+
+    ├── SELECT_NODES_YYYYMMDD.hhmmss.tar
+    ├── SELECT_NODES_YYYYMMDD.hhmmss
+         ├── controller-0_YYYYMMDD.hhmmss
+         ├── controller-0_YYYYMMDD.hhmmss.tgz
+         ├── controller-1_YYYYMMDD.hhmmss
+         ├── controller-1_YYYYMMDD.hhmmss.tgz
+         ├── worker-0_YYYYMMDD.hhmmss
+         └── worker-1_YYYYMMDD.hhmmss.tgz
+
+Expected Subcloud Bundle Format
+
+    ├── SELECT_SUBCLOUDS_YYYYMMDD.hhmmss.tar
+    └── SELECT_SUBCLOUDS_YYYYMMDD.hhmmss
+        ├── subcloudX_YYYYMMDD.hhmmss.tar
+        ├── subcloudX_YYYYMMDD.hhmmss
+        │   ├── controller-0_YYYYMMDD.hhmmss
+        │   ├── controller-0_YYYYMMDD.hhmmss.tgz
+        │   ├── report_analysis
+        │   └── report_tool.tgz
+        ├── subcloudY_YYYYMMDD.hhmmss.tar
+        ├── subcloudY_YYYYMMDD.hhmmss
+        │   ├── controller-0_YYYYMMDD.hhmmss
+        │   ├── controller-0_YYYYMMDD.hhmmss.tgz
+        │   ├── report_analysis
+        │   └── report_tool.tgz
+        ├── subcloudZ_YYYYMMDD.hhmmss.tar
+        └── subcloudZ_YYYYMMDD.hhmmss
+            ├── controller-0_YYYYMMDD.hhmmss
+            └── controller-0_YYYYMMDD.hhmmss.tgz
+
+If there are multiple bundles found at the specified --directory
+then the list is displayed and the user is prompted to select a
+bundle from the list.
+
+This would be typical when analyzing a selected subcloud collect
+bundle like in the example below
+
+        $ report -d /localdisk/issues/SELECT_SUBCLOUDS_YYYYMMDD.hhmmss.tar
+
+    Report will extract the subcloud tar file and if it sees more
+    than one tar file it will prompt the user to select which one
+    to analyze
+
+        0 - exit
+        1 - subcloudX_YYYYMMDD.hhmmss
+        2 - subcloudY_YYYYMMDD.hhmmss
+        3 - subcloudZ_YYYYMMDD.hhmmss
+        Please select the bundle to analyze:
+
 Refer to report.py file header for a description of the tool
 
-Example:
+Report places the report analysis in the bundle itself.
+Consider the following collect bundle structure and notice 
+the 'report_analysis' folder which contians the Report analysis.
 
-Consider the following collect bundle structure
+    SELECT_NODES_20220527.193605
+    ├── controller-0_20220527.193605
+    │   ├── etc
+    │   ├── root
+    │   └── var
+    ├── controller-1_20220527.193605
+    │   ├── etc
+    │   ├── root
+    │   └── var
+    └── report_analysis (where the output files will be placed)
 
-SELECT_NODES_20220527.193605
-├── controller-0_20220527.193605
-│   ├── etc
-│   ├── root
-│   └── var
-├── controller-1_20220527.193605
-│   ├── etc
-│   ├── root
-│   └── var
-└── report_analysis (where the output files will be placed)
+Pass a collect bundle to Report's CLI for two phases of processing ...
 
-> cat plugins/alarm
+    Phase 1: Process algorithm specific plugins to collect plugin
+             specific 'report logs'. Basically fault, event,
+             alarm and state change logs.
 
-algorithm=alarm
-alarm_exclude=400., 800.
-entity_exclude=subsystem=vim
+    Phase 2: Run the correlator against the plugin found 'report logs'
+             to produce descriptive strings that represent failures
+             that were found in the collect bundle and to summarize
+             the events, alarms and state change data.
 
-> cat plugins/substring
+Report then produces a report analysis that gets stored with
+the original bundle.
 
-algorithm=substring
-files=var/log/mtcAgent.log, var/log/sm.log
-hosts=controllers
-substring=operation failed
-substring=Failed to send message
+Example Analysis:
 
-> report/report.py --start 20220501 --end 20220530
+$ report -d /localdisk/CGTS-44887
 
-Running the command above will populate the report folder with output files.
-The tool also provides default values, more details are in 'report.py -h'.
+extracting /localdisk/CGTS-44887/ALL_NODES_20230307.183540.tar
 
-The substring algorithm creates an output file for every host of the
-specified host type. The files will contain log events within the
-provided date range containing the substring 'operation failed' and 'Failed
-to send message'.
+Report: /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis
 
-The alarm algorithm creates two output file: 'log' and 'alarm'
-'log' contains customer log messages created within the provided date range,
-and 'alarm' contains system alarms created within the provided date range, as
-long as the alarm ids and entity ids are not included in the alarm plugin file.
+extracting : /localdisk/CGTS-44887/ALL_NODES_20230307.183540/controller-1_20230307.183540.tgz
+extracting : /localdisk/CGTS-44887/ALL_NODES_20230307.183540/compute-0_20230307.183540.tgz
+extracting : /localdisk/CGTS-44887/ALL_NODES_20230307.183540/controller-0_20230307.183540.tgz
+extracting : /localdisk/CGTS-44887/ALL_NODES_20230307.183540/compute-1_20230307.183540.tgz
 
-For more detailed information about an algorithm use 'report.py <algorithm> -h'.
+Active Ctrl: controller-1
+System Type: All-in-one
+S/W Version: 22.12
+System Mode: duplex
+DC Role    : systemcontroller
+Node Type  : controller
+subfunction: controller,worker
+Mgmt Iface : vlan809
+Clstr Iface: vlan909
+OAM Iface  : eno8403
+OS Release : Debian GNU/Linux 11 (bullseye)
+Build Type : Formal
+Build Date : 2023-03-01 23:00:06 +0000
+controllers: controller-1,controller-0
+workers    : compute-1,compute-0
 
-Here is the report directory after running the above command
+Plugin Results:
 
-.
-├── ALL_NODES_20221211.214001.tar
-└── report_analysis
-    ├── correlator_alarms
-    ├── correlator_events
-    ├── correlator_failures
-    ├── correlator_state_changes
-    ├── plugins
-    │   ├── alarm
-    │   ├── daemon_failures
-    │   ├── heartbeat_loss
-    │   ├── log
-    │   ├── maintenance_errors
-    │   ├── process_failures
-    │   ├── puppet_errors
-    │   ├── state_changes
-    │   ├── substring_compute-0
-    │   ├── substring_compute-1
-    │   ├── substring_compute-2
-    │   ├── substring_controller-0
-    │   ├── substring_controller-1
-    │   ├── swact_activity
-    │   └── system_info
-    ├── report.log
-    └── untar.log
+  621 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/log
+  221 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/swact_activity
+  132 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/alarm
+   85 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/substring_controller-0
+   60 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/system_info
+   54 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/maintenance_errors
+   36 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/heartbeat_loss
+   26 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/process_failures
+   16 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/state_changes
+   13 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/substring_controller-1
+    2 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/plugins/puppet_errors
 
-The report tool also allows users to point it at any collect bundle and
-have it automatically extract the tarball and tar files for each host
-before running.
+... nothing found by plugins: daemon_failures
 
-The report tool can be run to analyze a collect bundle either on or off
-system by specifying the bundle to analyze using the --directory or
--d <directory> command option.
+Correlated Results:
 
-> report/tool/report.py -d <directory containing collect bundle>
+Events       : 8  /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/events
+Alarms       : 26 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/alarms
+State Changes: 16 /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/state_changes
+Failures     : 4  /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysis/failures
+2023-03-07T05:00:11 controller-0 uncontrolled swact
+2023-03-07T05:01:52 controller-0 heartbeat loss failure
+2023-03-07T17:42:35 controller-0 configuration failure
+2023-03-07T17:58:06 controller-0 goenabled failure
 
-Users may specify if they want the correlator to only find events,
-alarm transitions, and state changes for a specific host.
-
-> report/tool/report.py --hostname controller-0
-
-The report tool can also be run automatically during the collect
-by using the collect --report or -r option. The report_analysis
-will be tared and included in the collect bundle when the --report
-option is used.
+Inspect the Correlated and Plugin results files for failures,
+alarms, events and state changes.

@@ -3188,7 +3188,7 @@ if [ "${SUBCLOUD_COLLECT}" = false ] ; then
             echo ""
             echo "------------- Collect Report ------------------"
             # run the report tool
-            ${COLLECT_DIR}/report/report.py -d ${COLLECT_DIR}
+            ${COLLECT_DIR}/report/report.py -b ${COLLECT_DIR}
             echo "-----------------------------------------------"
             echo ""
 
