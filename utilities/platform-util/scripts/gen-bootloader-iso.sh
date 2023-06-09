@@ -490,6 +490,27 @@ function generate_boot_cfg {
         BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} debug_kickstart"
     fi
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${PARAM_LIST}"
+
+    # Search the install kernel command line for the 'extra_boot_params='
+    # option. If present, propagate the value into our BOOT_ARGS_COMMON, so
+    # that any extra boot parameters are also provided during the boot from
+    # miniboot ISO.
+    # Multiple parameters can be separated by ',' here; we want to
+    # split them out to be space-separated when adding to kernel arguments.
+    # e.g.: for extra_boot_params=arg1=1,arg2=2, set kernel params: arg1=1 arg2=2
+    local option
+    for option in ${PARAM_LIST}; do
+        if [ "${option%%=*}" = "extra_boot_params" ]; then
+            # Do not include the 'extra_boot_params' string.
+            # Strip out any commas and replace with space.
+            extra_boot_params=${option#*=}               # remove 'extra_boot_params='
+            extra_boot_params=${extra_boot_params//,/ }  # replace all ',' with ' '
+            ilog "Adding extra_boot_params to BOOT_ARGS_COMMON: ${extra_boot_params}"
+            BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${extra_boot_params}"
+            break
+        fi
+    done
+
     # Uncomment for debugging:
     #BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instsh=2 instpost=shell"
     log_verbose "BOOT_ARGS_COMMON: $BOOT_ARGS_COMMON"
