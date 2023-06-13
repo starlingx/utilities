@@ -487,7 +487,7 @@ check_required_param "--input" "${INPUT_ISO}"
 check_required_param "--output" "${OUTPUT_ISO}"
 
 check_files_exist ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
-check_files_size  ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
+check_files_size               ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
 
 if [[ -e "${OUTPUT_ISO}" ]]; then
     log_fatal "${OUTPUT_ISO} exists. Delete before you execute this script."
