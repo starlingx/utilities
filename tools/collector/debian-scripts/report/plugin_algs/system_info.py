@@ -120,9 +120,4 @@ def system_info(hostname, host_dir, output_dir, hosts, loud=False):
                 file.write(f"{k}: {','.join(v.keys())}\n")
                 if loud is True:
                     print(f"{k}: {','.join(v.keys())}")
-
-    # create an empty line following the system info dump
-    if loud is True:
-        print("")
-
     return

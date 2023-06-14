@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 # regex expression used to get the hostname from the host dir name
 # eg: chops '_20221201.213332' off of controller-0_20221201.213332
 regex_chop_bundle_date = r"_\d{8}\.\d{6}"
+regex_get_bundle_date = r".*_\d{8}\.\d{6}$"
 
 
 class ExecutionEngine:
@@ -82,14 +83,18 @@ class ExecutionEngine:
 
         # Uncompresses host tar files if not already done
         with open(os.path.join(output_dir, "untar.log"), "a") as logfile:
+
+            # Now extract the tarballs
             for obj in (os.scandir(self.input_dir)):
+                # files to ignore
+                if obj.name == "report_tool.tgz":
+                    continue
+
                 info = os.path.splitext(obj.name)
-                logger.debug("Host File Info: %s", info)
-                if (obj.is_file() and obj.name != "report_tool.tgz" and
-                        tarfile.is_tarfile(obj.path) and not
+                if (obj.is_file() and tarfile.is_tarfile(obj.path) and not
                         os.path.isdir(os.path.join(self.input_dir, info[0]))):
                     try:
-                        logger.info("extracting %s", obj.name)
+                        logger.info("extracting : %s", obj.path)
                         subprocess.run(["tar", "xzfC", obj.path,
                                         self.input_dir],
                                        stderr=logfile, check=True)
@@ -97,44 +102,30 @@ class ExecutionEngine:
                         logger.error(e)
 
         # Determine the active controller and load system info from it.
-        for folder in (f.path for f in os.scandir(input_dir)):
-            logger.debug("base folder: %s", os.path.basename(folder))
+        for folder in (f.path for f in os.scandir(self.input_dir)):
+            basename = os.path.basename(folder)
+
+            # Ignore all directories that are not a properly dated
+            # collect file
+            if not re.match(regex_get_bundle_date, basename):
+                continue
+
             # skip over files (the tarballs)
             if not os.path.isdir(folder):
                 continue
-            basename = os.path.basename(folder)
-            if basename == "report_analysis":
-                continue
+
+            logger.debug("base folder: %s", os.path.basename(folder))
 
             # Get the hostname from the host folder
             hostname = re.sub(regex_chop_bundle_date, "", basename)
             self.hostnames.append(hostname)
-            logger.debug("searching for active controller: %s" % hostname)
 
             host_dir = folder
-
-            if os.path.isdir(host_dir):
-                extra_path = os.path.join(host_dir, "var", "extra")
-
-                # don't analyse a directory that doesn't contain
-                # a 'var/extra' dir.
-                if not os.path.exists(extra_path):
-                    logger.warning("missing var/extra for %s" % hostname)
-                    continue
-
-                database_path = os.path.join(host_dir, extra_path, "database")
-                hostinfo_path = os.path.join(host_dir, extra_path, "host.info")
-
-                if os.path.exists(database_path):
-                    if os.listdir(database_path):
-                        logger.info("Active Ctrl: %s" % hostname)
-                        self.active_controller_directory = folder
-                        self.active_controller_hostname = hostname
-
             self.host_dirs.append(host_dir)
             logger.debug("Host Dirs: %s", self.host_dirs)
 
-            # save host folder path based on nodetype
+            # build up a list of hosts. save host folder path based on nodetype
+            hostinfo_path = os.path.join(host_dir, "var/extra/host.info")
             if os.path.exists(hostinfo_path):
                 hostname, subfunction = self._extract_subfunction(
                     hostinfo_path)
@@ -145,8 +136,39 @@ class ExecutionEngine:
                 elif "storage" in subfunction:
                     self.hosts["storages"][hostname] = folder
 
+            # skip non controller hosts since that could not be active
+            if hostname[0:10] != "controller":
+                continue
+
+            logger.debug("searching for active controller: %s" % hostname)
+            if os.path.isdir(host_dir):
+                logger.debug("... checking %s" % hostname)
+                extra_path = os.path.join(host_dir, "var/extra")
+
+                # don't analyse a directory that doesn't contain
+                # a 'var/extra' dir.
+                if not os.path.exists(extra_path):
+                    logger.warning("%s is missing var/extra" % hostname)
+                    continue
+
+                database_path = os.path.join(host_dir, "var/extra/database")
+                if os.path.exists(database_path):
+                    if os.listdir(database_path):
+                        logger.info("Active Ctrl: %s" % hostname)
+                        self.active_controller_directory = folder
+                        self.active_controller_hostname = hostname
+
+        if not len(self.host_dirs):
+            logger.error("Error: No host bundles found in %s" % input_dir)
+            files = []
+            for folder in (f.path for f in os.scandir(input_dir)):
+                files.append(os.path.basename(folder))
+            if files:
+                logger.error("... content: %s" % files)
+            sys.exit("")
+
         if not self.active_controller_directory:
-            logger.error("Active Ctrl: NOT FOUND")
+            logger.warning("Active Ctrl: NOT FOUND")
 
     def execute(self, plugins, output_dir):
         """Run a list of plugins
@@ -373,7 +395,10 @@ class ExecutionEngine:
 
             # Print a summary of the logs/data gathers by the plugins
             empty_files = ""
-            logger.info("Plugin Results:\n")
+            logger.info("")
+            logger.info("Plugin Results:")
+            logger.info("")
+            lines = []
             for fn in os.listdir(plugin_output_dir):
                 filename = os.path.join(plugin_output_dir, fn)
                 with open(filename, "r+") as f:
@@ -384,17 +409,23 @@ class ExecutionEngine:
                         readline = buf.readline
                         while readline():
                             entries += 1
-                        if fn == "system_info":
-                            logger.info(filename)
-                        else:
-                            logger.info("%s has %d entries" %
-                                        (filename, entries))
+                        lines.append("%5d %s" % (entries, filename))
                     else:
                         empty_files += fn + " "
+
+            # Sort the lines based on the numeric value
+            sorted_lines = sorted(lines, key=lambda x: int(x.split()[0]),
+                                  reverse=True)
+
+            for line in sorted_lines:
+                logger.info(line)
+
             if empty_files:
-                logger.info("\n... nothing found by plugins: %s" % empty_files)
+                logger.info("")
+                logger.info("... nothing found by plugins: %s" % empty_files)
         else:
-            logger.error("Plugin output dir missing: %s" % plugin_output_dir)
+            logger.error("Error: Plugin output dir missing: %s" %
+                         plugin_output_dir)
             sys.exit("... exiting")
 
         # Running the correlator and printing the output from it
@@ -426,8 +457,9 @@ class ExecutionEngine:
         alarms.append("\nTotal alarms found: " + str(alarms_len) + "\n")
         state_changes.append("\nTotal state changes found: " +
                              str(state_changes_len) + "\n")
-
-        logger.info("\nCorrelated Results:\n")
+        logger.info("")
+        logger.info("Correlated Results:")
+        logger.info("")
         self._create_output_file("failures", output_dir,
                                  failures, "")
         self._create_output_file("events", output_dir,

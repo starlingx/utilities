@@ -90,7 +90,9 @@
 #  command line                      functionality
 #  -------------------------------   ----------------------------------
 # > report.py --help                  - help message
-# > report.py -d <collect bundle dir> - Run all plugins against bundle
+# > report.py -b /path/to/bundle      - path to dir containing host tarballs
+# > report.py -d /path/to/bundle      - path to dir containing tar bundle(s)
+# > report.py -f /path/to/bundle.tar  - specify path to a bundle tar file
 # > report.py -d <dir> [plugin ...]   - Run only specified plugins
 # > report.py -d <dir> <algs> [labels]- Run algorithm with labels
 # > report.py <algorithm> --help      - algorithm specific help
@@ -98,7 +100,6 @@
 #    See --help output for a complete list of full and abbreviated
 #    command line options and examples of plugins.
 #
-# TODO: revise README
 # Refer to README file for more usage and output examples
 #######################################################################
 
@@ -108,30 +109,32 @@ from datetime import timedelta
 from datetime import timezone
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 
 from execution_engine import ExecutionEngine
 from plugin import Plugin
 
+# Globals
 now = datetime.now(timezone.utc)
 report_dir = os.path.dirname(os.path.realpath(__file__))
 analysis_folder_name = "report_analysis"
-bundle_name = None
 plugins = []
+output_dir = None
+tmp_report_log = tempfile.mkstemp()
 
-clean = True
 
-# TODO: rework this description
 parser = argparse.ArgumentParser(
-    description="Log Event Reporter",
+    description="Report Tool:",
     epilog="Analyzes data collected by the plugins and produces a "
     "report_analysis stored with the collect bundle. The report tool "
     "can be run either on or off system by specifying the bundle to "
-    "analyze using the --directory or -d <directory> command option.",
+    "analyze using the --directory, --bundle or --file command options.",
 )
 
 parser.add_argument(
@@ -141,17 +144,20 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--clean", "-c",
-    action="store_true",
-    help="Cleanup (remove) existing report data",
+    "--bundle", "-b",
+    default="",
+    required=False,
+    help="Specify the full path to a directory containing a collect "
+    "bundle to analyze. Use this option when pointing to a directory "
+    "with host .tgz files that are already extracted from a tar file.",
 )
 
 parser.add_argument(
     "--directory", "-d",
     default="",
     required=False,
-    help="Specify the full path to a directory containing a collect "
-    "bundle to analyze. This is a required parameter",
+    help="Specify the full path to a directory containing collect "
+    "bundles to analyze.",
 )
 
 parser.add_argument(
@@ -188,6 +194,12 @@ parser.add_argument(
     default="20000101",
     help="Specify a start date in YYYYMMDD format for analysis "
     "(default:20000101)",
+)
+
+parser.add_argument(
+    "--state",
+    action="store_true",
+    help="Debug option to dump object state during execution",
 )
 
 parser.add_argument(
@@ -352,12 +364,14 @@ parser_audit.add_argument(
     "(not required, default: today)"
 )
 
-
 args = parser.parse_args()
 args.start = datetime.strptime(args.start, "%Y%m%d").strftime(
     "%Y-%m-%dT%H:%M:%S")
 args.end = datetime.strptime(args.end, "%Y%m%d").strftime("%Y-%m-%dT%H:%M:%S")
 
+###########################################################
+#                 Args error checking
+###########################################################
 if args.file:
     if not os.path.exists(args.file):
         exit_msg = "Error: Specified file (" + args.file + ") does not exist."
@@ -374,61 +388,70 @@ if args.file:
         sys.exit(exit_msg)
     else:
         try:
-            input_dir = os.path.splitext(args.file)[0]
-            input_file = os.path.dirname(os.path.realpath(args.file))
+            input_dir = os.path.dirname(args.file)
             output_dir = os.path.join(input_dir, analysis_folder_name)
-            # print("input_file : ", input_file)
-            subprocess.run(["tar", "xfC", args.file, input_file], check=True)
-            # print("extracted ", args.file)
+            subprocess.run(["tar", "xfC", args.file], check=True)
         except subprocess.CalledProcessError as e:
             print(e)
+        except PermissionError as e:
+            print(e)
+            sys.exit("Permission Error: Unable to extract bundle")
+
 
 elif args.directory:
     # Get the bundle input and report output dirs
     output_dir = os.path.join(args.directory, analysis_folder_name)
     input_dir = os.path.join(args.directory)
+    if not os.path.isdir(input_dir):
+        sys.exit("Error: Specified input directory is not a directory")
+elif args.bundle:
+    output_dir = os.path.join(args.bundle, analysis_folder_name)
+    input_dir = os.path.join(args.bundle)
 else:
     exit_msg = "Error: Please use either the --file or --directory option to "
     exit_msg += "specify a\ncollect bundle file or directory containing a "
     exit_msg += "collect bundle file to analyze."
     sys.exit(exit_msg)
 
-# TODO: date current analysis if there rather than remove
-if args.clean and not clean:
-    clean = True
-if clean is True and os.path.exists(output_dir):
-    shutil.rmtree(output_dir)
-os.makedirs(output_dir, exist_ok=True)
 
-# setting up logger
-formatter = logging.Formatter("%(message)s")
+###########################################################
+#                  Setup logging
+###########################################################
 logger = logging.getLogger()
 
-logging.basicConfig(
-    filename=os.path.join(output_dir, "report.log"),
-    level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s: %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logging.Formatter.converter = time.gmtime
 
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-if args.debug:
-    ch.setLevel(logging.DEBUG)
-ch.setFormatter(formatter)
+def remove_logging():
+    """Move logging to a different location ; from /tmp to the bundle"""
 
-logger.addHandler(ch)
+    logger = logging.getLogger()
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
 
-# Command line parsing done. Logging setup
 
-#####################################################################
-#             Find and extract the bundle to analyze
-#####################################################################
-# Find and extract the bundle to analyze
+def setup_logging(logfile):
+    """Setup logging"""
 
-# Creating report log
-open(os.path.join(output_dir, "report.log"), "w").close()
+    # setting up logger
+    formatter = logging.Formatter("%(message)s")
+
+    logging.basicConfig(
+        filename=logfile,
+        level=logging.DEBUG if args.debug else logging.INFO,
+        format="%(asctime)s %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    logging.Formatter.converter = time.gmtime
+
+    console_handler = logging.StreamHandler()
+    if args.debug:
+        console_handler.setLevel(logging.DEBUG)
+    else:
+        console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+
+setup_logging(tmp_report_log[1])
 
 if args.debug:
     logger.debug("Arguments : %s", args)
@@ -436,140 +459,413 @@ if args.debug:
     logger.debug("Input  Dir: %s", input_dir)
     logger.debug("Output Dir: %s", output_dir)
 
-if not os.path.isdir(input_dir):
-    sys.exit("Error: Specified input directory is not a directory")
+###########################################################
+#        Find and extract the bundle to analyze
+###########################################################
 
-# Search 'input_dir' for bundles.
-bundle_tar_file_found = False
-bundle_name = None
-bundle_names = []
-bundles = []
+
+# List of directories to ignore
 ignore_list = [analysis_folder_name]
 ignore_list += ["apps", "horizon", "lighttpd", "lost+found", "sysinv-tmpdir"]
 ignore_list += ["patch-api-proxy-tmpdir", "platform-api-proxy-tmpdir"]
+regex_get_bundle_date = r".*_\d{8}\.\d{6}$"
 
-with open(os.path.join(output_dir, "untar.log"), "a") as logfile:
-    for obj in (os.scandir(input_dir)):
-        # Don't display dirs from the ignore list.
-        # This makes the bundle selection list cleaner when
-        # report is run against /scratch
-        ignored = False
-        for ignore in ignore_list:
-            if obj.name == ignore:
-                ignored = True
-        if ignored is True:
-            continue
 
-        if obj.is_dir(follow_symlinks=False):
-            date_time = obj.name[-15:]
-            if args.debug:
-                logger.debug("Found Dir : %s : %s", obj.name, date_time)
-        elif os.path.islink(obj.path):
-            # ignore sym links
-            continue
+class BundleObject:
+    def __init__(self, input_dir):
+        self.input_base_dir = input_dir  # the first specified input dir
+        self.input_dir = input_dir       # current input_dir ; can change
+        self.tar_file_found = False      # True if <bundle>.tar file present
+        self.subcloud_bundle = False     # host vs subcloud bundle
+        self.bundle_name = None          # full path of current bundle
+        self.bundle_names = []           # list of bundle names
+        self.bundle_info = ["", []]      # tarfile bundle info [name,[files]]
+        self.bundles = []                # list of bundles
+        self.tars = 0                    # number of tar files found
+        self.tgzs = 0                    # number of host tgz files found
+
+    def debug_state(self, func):
+        if args.state:
+            logger.debug("State:%10s: input_base_dir : %s",
+                         func, self.input_base_dir)
+            logger.debug("State:%10s: input_dir      : %s",
+                         func, self.input_dir)
+            logger.debug("State:%10s: output_dir     : %s",
+                         func, output_dir)
+            logger.debug("State:%10s: tar_file_found : %s",
+                         func, self.tar_file_found)
+            logger.debug("State:%10s: subcloud_bundle: %s",
+                         func, self.subcloud_bundle)
+            logger.debug("State:%10s: bundle_name    : %s",
+                         func, self.bundle_name)
+            logger.debug("State:%10s: bundle_names   : %s",
+                         func, self.bundle_names)
+            logger.debug("State:%10s: bundle_info    : %s",
+                         func, self.bundle_info)
+            logger.debug("State:%10s: bundles        : %s",
+                         func, self.bundles)
+            logger.debug("State:%10s: tars-n-tgzs    : %s:%s",
+                         func, self.tars, self.tgzs)
+
+    def update_io_dirs(self, new_dir):
+        """Update the input_dir and output_dir dirs
+
+        Parameters:
+           new_dir (string): path to change input_dir to
+        """
+        self.debug_state("get_bundles")
+        global output_dir
+        if self.input_dir != new_dir:
+            str1 = "input_dir change: " + self.input_dir + " -> " + new_dir
+            self.input_dir = new_dir
+            old_output_dir = output_dir
+            output_dir = os.path.join(self.input_dir, analysis_folder_name)
+            str2 = "output_dir change: " + old_output_dir + " -> " + output_dir
         else:
-            if not tarfile.is_tarfile(obj.path):
+            str1 = "input_dir  change is null"
+            str2 = "output_dir change is null"
+        logger.debug(str1)
+        logger.debug(str2)
+        self.debug_state("update_io_dirs")
+
+    def get_bundles(self):
+        """Get a list of all collect bundle from input_dir"""
+
+        self.debug_state("get_bundles")
+        logger.debug("get_bundles: %s", self.input_dir)
+        for obj in (os.scandir(self.input_dir)):
+            # Don't display dirs from the ignore list.
+            # This makes the bundle selection list cleaner when
+            # report is run against /scratch
+            ignored = False
+            for ignore in ignore_list:
+                if obj.name == ignore:
+                    ignored = True
+                    break
+            if ignored is True:
                 continue
-            filename = os.path.splitext(obj.name)[0]
-            date_time = filename[-15:]
-            if args.debug:
-                logger.debug("Found File: %s : %s", obj.name, date_time)
 
-        # TODO: Add more filtering above to avoid directories that are
-        #       clearly not collect data is not added to the list of
-        #       options.
-
-        # Add this bundle to the list. Avoid duplicates
-        found = False
-        name = obj.name
-        if obj.name.endswith('.tar'):
-            bundle_tar_file_found = True
-            name = os.path.splitext(obj.name)[0]
-        for bundle in bundles:
-            if bundle == name:
-                found = True
-                break
-        if found is False:
-            bundles.append(name)
-            bundle_names.append(name)
-        else:
-            logger.debug("Discarding duplicate %s", obj.name)
-
-if args.debug:
-    logger.debug("Bundle  %d : %s", len(bundles), bundles)
-    logger.debug("Bundle Sel: %s", bundle_names)
-
-if bundles:
-    if bundle_tar_file_found is False:
-        # If a collect bundle .tar file is not found then treat this
-        # case as though the input_dir is a hosts tarball directory
-        # like would be seen when running report on the system during
-        # the collect operation.
-        bundle_name = input_dir
-
-    elif len(bundles) > 1:
-        retry = True
-        while retry is True:
-            logger.info("0 - exit")
-            index = 1
-            # TODO: filter files/dirs with date.time ; 20221102.143258
-            for bundle in bundle_names:
-                if bundle.endswith(('.tar', '.tgz', '.gz')):
-                    logger.info("%d - %s", index, os.path.splitext(bundle)[0])
-                else:
-                    logger.info("%d - %s", index, bundle)
-                index += 1
-            try:
-                select = int(input('Please select the bundle to analyze: '))
-            except ValueError:
-                logger.info("Invalid input; integer between 1 "
-                            "and %d required", len(bundles))
+            if obj.is_dir(follow_symlinks=False):
+                date_time = obj.name[-15:]
+                if args.debug:
+                    logger.debug("found dir : %s : %s", obj.name, date_time)
+            elif os.path.islink(obj.path):
+                # ignore sym links
                 continue
-            if not select:
-                sys.exit()
-            if select <= len(bundles):
-                index = 0
-                for bundle in bundle_names:
-                    if index == select-1:
-                        logger.info("%s selected", bundle)
-                        bundle_name = bundle
-                        break
-                    else:
-                        index += 1
-                retry = False
             else:
-                logger.info("Invalid selection (%s) index=%d",
-                            select, index)
-    # single bundle found
+                if not tarfile.is_tarfile(obj.path):
+                    continue
+                filename = os.path.splitext(obj.name)[0]
+                date_time = filename[-15:]
+                if args.debug:
+                    logger.debug("found file: %s : %s", obj.name, date_time)
+
+            # Add this bundle to the list. Avoid duplicates
+            found = False
+            name = obj.name
+            if obj.name.endswith('.tar'):
+                self.tar_file_found = True
+                name = os.path.splitext(obj.name)[0]
+            if obj.name.endswith('.tgz'):
+                continue
+            for bundle in self.bundles:
+                if bundle == name:
+                    found = True
+                    break
+            if found is False:
+                if re.match(regex_get_bundle_date, name):
+                    self.bundles.append(name)
+                    self.bundle_names.append(name)
+                elif not obj.is_dir(follow_symlinks=False):
+                    logger.info("unexpected bundle name '%s'", name)
+                    logger.info("... collect bundles name should include "
+                                "'_YYYYMMDD.HHMMSS'")
+                    select = str(input('accept as bundle (Y/N): '))
+                    if select[0] == 'Y' or select[0] == 'y':
+                        self.bundles.append(name)
+                        self.bundle_names.append(name)
+                    else:
+                        logger.warning("not a bundle")
+
+        if args.debug:
+            logger.debug("bundles %2d: %s", len(self.bundles), self.bundles)
+            logger.debug("bundle sel: %s", self.bundle_names)
+        self.debug_state("get_bundles")
+
+    def get_bundle(self):
+        """Get a list of all collect bundles from input_dir
+
+        Parameters:
+            input_dir (string): path to the directory to analyze
+        """
+        self.debug_state("get_bundle")
+        logger.debug("get_bundle %s", self.input_dir)
+
+        if self.tar_file_found is False:
+            # If a collect bundle .tar file is not found then treat this
+            # case as though the input_dir is a hosts tarball directory
+            # like would be seen when running report on the system during
+            # the collect operation.
+            logger.debug("get_bundle tar file not found")
+            self.bundle_name = self.input_dir
+
+        elif len(self.bundles) > 1:
+            retry = True
+            while retry is True:
+                logger.info("0 - exit")
+                idx = 1
+                for bundle in self.bundle_names:
+                    if bundle.endswith(('.tar', '.tgz', '.gz')):
+                        logger.info("%d - %s",
+                                    idx, os.path.splitext(bundle)[0])
+                    else:
+                        logger.info("%d - %s", idx, bundle)
+                    idx += 1
+                try:
+                    select = int(input('Please select bundle to analyze: '))
+                except ValueError:
+                    logger.info("Invalid input; integer between 1 "
+                                "and %d required", len(self.bundles))
+                    continue
+                if not select:
+                    sys.exit()
+                if select <= len(self.bundles):
+                    idx = 0
+                    for bundle in self.bundle_names:
+                        if idx == select-1:
+                            logger.info("%s selected", bundle)
+                            self.bundle_name = bundle
+                            break
+                        else:
+                            idx += 1
+                    retry = False
+                else:
+                    logger.info("Invalid selection (%s) idx=%d",
+                                select, idx)
+        # single bundle found
+        else:
+            self.bundle_name = self.bundle_names[0]
+            logger.debug("bundle name: %s", self.bundle_name)
+        self.debug_state("get_bundle")
+
+    def get_bundle_info(self, bundle):
+        """Returns a list containing the tar file content
+
+           This is required for cases where the name of the supplied
+           tar file extracts its contents to a directory that is not
+           the same (without the extension) as the original tar file
+
+        Returns:
+           bundle_info (list): the bundle info [ "dir", [ files ]]
+           bundle_info[0] ( string) 'directory' found in tar file
+           bundle_info[1] (list) a list of files found in 'directory'
+        """
+        self.debug_state("get_bundle_info")
+
+        bundle_tar = os.path.join(self.input_dir, self.bundle_name) + ".tar"
+        logger.debug("get_bundle_info %s", bundle_tar)
+
+        if not os.path.exists(bundle_tar):
+            logger.error("Error: No collect tar bundle found: %s", bundle_tar)
+            sys.exit()
+        try:
+            result = subprocess.run(["tar", "tf", bundle_tar],
+                                    stdout=subprocess.PIPE)
+            output = result.stdout.decode('utf-8').splitlines()
+            logger.debug("... bundle info: %s", output)
+        except subprocess.CalledProcessError as e:
+            logger.error(e)
+        except subprocess.PermissionError as e:
+            logger.error(e)
+
+        if output != []:
+            for item in output:
+                dir, file = item.split("/", 1)
+                if dir is None:
+                    continue
+                if self.bundle_info[0] == "":
+                    self.bundle_info[0] = dir
+                if self.bundle_info[0] != dir:
+                    logger.warning("ignoring unexpected extra directory "
+                                   "only one directory permitted in a "
+                                   "collect bundle ; %s is != %s",
+                                   self.bundle_info[0], dir)
+                    continue
+                elif file.endswith(('.tar')):
+                    logger.debug("tar contains tar: %s", file)
+                    self.bundle_info[1].append(file)
+                elif file.endswith(('.tgz')):
+                    logger.debug("tar contains tgz: %s", file)
+                    if self.bundle_info[0] is None:
+                        self.bundle_info[0] = dir
+                    self.bundle_info[1].append(file)
+                else:
+                    if self.bundle_info[0] is None:
+                        self.bundle_info[0] = dir
+                    if file:
+                        self.bundle_info[1].append(file)
+        self.debug_state("get_bundle_info")
+
+    def extract_bundle(self):
+        """Extract bundle if not already extracted"""
+
+        logger.debug("bundle name: %s", self.bundle_name)
+
+        # extract the bundle if not already extracted
+        bundle_tar = os.path.join(self.input_dir, self.bundle_name) + ".tar"
+        if os.path.exists(bundle_tar):
+            if not os.access(self.input_dir, os.W_OK):
+                logger.error("Permission Error: Bundle dir not writable: %s",
+                             self.input_dir)
+                sys.exit("Collect bundle must be writable for analysis.")
+            try:
+
+                logger.info("extracting %s", bundle_tar)
+                untar_data = subprocess.run(
+                    ["tar", "xfC", bundle_tar, self.input_dir],
+                    check=True, stdout=subprocess.PIPE)
+                logger.debug(untar_data)
+            except subprocess.CalledProcessError as e:
+                logger.error(e)
+            except PermissionError as e:
+                logger.error(e)
+                sys.exit("Permission Error: Unable to extract bundle")
+
+        elif args.debug:
+            logger.debug("already extracted: %s", bundle_tar)
+
+    def get_bundle_type(self):
+        """Determine the bundle type ; host or subcloud
+
+           Subcloud bundles contain one or more tar files rather
+           than tgz files ; at this level.
+
+           However rather than fail the report if both are found,
+           which is unlikely, the code favors treating as a normal
+           host bundle with the tgz check first.
+        """
+        if self.tgzs:
+            self.extract_bundle()
+            self.bundle_name = os.path.join(self.input_dir,
+                                            self.bundle_info[0])
+            logger.debug("Host bundle: %s", self.bundle_name)
+        elif self.tars:
+            self.extract_bundle()
+            self.bundle_name = os.path.join(self.input_dir,
+                                            self.bundle_info[0])
+            self.subcloud_bundle = True
+            logger.debug("Subcloud bundle: %s", self.bundle_name)
+        else:
+            sys.exit("Error: bundle contains no .tar files")
+
+        self.update_io_dirs(self.bundle_name)
+        if self.subcloud_bundle is True:
+            # clear current bundle lists, etc. in prep for the
+            # selected subcloud bundle
+            self.bundle_names = []
+            self.bundles = []
+            self.bundle_name = None
+            self.tar_file_found = False
+
+            # get the subcloud bundle(s) and select one
+            # if more than one is present.
+            self.get_bundles()
+            if self.bundles:
+                self.get_bundle()
+
+            # handle the no bundles found case ; unlikely
+            if self.bundle_name is None:
+                sys.exit("No valid collect subcloud bundles found.")
+
+            # extract the subcloud bundle if needed
+            self.extract_bundle()
+
+            # add the full path to the bundle name.
+            # can't use self.bundle_info[0] because that is the
+            # bundle name that contians the subcloud tars
+            self.bundle_name = os.path.join(self.input_dir, self.bundle_name)
+
+            # update the input directory to point top the subcloud folder
+            self.update_io_dirs(self.bundle_name)
+
+        self.debug_state("get_bundle_type")
+
+
+# Initialize the Bundle Object. Logging starts in /tmp
+obj = BundleObject(input_dir)
+with open(os.path.join(output_dir, tmp_report_log[1]), "a") as logfile:
+
+    obj.debug_state("init")
+
+    if args.bundle:
+        logger.info("Bundle: %s", args.bundle)
+        obj.input_dir = input_dir
+
+    elif args.file:
+        # Note: The args.file has already been validated at this point.
+        basename = os.path.splitext(os.path.basename(args.file))
+        if re.match(regex_get_bundle_date, basename[0]):
+            obj.bundles.append(basename[0])
+            obj.bundle_names.append(basename[0])
+            obj.tar_file_found = True
+        else:
+            logger.info("unexpected bundle name '%s'", basename[0])
+            logger.info("... collect bundles name should include "
+                        "'_YYYYMMDD.HHMMSS'")
+            select = str(input('accept as bundle (Y/N): '))
+            if select[0] == 'Y' or select[0] == 'y':
+                obj.bundles.append(basename[0])
+                obj.bundle_names.append(basename[0])
+                obj.tar_file_found = True
+            else:
+                sys.exit("rejected ; exiting ...")
     else:
-        # logger.info("bundle_names: %s", bundle_names)
-        bundle_name = bundle_names[0]
+        # get the bundles
+        obj.get_bundles()
 
-# handle the no bundles found case
-if bundle_name is None:
-    sys.exit("No valid collect bundles found.")
+    if not args.bundle:
+        if obj.bundles:
+            obj.get_bundle()
 
-# extract the bundle if not already extracted
-path_file = os.path.join(input_dir, bundle_name)
-if not os.path.isdir(path_file):
-    try:
-        logger.info("extracting %s", path_file)
-        subprocess.run(["tar", "xfC", path_file+".tar", input_dir], check=True)
-    except subprocess.CalledProcessError as e:
-        logger.error(e)
+        # handle the no bundles found case
+        if obj.bundle_name is None:
+            sys.exit("No valid collect host bundles found.")
 
-elif args.debug:
-    logger.debug("already extracted ...")
+        obj.get_bundle_info(obj.bundle_name)
+        logger.debug("bundle info: %s", obj.bundle_info)
+        for file in obj.bundle_info[1]:
+            if file.endswith(('.tar')):
+                logger.debug("bundle tar file: %s", file)
+                obj.tars += 1
+            elif file.endswith(('.tgz')):
+                logger.debug("bundle tgz file: %s", file)
+                obj.tgzs += 1
 
-# create the output directory ; report_analysis
-output_dir = os.path.join(path_file, analysis_folder_name)
-print("\nReport: %s\n" % output_dir)
+if not args.bundle:
+    obj.get_bundle_type()
+
+# now that the output directory is established create the analysis
+# folder, move the existing log files there and record the untar data
 if not os.path.exists(output_dir):
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        result = os.makedirs(output_dir, exist_ok=True)
+    except PermissionError as e:
+        logger.error(e)
+        sys.exit("Permission Error: Unable to create report")
+
+# relocate logging to the selected bundle directory
+remove_logging()
+new_log_file = output_dir + "/report.log"
+shutil.move(tmp_report_log[1], new_log_file)
+setup_logging(new_log_file)
+
+logger.info("")
+logger.info("Report: %s ", output_dir)
+logger.info("")
 
 # initialize the execution engine
 try:
-    engine = ExecutionEngine(args, path_file, output_dir)
+    engine = ExecutionEngine(args, obj.input_dir, output_dir)
 except ValueError as e:
     logger.error(str(e))
     logger.error("Confirm you are running the report tool on a collect bundle")
