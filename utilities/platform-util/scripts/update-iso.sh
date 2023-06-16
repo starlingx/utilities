@@ -89,30 +89,62 @@ function usage {
         -h      Display this help
 
 Kickstart Addon Example:
-    What: Define a VLAN on initial OAM interface setup:
-    How : Create and pass a file containing the following
-          kind of code using the -a <filename> option.
+    Create addon file containing the desired kickstart operations.
+Example:
+    Create Debian network interface config files that automatically setup
+    ipv6 oam and management network vlans on a physical interface and
+    add the addon file the ISO image with the '-a <ks-addon.cfg>' option.
+
+    $ ./update-iso.sh -i <iso> -o <updated-iso> -a ks-addon.cfg [other options]
 
 #### start ks-addon.cfg
-OAM_DEV=enp0s3
-OAM_VLAN=1234
+RAW_DEV=enp24s0f0
+OAM_VLAN=103
+MGMT_VLAN=163
 
-cat << EOF > /etc/sysconfig/network-scripts/ifcfg-\$OAM_DEV
-DEVICE=\$OAM_DEV
-BOOTPROTO=none
-ONBOOT=yes
-LINKDELAY=20
+cat << EOF > ${IMAGE_ROOTFS}/etc/network/interfaces.d/auto
+auto ${RAW_DEV} lo vlan${OAM_VLAN} vlan${MGMT_VLAN}
 EOF
 
-cat << EOF > /etc/sysconfig/network-scripts/ifcfg-\$OAM_DEV.\$OAM_VLAN
-DEVICE=\$OAM_DEV.\$OAM_VLAN
-BOOTPROTO=dhcp
-ONBOOT=yes
-VLAN=yes
-LINKDELAY=20
+cat << EOF > ${IMAGE_ROOTFS}/etc/network/interfaces.d/ifcfg-${RAW_DEV}
+iface ${RAW_DEV} inet manual
+mtu 9000
+post-up echo 0 > /proc/sys/net/ipv6/conf/${RAW_DEV}/autoconf;\
+echo 0 > /proc/sys/net/ipv6/conf/${RAW_DEV}/accept_ra;\
+echo 0 > /proc/sys/net/ipv6/conf/${RAW_DEV}/accept_redirects
+pre-up echo 0 > /sys/class/net/${RAW_DEV}/device/sriov_numvfs;\
+echo 32 > /sys/class/net/${RAW_DEV}/device/sriov_numvfs
 EOF
+
+cat << EOF > ${IMAGE_ROOTFS}/etc/network/interfaces.d/ifcfg-vlan${OAM_VLAN}
+iface vlan${OAM_VLAN} inet6 static
+vlan-raw-device ${RAW_DEV}
+address <__address__>
+netmask 64
+gateway <__address__>
+mtu 1500
+post-up /usr/sbin/ip link set dev vlan${OAM_VLAN} mtu 1500;\
+echo 0 > /proc/sys/net/ipv6/conf/vlan${OAM_VLAN}/autoconf;\
+echo 0 > /proc/sys/net/ipv6/conf/vlan${OAM_VLAN}/accept_ra;\
+echo 0 > /proc/sys/net/ipv6/conf/vlan${OAM_VLAN}/accept_redirects
+pre-up /sbin/modprobe -q 8021q
+EOF
+
+cat << EOF > ${IMAGE_ROOTFS}/etc/network/interfaces.d/ifcfg-vlan${MGMT_VLAN}
+iface vlan${MGMT_VLAN} inet6 static
+vlan-raw-device ${RAW_DEV}
+address <__address__>
+netmask 64
+mtu 1500
+post-up /usr/local/bin/tc_setup.sh vlan${MGMT_VLAN} mgmt 10000 > /dev/null;\
+/usr/sbin/ip link set dev vlan${MGMT_VLAN} mtu 1500;\
+echo 0 > /proc/sys/net/ipv6/conf/vlan${MGMT_VLAN}/autoconf;\
+echo 0 > /proc/sys/net/ipv6/conf/vlan${MGMT_VLAN}/accept_ra;\
+echo 0 > /proc/sys/net/ipv6/conf/vlan${MGMT_VLAN}/accept_redirects
+pre-up /sbin/modprobe -q 8021q
+EOF
+
 #### end ks-addon.cfg
-
 ENDUSAGE
     exit 0
 }
