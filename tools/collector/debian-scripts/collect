@@ -207,6 +207,7 @@ pw=""
 
 # pull in common utils and environment
 source /usr/local/sbin/collect_utils
+source /etc/collect/collect_timeouts
 
 declare -i RETVAL=${FAIL}
 function collect_exit()
@@ -274,12 +275,25 @@ trap cleanup EXIT                 # clean exit
 # 1 = show expect outout
 USER_LOG_MODE=0
 
+# Set the default collect host timeout
+COLLECT_HOST_TIMEOUT=${COLLECT_HOST_TIMEOUT_DEFAULT}
+
+# Set the default timeout for creating the final collect tarball
+CREATE_TARBALL_TIMEOUT=${CREATE_TARBALL_TIMEOUT_DEFAULT}
+
+# set the default sudo timeout
+SUDO_TIMEOUT=${SUDO_TIMEOUT_DEFAULT}
+
 # limit scp bandwidth to 1MB/s
 # increase limit of scp bandwidth from 1MB/s to 10MB/s
 SCP_CMD="scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -l $((10*8*1000))"
-SCP_TIMEOUT="600"
+SCP_TIMEOUT="${SCP_TIMEOUT_DEFAULT}"
+
 SSH_CMD="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+SSH_TIMEOUT=${SSH_TIMEOUT_DEFAULT}
+
 NOWDATE=$(date +"%Y%m%d.%H%M%S")
+
 COLLECT_BASE_DIR="/scratch"
 collect_host="/usr/local/sbin/collect_host"
 collect="/usr/local/sbin/collect"
@@ -425,15 +439,6 @@ COLLECT_CONTINUE_MSG_NEEDED=false
 SUBCLOUD_COLLECT_CONTINUE=false
 SUBCLOUD_COLLECT_CONTINUE_LIST_FILE="/tmp/collect_continue.lst"
 
-declare -i TIMEOUT_MIN_MINS=10
-declare -i TIMEOUT_MAX_MINS=120
-declare -i TIMEOUT_DEF_MINS=20
-declare -i TIMEOUT_MIN_SECS=$(($TIMEOUT_MAX_MINS*60))
-declare -i TIMEOUT_MAX_SECS=$(($TIMEOUT_MAX_MINS*60))
-declare -i TIMEOUT_DEF_SECS=$(($TIMEOUT_DEF_MINS*60)) # 20 minutes
-
-# overall collect timeout
-declare -i TIMEOUT=${TIMEOUT_DEF_SECS}
 SECONDS=0
 
 COLLECT_NAME=""
@@ -1137,7 +1142,7 @@ function passwordless_sudo_test()
 /usr/bin/expect  << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 60
+    set timeout ${SUDO_TIMEOUT}
     expect -re $
     send "sudo cat /usr/local/sbin/expect_done\n"
     expect {
@@ -1186,7 +1191,7 @@ function check_host_reachable()
     log_user ${USER_LOG_MODE}
     spawn bash -i
     expect -re $
-    set timeout 60
+    set timeout ${SSH_TIMEOUT}
     send "${SSH_CMD} ${UN}@${hostname} cat ${cmd_done_file}\n"
     expect {
         "assword:" {
@@ -1246,7 +1251,7 @@ function clean_scratch_dir_local ()
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 60
+    set timeout ${SUDO_TIMEOUT}
     expect -re $
     send -- "sudo rm -rf ${directory}/*_????????.??????* ; cat ${cmd_done_file}\n"
     expect {
@@ -1285,14 +1290,14 @@ function clean_scratch_dir_remote()
     log_user ${USER_LOG_MODE}
     spawn bash -i
     expect -re $
-    set timeout 60
+    set timeout ${SSH_TIMEOUT}
     send "${SSH_CMD} ${UN}@${this_hostname}\n"
     expect {
         "assword:" {
             send "${pw}\r"
             expect {
                 "${this_hostname}" {
-                    set timeout 30
+                    set timeout ${SUDO_TIMEOUT}
                     expect -re $
                     send "sudo rm -rf ${directory}/*_????????.??????* ; cat ${cmd_done_file}\n"
                     expect {
@@ -1361,7 +1366,7 @@ function delete_remote_dir_or_file()
     log_user ${USER_LOG_MODE}
     spawn bash -i
     expect -re $
-    set timeout 60
+    set timeout ${SSH_TIMEOUT}
     send "${SSH_CMD} ${UN}@${remote_hostname}\n"
     expect {
         "assword:" {
@@ -1371,7 +1376,7 @@ function delete_remote_dir_or_file()
                 "${login_prompt}" {}
                 "${alt_login_prompt}" {}
             }
-            set timeout 10
+            set timeout ${SUDO_TIMEOUT}
             expect -re $
             send "sudo rm -rf ${dir_or_file} ; cat ${cmd_done_file}\n"
             expect {
@@ -1540,7 +1545,7 @@ function create_collect_dir_local()
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 10
+    set timeout ${SUDO_TIMEOUT}
     expect -re $
     send "sudo mkdir -m 775 -p ${dir} ; cat ${cmd_done_file}\n"
     expect {
@@ -1596,7 +1601,7 @@ function remove_file_local()
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 10
+    set timeout ${SUDO_TIMEOUT}
     expect -re $
     send -- "sudo rm -f ${local_file} ; cat ${cmd_done_file}\n"
     expect {
@@ -1633,7 +1638,7 @@ function remove_dir_local()
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 10
+    set timeout ${SUDO_TIMEOUT}
     expect -re $
     send -- "sudo rm -rf ${dir} ; cat ${cmd_done_file}\n"
     expect {
@@ -1672,7 +1677,7 @@ function move_file_local()
 /usr/bin/expect << EOF
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 10
+    set timeout ${SUDO_TIMEOUT}
     expect -re $
     send -- "sudo mv ${src} ${dst} ; cat ${cmd_done_file}\n"
     expect {
@@ -1832,7 +1837,7 @@ EOF
         trap exit {SIGINT SIGTERM}
         log_user ${USER_LOG_MODE}
         spawn bash -i
-        set timeout 30
+        set timeout ${SSH_TIMEOUT}
         expect -re $
         send "${SSH_CMD} ${UN}@${host}\n"
         expect {
@@ -1840,7 +1845,7 @@ EOF
                 send "${pw}\r"
                 expect {
                     "${host}:" {
-                        set timeout 600
+                        set timeout ${COLLECT_HOST_TIMEOUT}
                         send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
                         expect {
                             "assword:" {
@@ -1972,7 +1977,7 @@ function collect_subcloud_run()
     trap exit {SIGINT SIGTERM}
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 30
+    set timeout ${SSH_TIMEOUT}
     expect -re $
     send "${SSH_CMD} ${UN}@${subcloud}\n"
     expect {
@@ -2463,7 +2468,7 @@ function collect_subcloud_clean()
     trap exit {SIGINT SIGTERM}
     log_user ${USER_LOG_MODE}
     spawn bash -i
-    set timeout 30
+    set timeout ${SSH_TIMEOUT}
     expect -re $
     send "${SSH_CMD} ${UN}@${subcloud}\n"
     expect {
@@ -3218,7 +3223,7 @@ echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
     log_user ${USER_LOG_MODE}
     spawn bash -i
     expect -re $
-    set timeout 200
+    set timeout ${CREATE_TARBALL_TIMEOUT}
     send "(cd ${COLLECT_BASE_DIR} ; sudo ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* 2>>${COLLECT_ERROR_LOG} ; cat ${cmd_done_file})\n"
     expect {
         "assword:" {

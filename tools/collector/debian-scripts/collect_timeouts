@@ -1,0 +1,27 @@
+#! /bin/bash
+#
+# Copyright (c) 2023 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+##########################################################################################
+
+# default timeouts for collect ; in seconds
+declare -i SCP_TIMEOUT_DEFAULT=600
+declare -i SSH_TIMEOUT_DEFAULT=60
+declare -i SUDO_TIMEOUT_DEFAULT=60
+declare -i COLLECT_HOST_TIMEOUT_DEFAULT=600
+declare -i CREATE_TARBALL_TIMEOUT_DEFAULT=200
+
+declare -i TIMEOUT_MIN_MINS=10
+declare -i TIMEOUT_MAX_MINS=120
+declare -i TIMEOUT_DEF_MINS=20
+# shellcheck disable=SC2034
+declare -i TIMEOUT_MIN_SECS=$((TIMEOUT_MAX_MINS*60))
+# shellcheck disable=SC2034
+declare -i TIMEOUT_MAX_SECS=$((TIMEOUT_MAX_MINS*60))
+declare -i TIMEOUT_DEF_SECS=$((TIMEOUT_DEF_MINS*60)) # 20 minutes
+
+# overall collect timeout
+declare -i TIMEOUT=${TIMEOUT_DEF_SECS}
+

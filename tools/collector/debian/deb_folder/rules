@@ -26,6 +26,7 @@ override_dh_auto_install:
 	install -m 755 -p collect_date $(ROOT)/usr/local/sbin/collect_date
 	install -m 755 -p collect_utils $(ROOT)/usr/local/sbin/collect_utils
 	install -m 755 -p collect_parms $(ROOT)/usr/local/sbin/collect_parms
+	install -m 755 -p collect_timeouts $(SYSCONFDIR)/collect/collect_timeouts
 	install -m 755 -p collect_mask_passwords $(ROOT)/usr/local/sbin/collect_mask_passwords
 	install -m 755 -p expect_done $(ROOT)/usr/local/sbin/expect_done
 	install -m 755 -p mariadb-cli.sh $(ROOT)/usr/local/sbin/mariadb-cli
