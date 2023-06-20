@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2021-2022 Wind River Systems, Inc.
+# Copyright (c) 2021-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,26 +14,30 @@
 # exceed 4 GB. Multiple archives can be provided.  All archives
 # must have the suffix 'tar.gz'.
 
-function log_error {
-    echo "$@" >&2
+# shellcheck disable=1091    # don't warn about following 'source <file>'
+# shellcheck disable=2164    # don't warn about pushd/popd failures
+# shellcheck disable=2181    # don't warn about using rc=$?
+
+function log_fatal {
+    echo "$(date "+%F %H:%M:%S") FATAL: $*" >&2
+    exit 1
 }
 
-# Source shared utility functions
-DIR_NAME=$(dirname $0)
-if [ ! -f ${DIR_NAME}/stx-iso-utils-centos.sh ]; then
-    log_error "Unable to find required utility: stx-iso-utils-centos.sh"
-    exit 1
-fi
+function log_error {
+    echo "$(date "+%F %H:%M:%S"): ERROR: $*" >&2
+}
 
-source $(dirname $0)/stx-iso-utils-centos.sh
+function log_info {
+    echo "$(date "+%F %H:%M:%S"): INFO: $*" >&2
+}
 
+# Usage manual.
 function usage {
     cat <<ENDUSAGE
-Utility to convert a StarlingX installation iso into a prestaged subcloud
-installation iso.
+Utility to convert a StarlingX installation iso into a CentOS prestaged subcloud installation iso.
 
 Usage:
-   $(basename $0) --input <input bootimage.iso>
+   $(basename "$0") --input <input bootimage.iso>
                   --output <output bootimage.iso>
                   [ --images <images.tar.gz> ]
                   [ --patch <patch-name.patch> ]
@@ -83,6 +87,7 @@ ENDUSAGE
 }
 
 function cleanup {
+    # This is invoked from the trap handler.
     common_cleanup
 }
 
@@ -94,31 +99,31 @@ function set_default_label {
     local isodir=$1
 
     if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
+        mount_efiboot_img "${isodir}"
     fi
 
-    for f in ${isodir}/isolinux.cfg ${isodir}/syslinux.cfg; do
+    for f in "${isodir}/isolinux.cfg" "${isodir}/syslinux.cfg"; do
         if [ "${DEFAULT_LABEL}" = "NULL" ]; then
             # Remove default, if set
-            grep -q '^default' ${f}
+            grep -q '^default' "${f}"
             if [ $? -eq 0 ]; then
-                sed -i '/^default/d' ${f}
+                sed -i '/^default/d' "${f}"
             fi
         else
-            grep -q '^default' ${f}
+            grep -q '^default' "${f}"
             if [ $? -ne 0 ]; then
-                cat <<EOF >> ${f}
+                cat <<EOF >> "${f}"
 
 default ${DEFAULT_SYSLINUX_ENTRY}
 EOF
             else
-                sed -i "s/^default.*/default ${DEFAULT_SYSLINUX_ENTRY}/" ${f}
+                sed -i "s/^default.*/default ${DEFAULT_SYSLINUX_ENTRY}/" "${f}"
             fi
         fi
     done
 
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        sed -i "s/^default=.*/default=\"${DEFAULT_GRUB_ENTRY}\"/" ${f}
+        sed -i "s/^default=.*/default=\"${DEFAULT_GRUB_ENTRY}\"/" "${f}"
     done
 }
 
@@ -126,27 +131,27 @@ function set_timeout {
     local isodir=$1
 
     if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
+        mount_efiboot_img "${isodir}"
     fi
 
     for f in ${isodir}/isolinux.cfg ${isodir}/syslinux.cfg; do
-        sed -i "s/^timeout.*/timeout ${TIMEOUT}/" ${f}
+        sed -i "s/^timeout.*/timeout ${TIMEOUT}/" "${f}"
     done
 
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        sed -i "s/^timeout=.*/timeout=${GRUB_TIMEOUT}/" ${f}
+        sed -i "s/^timeout=.*/timeout=${GRUB_TIMEOUT}/" "${f}"
 
-        grep -q "^  set timeout=" ${f}
+        grep -q "^  set timeout=" "${f}"
         if [ $? -eq 0 ]; then
             # Submenu timeout is already added. Update the value
-            sed -i -e "s#^  set timeout=.*#  set timeout=${GRUB_TIMEOUT}#" ${f}
+            sed -i -e "s#^  set timeout=.*#  set timeout=${GRUB_TIMEOUT}#" "${f}"
             if [ $? -ne 0 ]; then
                 log_error "Failed to update grub timeout"
                 exit 1
             fi
         else
             # Parameter doesn't exist. Add it to the cmdline
-            sed -i -e "/^submenu/a \ \ set timeout=${GRUB_TIMEOUT}" ${f}
+            sed -i -e "/^submenu/a \ \ set timeout=${GRUB_TIMEOUT}" "${f}"
             if [ $? -ne 0 ]; then
                 log_error "Failed to add grub timeout"
                 exit 1
@@ -171,13 +176,14 @@ function normalized_path {
     local path="${1}"
     local default_fn="${2}"
 
-    local path_name="$(basename "${path}")"
-    local path_dir="$(dirname "${path}")"
+    local path_name path_dir
+    path_name="$(basename "${path}")"
+    path_dir="$(dirname "${path}")"
 
     # If 'path' ends in '/' then path was intended to be a directory
-    if [ "${path:(-1):1}" == "/" ]; then
+    if [ "${path: -1:1}" = "/" ]; then   # Note: space is required after : to distinguish from ${path:-...}
         # Drop the trailing '/'
-        path_dir="${path:0:(-1)}"
+        path_dir="${path:0:-1}"
         path_name="${default_fn}"
     fi
 
@@ -198,7 +204,6 @@ function normalized_path {
     fi
 }
 
-
 function copy_to_iso {
     local src="${1}"
     local dest="${2}"
@@ -208,9 +213,7 @@ function copy_to_iso {
     local default_dest=
     local final_dest=
     local final_dest_dir=
-    local default_md5=
     local final_md5=
-    local final_md5_dir=
 
     if [ -z "${src}" ] || [ -z "${dest}" ]; then
         log_error "Error: copy_to_iso: missing argument"
@@ -227,9 +230,7 @@ function copy_to_iso {
     final_dest="${BUILDDIR}/${dest}"
     final_dest_dir="$(dirname "${final_dest}")"
 
-    if [ ! -z "${md5}" ]; then
-        default_md5="$(basename "${dest}.md5")"
-
+    if [ -n "${md5}" ]; then
         case "${md5}" in
             y | Y | yes | YES )
                 # Use a default name, in same dir as dest
@@ -237,9 +238,7 @@ function copy_to_iso {
                 ;;
         esac
 
-        md5="$(normalized_path "${md5}" "${final_md5}")"
         final_md5="${BUILDDIR}/${md5}"
-        final_md5_dir="$(dirname "${final_md5}")"
     fi
 
     if [ -z "${overwrite}" ] || [ "${overwrite}" == 'n' ]; then
@@ -254,21 +253,14 @@ function copy_to_iso {
         exit 1
     fi
 
-    if [ ! -z "${final_md5_dir}" ]; then
-        if [ ! -d "${final_md5_dir}" ]; then
-            log_error "Error: copy_to_iso: md5 destination directory does not exist '${final_md5_dir}'"
-            exit 1
-        fi
-    fi
-
-    \cp -f "${src}" "${final_dest}"
+    cp -f "${src}" "${final_dest}"
     if [ $? -ne 0 ]; then
         log_error "Error: Failed to copy '${src}' to '${final_dest}'"
         exit 1
     fi
 
-    if [ ! -z "${final_md5}" ]; then
-        pushd ${final_dest_dir} > /dev/null
+    if [ -n "${final_md5}" ]; then
+        pushd "${final_dest_dir}" > /dev/null
             md5sum "$(basename "${final_dest}")" >> "${final_md5}"
         popd > /dev/null
     fi
@@ -371,12 +363,13 @@ function find_in_patch {
     # make sure patch is an absolute path
     patch="$(abspath "${patch}")"
 
-    patchdir=$(mktemp -d -p $PWD updateiso_build_patch_XXXXXX)
+    patchdir=$(mktemp -d -p "${PWD}" updateiso_build_patch_XXXXXX)
     pushd "${patchdir}" > /dev/null
         extract_patch "${patch}"
+        # shellcheck disable=2044
         for rpm in $(find . -name '*.rpm'); do
             if path="$(find_in_rpm "${rpm}" "${target}")"; then
-                found_rpm="$(basename ${rpm})"
+                found_rpm="$(basename "${rpm}")"
                 break
             fi
         done
@@ -411,14 +404,14 @@ function copy_rpm_file_to_iso {
     # make sure patch is an absolute path
     rpm="$(abspath "${rpm}")"
 
-    patchdir=$(mktemp -d -p $PWD updateiso_build_rpm_XXXXXX)
+    patchdir=$(mktemp -d -p "${PWD}" updateiso_build_rpm_XXXXXX)
     pushd "${patchdir}" > /dev/null
-        rpm2cpio "${rpm}" | cpio -imdv ${src}
+        rpm2cpio "${rpm}" | cpio -imdv "${src}"
         if [ $? -ne 0 ]; then
-            log_error "Error: copy_rpm_file_to_iso: extraction error from rpm '$(basename ${rpm})'"
+            log_error "copy_rpm_file_to_iso: extraction error from rpm '$(basename "${rpm}")'"
             rc=1
-        elif [ ! -e ${src} ]; then
-            log_error "Error: copy_rpm_file_to_iso: file '${src}' not found in rpm '$(basename {rpm})'"
+        elif [ ! -e "${src}" ]; then
+            log_error "copy_rpm_file_to_iso: file '${src}' not found in rpm '$(basename "${rpm}")'"
             rc=1
         else
             # we do not need an md5 here, so leaving third argument empty
@@ -453,11 +446,11 @@ function copy_patch_file_to_iso {
     # make sure patch is an absolute path
     patch="$(abspath "${patch}")"
 
-    rpmdir=$(mktemp -d -p $PWD updateiso_build_patch_XXXXXX)
+    rpmdir=$(mktemp -d -p "${PWD}" updateiso_build_patch_XXXXXX)
     pushd "${rpmdir}" > /dev/null
         extract_patch "${patch}"
         if [ ! -f "${rpm}" ]; then
-            log_error "Error: copy_patch_file_to_iso: rpm '${rpm}' not found in patch '$(basename ${patch})'"
+            log_error "copy_patch_file_to_iso: rpm '${rpm}' not found in patch '$(basename "${patch}")'"
             rc=1
         else
             copy_rpm_file_to_iso "${rpm}" "${src}" "${dest}" "${overwrite}"
@@ -474,28 +467,31 @@ function copy_patch_file_to_iso {
 }
 
 function generate_boot_cfg {
+    log_info "Generating boot config"
     local isodir=$1
 
     if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
+        mount_efiboot_img "${isodir}"
     fi
 
     local COMMON_ARGS="inst.text inst.gpt boot_device=sda rootfs_device=sda"
     COMMON_ARGS="${COMMON_ARGS} biosdevname=0 usbcore.autosuspend=-1"
     COMMON_ARGS="${COMMON_ARGS} security_profile=standard user_namespace.enable=1"
     COMMON_ARGS="${COMMON_ARGS} inst.stage2=hd:LABEL=${VOLUME_LABEL} inst.ks=hd:LABEL=${VOLUME_LABEL}:/${PRESTAGED_KICKSTART}"
-    if [[ "${FORCE_INSTALL}" == true ]]; then
+    if [ -n "${FORCE_INSTALL}" ]; then
         COMMON_ARGS="${COMMON_ARGS} force_install"
     fi
+    log_info "COMMON_ARGS: ${COMMON_ARGS}"
 
-    for f in ${isodir}/isolinux.cfg ${isodir}/syslinux.cfg; do
-        cat <<EOF > ${f}
+    for f in "${isodir}/isolinux.cfg" "${isodir}/syslinux.cfg"; do
+        cat <<EOF > "${f}"
 display splash.cfg
 timeout ${TIMEOUT}
 F1 help.txt
 F2 devices.txt
 F3 splash.cfg
 serial 0 115200
+
 ui vesamenu.c32
 menu background   #ff555555
 default ${DEFAULT_SYSLINUX_ENTRY}
@@ -521,7 +517,7 @@ menu end
 EOF
     done
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        cat <<EOF > ${f}
+        cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
 search --no-floppy --set=root -l '${VOLUME_LABEL}'
@@ -540,34 +536,46 @@ menuentry 'Graphical Console' --id=graphical {
     initrdefi /initrd.img
 }
 EOF
-
     done
 }
 
+# Source shared utility functions
+DIR_NAME=$(dirname "$0")
+if [ ! -e "${DIR_NAME}"/stx-iso-utils-centos.sh ]; then
+    echo  "${DIR_NAME}/stx-iso-utils-centos.sh does not exist" >&2
+    exit 1
+else
+    source "${DIR_NAME}"/stx-iso-utils-centos.sh
+fi
+
+# Required variables
 declare INPUT_ISO=
 declare OUTPUT_ISO=
 declare -a IMAGES
-declare ORIG_PWD=$PWD
 declare KS_SETUP=
 declare KS_ADDON=
+declare UPDATE_TIMEOUT="no"
+declare -i FOREVER_GRUB_TIMEOUT=-1
+declare -i DEFAULT_GRUB_TIMEOUT=30
+declare -i DEFAULT_TIMEOUT=$(( DEFAULT_GRUB_TIMEOUT*10 ))
+declare -i TIMEOUT=${DEFAULT_TIMEOUT}
+declare -i GRUB_TIMEOUT=${DEFAULT_GRUB_TIMEOUT}
 declare -a PARAMS
 declare -a PATCHES
 declare -a KICKSTART_PATCHES
 declare DEFAULT_LABEL=
 declare DEFAULT_SYSLINUX_ENTRY=1
 declare DEFAULT_GRUB_ENTRY="graphical"
-declare UPDATE_TIMEOUT="no"
-declare FOREVER_GRUB_TIMEOUT=-1
-declare DEFAULT_GRUB_TIMEOUT=30
-declare -i DEFAULT_TIMEOUT=(DEFAULT_GRUB_TIMEOUT*10)
-declare -i TIMEOUT=${DEFAULT_TIMEOUT}
-declare GRUB_TIMEOUT=${DEFAULT_GRUB_TIMEOUT}
+declare FORCE_INSTALL=
 declare PLATFORM_ROOT="opt/platform-backup"
 declare MD5_FILE="container-image.tar.gz.md5"
 declare VOLUME_LABEL="oe_prestaged_iso_boot"
 declare PRESTAGED_KICKSTART="prestaged_installer_ks.cfg"
 declare MENU_NAME="Prestaged Local Installer"
-declare FORCE_INSTALL=false
+
+###############################################################################
+# Get the command line arguments.
+###############################################################################
 
 SHORTOPTS="";    LONGOPTS=""
 SHORTOPTS+="i:"; LONGOPTS+="input:,"
@@ -583,17 +591,26 @@ SHORTOPTS+="I:"; LONGOPTS+="images:,"
 SHORTOPTS+="f";  LONGOPTS+="force-install,"
 SHORTOPTS+="h";  LONGOPTS+="help"
 
+declare -i rc
 OPTS=$(getopt -o "${SHORTOPTS}" --long "${LONGOPTS}" --name "$0" -- "$@")
-
 if [ $? -ne 0 ]; then
     usage
-    exit 1
+    log_fatal "Options to $0 not properly parsed"
 fi
 
 eval set -- "${OPTS}"
 
+if [ $# = 1 ]; then
+    usage
+    log_fatal "No arguments were provided"
+fi
+
 while :; do
     case $1 in
+        -h | --help)
+            usage
+            exit 0
+            ;;
         -i | --input)
             INPUT_ISO=$2
             shift 2
@@ -611,24 +628,27 @@ while :; do
             shift 2
             ;;
         -p | --param)
+            # shellcheck disable=2206
             PARAMS+=(${2//,/ })
             shift 2
             ;;
         -P | --patch)
+            # shellcheck disable=2206
             PATCHES+=(${2//,/ })
             shift 2
             ;;
         -K | --kickstart-patch)
+            # shellcheck disable=2206
             KICKSTART_PATCHES+=(${2//,/ })
             shift 2
             ;;
         -I | --images)
+            # shellcheck disable=2206
             IMAGES+=(${2//,/ })
             shift 2
             ;;
         -d | --default-boot)
             DEFAULT_LABEL=${2}
-
             case ${DEFAULT_LABEL} in
                 0)
                     DEFAULT_SYSLINUX_ENTRY=0
@@ -639,18 +659,16 @@ while :; do
                     DEFAULT_GRUB_ENTRY="graphical"
                     ;;
                 *)
-                    log_error "Invalid default boot menu option: ${DEFAULT_LABEL}"
                     usage
-                    exit 1
+                    log_fatal "Invalid default boot menu option: ${DEFAULT_LABEL}"
                     ;;
             esac
-
             shift 2
             ;;
         -t | --timeout)
-            let -i timeout_arg=${2}
-            if [ ${timeout_arg} -gt 0 ]; then
-                let -i TIMEOUT=${timeout_arg}*10
+            declare -i timeout_arg=${2}
+            if [ "${timeout_arg}" -gt 0 ]; then
+                TIMEOUT=$(( timeout_arg * 10 ))
                 GRUB_TIMEOUT=${timeout_arg}
             elif [ ${timeout_arg} -eq 0 ]; then
                 TIMEOUT=0
@@ -659,7 +677,6 @@ while :; do
                 TIMEOUT=0
                 GRUB_TIMEOUT=${FOREVER_GRUB_TIMEOUT}
             fi
-
             UPDATE_TIMEOUT="yes"
             shift 2
             ;;
@@ -673,111 +690,109 @@ while :; do
             ;;
         *)
             usage
-            exit 1
+            log_fatal "Unexpected argument: $*"
             ;;
     esac
 done
 
-if [ $# -ne 0 ]; then
-    log_error "Error: Unexpected arguments: $@"
-    usage
-    exit 1
-fi
 
+###############################################################################
+# Generate prestage iso.
+#
+###############################################################################
+
+log_info "Checking system requirements"
 check_requirements
 
+## Check for mandatory parameters
 check_required_param "--input" "${INPUT_ISO}"
 check_required_param "--output" "${OUTPUT_ISO}"
 
+# shellcheck disable=2068
 check_files_exist ${INPUT_ISO} ${IMAGES[@]} ${PATCHES[@]} ${KICKSTART_PATCHES[@]} ${KS_SETUP} ${KS_ADDON}
+# shellcheck disable=2068
 check_files_size  ${INPUT_ISO} ${IMAGES[@]} ${PATCHES[@]} ${KICKSTART_PATCHES[@]} ${KS_SETUP} ${KS_ADDON}
 
-if [ -f ${OUTPUT_ISO} ]; then
-    log_error "Output file already exists: ${OUTPUT_ISO}"
-    exit 1
+if [ -e "${OUTPUT_ISO}" ]; then
+    log_fatal "${OUTPUT_ISO} exists. Delete before you execute this script."
 fi
 
-shift $((OPTIND-1))
-
+## Catch Control-C and handle.
 trap cleanup EXIT
 
-BUILDDIR=$(mktemp -d -p $PWD updateiso_build_XXXXXX)
-if [ -z "${BUILDDIR}" -o ! -d ${BUILDDIR} ]; then
-    log_error "Failed to create builddir. Aborting..."
-    exit $rc
+# Create a temporary build directory.
+BUILDDIR=$(mktemp -d -p "${PWD}" updateiso_build_XXXXXX)
+if [ -z "${BUILDDIR}" ] || [ ! -d "${BUILDDIR}" ]; then
+    log_fatal "Failed to create builddir. Aborting..."
 fi
-
-mount_iso ${INPUT_ISO}
+log_info "Using BUILDDIR=${BUILDDIR}"
+mount_iso "${INPUT_ISO}"
 
 #
 # prestaging kickstart
 #
 
-# Verify prestaging kickstart is present, and where.  An original 21.05 iso
-# won't have the kickstart.  It must be provided by a patch.
-# KICKSTART_PATCHES take presedence over a platform PATCHES, which in
-# turn take presedence over any content from the ISO.
-PRESTAGED_KICKSTART_FOUND_IN=""
-PRESTAGED_KICKSTART_PATH=""
+# Verify prestaging kickstart is present, and where.
+# KICKSTART_PATCHES take precedence over a platform PATCHES, which in
+# turn take precedence over any content from the ISO.
+PRESTAGED_KICKSTART_PATCH=
+PRESTAGED_KICKSTART_PATH=
 
-# scan patches last to first.
-for PATCH in $(printf '%s\n' "${KICKSTART_PATCHES[@]}" | tac); do
-    if PRESTAGED_KICKSTART_PATH="$(find_in_patch "${PATCH}" "${PRESTAGED_KICKSTART}")" ; then
-        PRESTAGED_KICKSTART_FOUND_IN="${PATCH}"
+# Scan KICKSTART_PATCHES last to first.
+for patch in $(printf '%s\n' "${KICKSTART_PATCHES[@]}" | tac); do
+    if PRESTAGED_KICKSTART_PATH="$(find_in_patch "${patch}" "${PRESTAGED_KICKSTART}")" ; then
+        PRESTAGED_KICKSTART_PATCH="${patch}"
         break
     fi
 done
 
-# scan patches last to first.   We want to prefer the most recent patch.
+# Scan PATCHES last to first. Prefer the most recent patch.
 # Assumes patches will be listed in order 0001, 0002, .... when given as args.
-if [ -z "${PRESTAGED_KICKSTART_FOUND_IN}" ]; then
-    for PATCH in $(printf '%s\n' "${PATCHES[@]}" | tac); do
-        if PRESTAGED_KICKSTART_PATH="$(find_in_patch "${PATCH}" "${PRESTAGED_KICKSTART}")" ; then
-            PRESTAGED_KICKSTART_FOUND_IN="${PATCH}"
+if [ -z "${PRESTAGED_KICKSTART_PATCH}" ]; then
+    for patch in $(printf '%s\n' "${PATCHES[@]}" | tac); do
+        if PRESTAGED_KICKSTART_PATH="$(find_in_patch "${patch}" "${PRESTAGED_KICKSTART}")" ; then
+            PRESTAGED_KICKSTART_PATCH="${patch}"
             break
         fi
     done
 fi
 
-if [ -z "${PRESTAGED_KICKSTART_FOUND_IN}" ]; then
+if [ -z "${PRESTAGED_KICKSTART_PATCH}" ]; then
     if PRESTAGED_KICKSTART_PATH="$(find_in_mounted_iso "${PRESTAGED_KICKSTART}")" ; then
-        PRESTAGED_KICKSTART_FOUND_IN="iso"
+        log_info "Using ${PRESTAGED_KICKSTART} from original ISO"
+    else
+        log_fatal "Failed to find required file '${PRESTAGED_KICKSTART}' in the supplied iso and patches."
     fi
-fi
-
-if [ -z "${PRESTAGED_KICKSTART_FOUND_IN}" ]; then
-    log_error "Failed to find required file '${PRESTAGED_KICKSTART}' in the supplied iso and patches."
-    exit 1
 fi
 
 #
 # Determine release version from ISO
 #
-if [ ! -f ${MNTDIR}/upgrades/version ]; then
+if [ ! -f "${MNTDIR}"/upgrades/version ]; then
     log_error "Version info not found on ${INPUT_ISO}"
     exit 1
 fi
 
-ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
+ISO_VERSION=$(source "${MNTDIR}/upgrades/version" && echo "${VERSION}")
 if [ -z "${ISO_VERSION}" ]; then
     log_error "Failed to determine version of installation ISO"
     exit 1
 fi
 
+# Copy the contents of the input iso to the build directory.
 
-#
-# copy content
-#
-rsync -a ${MNTDIR}/ ${BUILDDIR}/
+log_info "Copying input ISO"
+rsync -av "${MNTDIR}/" "${BUILDDIR}/"
 rc=$?
-if [ $rc -ne 0 ]; then
-    log_error "Call to rsync ISO content. Aborting..."
-    exit $rc
+if [ "${rc}" -ne 0 ]; then
+    unmount_iso
+    log_fatal "Unable to rsync content from the ISO: Error rc=${rc}"
 fi
 
-# copy kickstart
-if [ "${PRESTAGED_KICKSTART_FOUND_IN}" != "iso" ]; then
-    copy_patch_file_to_iso "${PRESTAGED_KICKSTART_FOUND_IN}" "${PRESTAGED_KICKSTART_PATH%%:*}" "${PRESTAGED_KICKSTART_PATH##*:}" "/" "y"
+# Copy kickstart if it is anywhere outside of the mounted ISO (otherwise it will already have been copied by the above)
+if [ -n "${PRESTAGED_KICKSTART_PATCH}" ]; then
+    log_info "Prestaging kickstart from ${PRESTAGED_KICKSTART_PATCH}"
+    copy_patch_file_to_iso "${PRESTAGED_KICKSTART_PATCH}" "${PRESTAGED_KICKSTART_PATH%%:*}" "${PRESTAGED_KICKSTART_PATH##*:}" "/" "y"
 fi
 
 unmount_iso
@@ -785,31 +800,31 @@ unmount_iso
 #
 # Setup syslinux and grub cfg files
 #
-generate_boot_cfg ${BUILDDIR}
+generate_boot_cfg "${BUILDDIR}"
 
 #
 # Set/update boot parameters
 #
+log_info "Updating boot parameters"
 if [ ${#PARAMS[@]} -gt 0 ]; then
-    for p in ${PARAMS[@]}; do
+    for p in "${PARAMS[@]}"; do
         param=${p%%=*} # Strip from the first '=' on
         value=${p#*=}  # Strip to the first '='
-
-        update_parameter ${BUILDDIR} "${param}" "${value}"
+        update_parameter "${BUILDDIR}" "${param}" "${value}"
     done
 fi
 
 if [ -n "${DEFAULT_LABEL}" ]; then
-    set_default_label ${BUILDDIR}
+    set_default_label "${BUILDDIR}"
 fi
 
 if [ "${UPDATE_TIMEOUT}" = "yes" ]; then
-    set_timeout ${BUILDDIR}
+    set_timeout "${BUILDDIR}"
 fi
 
 if [ -n "${KS_SETUP}" ]; then
-    \rm -f ${BUILDDIR}/ks-setup.cfg
-    \cp ${KS_SETUP} ${BUILDDIR}/ks-setup.cfg
+    \rm -f "${BUILDDIR}"/ks-setup.cfg
+    \cp "${KS_SETUP}" "${BUILDDIR}"/ks-setup.cfg
     if [ $? -ne 0 ]; then
         log_error "Error: Failed to copy ${KS_SETUP}"
         exit 1
@@ -817,8 +832,8 @@ if [ -n "${KS_SETUP}" ]; then
 fi
 
 if [ -n "${KS_ADDON}" ]; then
-    \rm -f ${BUILDDIR}/ks-addon.cfg
-    \cp ${KS_ADDON} ${BUILDDIR}/ks-addon.cfg
+    \rm -f "${BUILDDIR}"/ks-addon.cfg
+    \cp "${KS_ADDON}" "${BUILDDIR}"/ks-addon.cfg
     if [ $? -ne 0 ]; then
         log_error "Error: Failed to copy ${KS_ADDON}"
         exit 1
@@ -836,32 +851,36 @@ unmount_efiboot_img
 PLATFORM_PATH="${PLATFORM_ROOT}/${ISO_VERSION}"
 mkdir_on_iso "${PLATFORM_PATH}"
 
-INPUT_ISO_NAME="$(basename  "${INPUT_ISO}")"
+INPUT_ISO_NAME="$(basename "${INPUT_ISO}")"
 copy_to_iso "${INPUT_ISO}" "${PLATFORM_PATH}/${INPUT_ISO_NAME}"  "${PLATFORM_PATH}/${INPUT_ISO_NAME/%.iso/.md5}"
 
-for PATCH in ${PATCHES[@]}; do
-    copy_to_iso "${PATCH}" "${PLATFORM_PATH}/"
-done
+if [ -n "${PATCHES[*]}" ]; then
+    log_info "Including patches: ${PATCHES[*]}"
+    for patch in "${PATCHES[@]}"; do
+        copy_to_iso "${patch}" "${PLATFORM_PATH}/"
+    done
+fi
 
-for IMAGE in ${IMAGES[@]}; do
-    copy_to_iso "${IMAGE}" "${PLATFORM_PATH}/" "${PLATFORM_PATH}/${MD5_FILE}"
-done
+if [ -n "${IMAGES[*]}" ]; then
+    log_info "Including images: ${IMAGES[*]}"
+    for IMAGE in "${IMAGES[@]}"; do
+        copy_to_iso "${IMAGE}" "${PLATFORM_PATH}/" "${PLATFORM_PATH}/${MD5_FILE}"
+    done
+fi
 
-#
-# Rebuild the ISO
-#
-mkisofs -o ${OUTPUT_ISO} \
-    -R -D -A "${VOLUME_LABEL}" -V "${VOLUME_LABEL}" \
-    -quiet \
-    -b isolinux.bin -c boot.cat -no-emul-boot \
-    -boot-load-size 4 -boot-info-table \
-    -eltorito-alt-boot \
-    -e images/efiboot.img \
-    -no-emul-boot \
-    ${BUILDDIR}
+#  we are ready to create the prestage iso.
+log_info "Creating ${OUTPUT_ISO}"
+mkisofs -o "${OUTPUT_ISO}" \
+        -R -D -A "${VOLUME_LABEL}" -V "${VOLUME_LABEL}" \
+        -quiet \
+        -b isolinux.bin -c boot.cat -no-emul-boot \
+        -boot-load-size 4 -boot-info-table \
+        -eltorito-alt-boot \
+        -e images/efiboot.img \
+        -no-emul-boot \
+        "${BUILDDIR}"
 
-isohybrid --uefi ${OUTPUT_ISO}
-implantisomd5 ${OUTPUT_ISO}
+isohybrid --uefi "${OUTPUT_ISO}"
+implantisomd5 "${OUTPUT_ISO}"
 
-echo "Created ISO: ${OUTPUT_ISO}"
-
+log_info "Prestage ISO created successfully: ${OUTPUT_ISO}"

@@ -29,18 +29,17 @@ BOOT_HOSTNAME=
 BOOT_INTERFACE=
 BOOT_IP=
 BOOT_NETMASK=
-MINIBOOT_INITRD_FILE=/var/miniboot/initrd-mini  # populated by the loadbuild at this location
 DEFAULT_GRUB_ENTRY=
 DEFAULT_SYSLINUX_ENTRY=
 DELETE="no"
 GRUB_TIMEOUT=-1
 INITRD_FILE=
-INSTALL_TYPE=
-REPACK=no     # REPACK initrd is disabled until signing is fixed
 INPUT_ISO=
+INSTALL_TYPE=
 LOCK_FILE=/var/run/.gen-bootloader-iso.lock
 LOCK_TMOUT=600  # Wait up to 10 minutes, by default
 LOG_TAG=$SCRIPTNAME
+MINIBOOT_INITRD_FILE=/var/miniboot/initrd-mini  # populated by the loadbuild at this location
 NODE_ID=
 OUTPUT_ISO=
 REPACK=yes  # Repack/trim the initrd and kernel images by default
@@ -49,7 +48,6 @@ TIMEOUT=100
 VERBOSE=${VERBOSE:-}
 VERBOSE_LOG_DIR=/var/log/dcmanager/miniboot
 VERBOSE_OVERRIDE_FILE=/tmp/gen-bootloader-verbose  # turn on verbose if this file is present
-WORKDIR=
 WWW_ROOT_DIR=
 XZ_ARGS="--threads=0 -9 --format=lzma"
 
@@ -86,17 +84,6 @@ function log_warn {
     logger -i -s -t "${LOG_TAG}" -- "WARN: $*"
 }
 
-function get_path_size {
-    local path=$1
-    du -hs "$path" | awk '{print $1}'
-}
-
-function log_path_size {
-    local path=$1
-    local msg=$2
-    log_info "$msg: $(get_path_size "$path")"
-}
-
 function fatal_error {
     logger -i -s -t "${LOG_TAG}" -- "FATAL: $*"
     exit 1
@@ -125,6 +112,17 @@ function get_os {
             echo "$os"
             ;;
     esac
+}
+
+function get_path_size {
+    local path=$1
+    du -hs "$path" | awk '{print $1}'
+}
+
+function log_path_size {
+    local path=$1
+    local msg=$2
+    log_info "$msg: $(get_path_size "$path")"
 }
 
 function usage {
@@ -224,7 +222,6 @@ function parse_arguments {
                 INPUT_ISO=$2
                 shift 2
                 ;;
-            # TODO: do we need to support --addon for debian?
             --addon)
                 ADDON=$2
                 shift 2
@@ -307,12 +304,12 @@ function parse_arguments {
                 esac
                 ;;
             --timeout)
-                timeout_arg=$2
+                local -i timeout_arg=$2
                 shift 2
-                if [ $(( timeout_arg )) -gt 0 ]; then
+                if [ ${timeout_arg} -gt 0 ]; then
                     TIMEOUT=$(( timeout_arg * 10 ))
                     GRUB_TIMEOUT=${timeout_arg}
-                elif [ $(( timeout_arg )) -eq 0 ]; then
+                elif [ ${timeout_arg} -eq 0 ]; then
                     GRUB_TIMEOUT=0.001
                 fi
                 ;;
@@ -341,9 +338,9 @@ function parse_arguments {
                 shift 2
                 ;;
             --lock-timeout)
-                LOCK_TMOUT=$2
+                local -i LOCK_TMOUT=$2
                 shift 2
-                if [ "$LOCK_TMOUT" -le 0 ]; then
+                if [ "${LOCK_TMOUT}" -le 0 ]; then
                     echo "Lock timeout must be greater than 0" >&2
                     exit 1
                 fi
@@ -387,22 +384,25 @@ function initialize_and_lock {
     check_required_param "--id" "${NODE_ID}"
     check_required_param "--www-root" "${WWW_ROOT_DIR}"
     [ -d "${WWW_ROOT_DIR}" ] || fatal_error "Root directory ${WWW_ROOT_DIR} does not exist"
-    [ -d "${WWW_ROOT_DIR}/iso" ] || mkdir "${WWW_ROOT_DIR}/iso"
 
-    [ -f "$VERBOSE_OVERRIDE_FILE" ] && VERBOSE=1
-    if [ -n "$VERBOSE" ]; then
+    [ -f "${VERBOSE_OVERRIDE_FILE}" ] && VERBOSE=1
+    if [ -n "${VERBOSE}" ]; then
         VERBOSE_RSYNC="--verbose"
         XZ_ARGS="--verbose $XZ_ARGS"
 
         # log all output to file
-        if [ ! -d "$(dirname "$VERBOSE_LOG_DIR")" ]; then
+        if [ ! -d "$(dirname "${VERBOSE_LOG_DIR}")" ]; then
             # For testing: the base directory does not exist - use /tmp instead
             VERBOSE_LOG_DIR=/tmp/miniboot
         fi
-        [ -d "$VERBOSE_LOG_DIR" ] || mkdir -p "$VERBOSE_LOG_DIR"
+        [ -d "${VERBOSE_LOG_DIR}" ] || mkdir -p "${VERBOSE_LOG_DIR}"
         local logfile="${VERBOSE_LOG_DIR}/gen-bootloader-iso-${NODE_ID}.log"
-        echo "Verbose: logging output to $logfile"
-        exec > >(tee "$logfile") 2>&1
+        [ -f "${logfile}" ] && rm -f "${logfile}"
+        touch "${logfile}"
+        echo "Verbose: logging output to ${logfile}"
+        echo "$(date) Starting $0"
+        printenv >> "${logfile}"
+        exec > >(tee --append "${logfile}") 2>&1
     fi
 
     # Initialize dynamic variables
@@ -439,14 +439,14 @@ function initialize_and_lock {
     # Run cleanup on any exit
     trap cleanup_on_exit EXIT
 
-    BUILDDIR=$(mktemp -d -p "$SCRATCH_DIR" gen_bootloader_build_XXXXXX)
+    BUILDDIR=$(mktemp -d -p "${SCRATCH_DIR}" gen_bootloader_build_XXXXXX)
     if [ -z "${BUILDDIR}" ] || [ ! -d "${BUILDDIR}" ]; then
-        fatal_error "Failed to create builddir: $BUILDDIR"
+        fatal_error "Failed to create builddir: ${BUILDDIR}"
     fi
 
-    WORKDIR=$(mktemp -d -p "$SCRATCH_DIR" gen_bootloader_initrd_XXXXXX)
+    WORKDIR=$(mktemp -d -p "${SCRATCH_DIR}" gen_bootloader_initrd_XXXXXX)
     if [ -z "${WORKDIR}" ] || [ ! -d "${WORKDIR}" ]; then
-        fatal_error "Failed to create initrd extract directory: $WORKDIR"
+        fatal_error "Failed to create WORKDIR directory: $WORKDIR"
     fi
 }
 
@@ -468,12 +468,17 @@ function generate_boot_cfg {
         for p in "${PARAMS[@]}"; do
             param=${p%%=*}
             value=${p#*=}
-            # Pull the boot device out of PARAMS and convert to instdev
-            if [ "$param" = "boot_device" ]; then
-                log_info "Setting instdev=$value from boot_device param"
-                instdev=$value
+            if [ "${param}" = "${p}" ]; then
+                # there is no '=' in the parameter; include it directly:
+                PARAM_LIST="${PARAM_LIST} ${param}"
+            else
+                # Pull the boot device out of PARAMS and convert to instdev
+                if [ "$param" = "boot_device" ]; then
+                    log_info "Setting instdev=$value from boot_device param"
+                    instdev=$value
+                fi
+                PARAM_LIST="${PARAM_LIST} ${param}=${value}"
             fi
-            PARAM_LIST="${PARAM_LIST} ${param}=${value}"
         done
     fi
     log_verbose "Parameters: ${PARAM_LIST}"
@@ -557,8 +562,8 @@ LABEL 1
 EOF
     done
 
-    log_verbose "Generating grub.cfg, install_type: $INSTALL_TYPE, default: $DEFAULT_GRUB_ENTRY, timeout: $GRUB_TIMEOUT"
-    for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
+    log_verbose "Generating grub.cfg, install_type: ${INSTALL_TYPE}, default: ${DEFAULT_GRUB_ENTRY}, timeout: ${GRUB_TIMEOUT}"
+    for f in "${isodir}/EFI/BOOT/grub.cfg" "${EFI_MOUNT}/EFI/BOOT/grub.cfg"; do
         cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
 timeout=${GRUB_TIMEOUT}
@@ -581,13 +586,13 @@ menuentry 'UEFI Graphical Console' --id=graphical {
 }
 EOF
     done
-if [ -n "$VERBOSE" ]; then
-    log_verbose "Contents of ${isodir}/EFI/BOOT/grub.cfg"
-    cat "${isodir}/EFI/BOOT/grub.cfg"
-    log_verbose ""
-    log_verbose "Contents of ${EFI_MOUNT}/EFI/BOOT/grub.cfg"
-    cat "${EFI_MOUNT}/EFI/BOOT/grub.cfg"
-fi
+    if [ -n "$VERBOSE" ]; then
+        log_verbose "Contents of ${isodir}/EFI/BOOT/grub.cfg"
+        cat "${isodir}/EFI/BOOT/grub.cfg"
+        log_verbose ""
+        log_verbose "Contents of ${EFI_MOUNT}/EFI/BOOT/grub.cfg"
+        cat "${EFI_MOUNT}/EFI/BOOT/grub.cfg"
+    fi
 }
 
 function cleanup_on_exit {
@@ -624,28 +629,28 @@ function handle_delete {
 }
 
 function create_miniboot_iso {
-    log_info "Creating minitboot ISO"
+    log_info "Creating miniboot ISO"
     # Copy files for mini ISO build
-    rsync $VERBOSE_RSYNC -a \
+    rsync ${VERBOSE_RSYNC} -a \
           --exclude ostree_repo \
           --exclude pxeboot \
         "${MNTDIR}/" "${BUILDDIR}"
     check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
 
-    if [ "$REPACK" = yes ]; then
+    if [ "${REPACK}" = yes ]; then
         # Use default initrd-mini location if none specified
         # This picks up the initrd-mini file if it is available
         # (included in ISO by the loadbuild). Otherwise we warn
         # and continue without repacking initrd - instead using
         # the original from the ISO.
-        if [ -z "$INITRD_FILE" ]; then
-            INITRD_FILE="$MINIBOOT_INITRD_FILE"
+        if [ -z "${INITRD_FILE}" ]; then
+            INITRD_FILE="${MINIBOOT_INITRD_FILE}"
         fi
-        if [ -f "$INITRD_FILE" ]; then
+        if [ -f "${INITRD_FILE}" ]; then
             if [ -f "${INITRD_FILE}.sig" ]; then
                 # Overwrite the original ISO initrd file:
                 log_info "Repacking miniboot ISO using initrd: ${INITRD_FILE} and ${INITRD_FILE}.sig"
-                cp "$INITRD_FILE" "${BUILDDIR}/initrd"
+                cp "${INITRD_FILE}" "${BUILDDIR}/initrd"
                 check_rc_exit $? "copy initrd failed"
                 cp "${INITRD_FILE}.sig" "${BUILDDIR}/initrd.sig"
                 check_rc_exit $? "copy initrd.sig failed"
@@ -653,10 +658,10 @@ function create_miniboot_iso {
                 log_error "No initrd.sig found at: ${INITRD_FILE}.sig ...skipping initrd repack"
             fi
         else
-            log_warn "Could not find initrd file at $INITRD_FILE ...skipping initrd repack"
+            log_warn "Could not find initrd file at ${INITRD_FILE} ...skipping initrd repack"
         fi
         log_info "Trimming miniboot ISO content"
-        log_path_size "$BUILDDIR" "Size of extracted miniboot before trim"
+        log_path_size "${BUILDDIR}" "Size of extracted miniboot before trim"
         # Remove unused kernel images:
         rm "${BUILDDIR}"/{bzImage,bzImage-rt}
         check_rc_exit $? "failed to trim miniboot iso files"
@@ -668,18 +673,18 @@ function create_miniboot_iso {
     # where any .cfg files are now copied into the /kickstart directory in the ISO
     # Any files in this override directory can replace the files from the ISO copied
     # from the rsync above.
-    if [ -n "$KICKSTART_OVERRIDE_DIR" ] \
-        && [ -d "$KICKSTART_OVERRIDE_DIR" ] \
-        && [ "$(echo "$KICKSTART_OVERRIDE_DIR/"*.cfg)" != "$KICKSTART_OVERRIDE_DIR/*.cfg" ]; then
-        log_info "Copying .cfg files from KICKSTART_OVERRIDE_DIR=$KICKSTART_OVERRIDE_DIR to $BUILDDIR/kickstart"
-        cp "$KICKSTART_OVERRIDE_DIR/"*.cfg "$BUILDDIR/kickstart"
+    if [ -n "${KICKSTART_OVERRIDE_DIR}" ] \
+        && [ -d "${KICKSTART_OVERRIDE_DIR}" ] \
+        && [ "$(echo "${KICKSTART_OVERRIDE_DIR}/"*.cfg)" != "${KICKSTART_OVERRIDE_DIR}/*.cfg" ]; then
+        log_info "Copying .cfg files from KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR} to ${BUILDDIR}/kickstart"
+        cp "${KICKSTART_OVERRIDE_DIR}/"*.cfg "${BUILDDIR}/kickstart"
     fi
 
     # Setup syslinux and grub cfg files
     if [ -z "${EFI_MOUNT}" ]; then
         mount_efiboot_img "${BUILDDIR}"
         check_rc_exit $? "failed to mount EFI"
-        log_info "Using EFI_MOUNT=$EFI_MOUNT"
+        log_info "Using EFI_MOUNT=${EFI_MOUNT}"
     fi
     generate_boot_cfg "${BUILDDIR}"
     unmount_efiboot_img
@@ -688,7 +693,7 @@ function create_miniboot_iso {
 
     # Rebuild the ISO
     OUTPUT_ISO=${NODE_DIR}/bootimage.iso
-    log_info "Creating $OUTPUT_ISO from BUILDDIR: ${BUILDDIR}"
+    log_info "Creating ${OUTPUT_ISO} from BUILDDIR: ${BUILDDIR}"
     mkisofs -o "${OUTPUT_ISO}" \
         -A 'instboot' -V 'instboot' \
         -quiet -U -J -joliet-long -r -iso-level 2 \
@@ -718,7 +723,7 @@ function main {
     fi
     parse_arguments "$@"
     initialize_and_lock
-    mount_iso "$INPUT_ISO" "$SCRATCH_DIR"
+    mount_iso "${INPUT_ISO}" "${SCRATCH_DIR}"
     create_miniboot_iso
     unmount_iso
     exit 0

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -14,29 +14,34 @@
 # exceed 4 GB. Multiple archives can be provided.  All archives
 # must have the suffix 'tar.gz'.
 
+# shellcheck disable=1091    # don't warn about following 'source <file>'
+# shellcheck disable=2164    # don't warn about pushd/popd failures
+# shellcheck disable=2181    # don't warn about using rc=$?
 
-# Error log print
 function log_fatal {
-    echo "ERROR: $@" >&2 && exit 1
+    echo "$(date "+%F %H:%M:%S") FATAL: $*" >&2
+    exit 1
 }
 
 function log_error {
-    echo "ERROR: $@" >&2
+    echo "$(date "+%F %H:%M:%S"): ERROR: $*" >&2
 }
 
-# Info log
-function log {
-    echo "INFO: $@" >&2
+function log_warn {
+    echo "$(date "+%F %H:%M:%S"): WARN: $*" >&2
+}
+
+function log_info {
+    echo "$(date "+%F %H:%M:%S"): INFO: $*" >&2
 }
 
 # Usage manual.
 function usage {
     cat <<ENDUSAGE
-Utility to convert a StarlingX installation iso into a Debian prestaged
-subcloud installation iso.
+Utility to convert a StarlingX installation iso into a Debian prestaged subcloud installation iso.
 
 Usage:
-   $(basename $0) --input <input bootimage.iso>
+   $(basename "$0") --input <input bootimage.iso>
                   --output <output bootimage.iso>
                   [ --images <images.tar.gz> ]
                   [ --patch <patch-name.patch> ]
@@ -110,13 +115,14 @@ function normalized_path {
     local path="${1}"
     local default_fn="${2}"
 
-    local path_name="$(basename "${path}")"
-    local path_dir="$(dirname "${path}")"
+    local path_name path_dir
+    path_name="$(basename "${path}")"
+    path_dir="$(dirname "${path}")"
 
     # If 'path' ends in '/' then path was intended to be a directory
-    if [ "${path:(-1):1}" == "/" ]; then
+    if [ "${path: -1:1}" == "/" ]; then   # Note: space is required after : to distinguish from ${path:-...}
         # Drop the trailing '/'
-        path_dir="${path:0:(-1)}"
+        path_dir="${path:0:-1}"
         path_name="${default_fn}"
     fi
 
@@ -147,7 +153,6 @@ function copy_to_iso {
     local final_dest=
     local final_dest_dir=
     local final_md5=
-    local final_md5_dir=
 
     if [ -z "${src}" ] || [ -z "${dest}" ]; then
         log_error "Error: copy_to_iso: missing argument"
@@ -164,8 +169,7 @@ function copy_to_iso {
     final_dest="${BUILDDIR}/${dest}"
     final_dest_dir="$(dirname "${final_dest}")"
 
-    if [ ! -z "${md5}" ]; then
-
+    if [ -n "${md5}" ]; then
         case "${md5}" in
             y | Y | yes | YES )
                 # Use a default name, in same dir as dest
@@ -194,47 +198,47 @@ function copy_to_iso {
         exit 1
     fi
 
-    if [ ! -z "${final_md5}" ]; then
-        pushd ${final_dest_dir} > /dev/null
+    if [ -n "${final_md5}" ]; then
+        pushd "${final_dest_dir}" > /dev/null
             md5sum "$(basename "${final_dest}")" >> "${final_md5}"
         popd > /dev/null
     fi
 }
 
 function generate_boot_cfg {
+    log_info "Generating boot config"
     local isodir=$1
 
     if [ -z "${EFI_MOUNT}" ]; then
-        mount_efiboot_img ${isodir}
+        mount_efiboot_img "${isodir}"
     fi
 
     local PARAM_LIST=
-    log "Generating prestage.iso from params: ${PARAMS[*]}"
     # Set/update boot parameters
     if [ ${#PARAMS[@]} -gt 0 ]; then
+        log_info "Pre-parsing params: ${PARAMS[*]}"
         for p in "${PARAMS[@]}"; do
             param=${p%%=*}
             value=${p#*=}
             # Pull the boot device out of PARAMS and convert to instdev
-            if [[ "${param}" == "boot_device" ]]; then
-                log "Setting instdev=${value} from boot_device param"
+            if [ "${param}" = "boot_device" ]; then
+                log_info "Setting instdev=${value} from boot_device param"
                 instdev=${value}
-            elif [[ "${param}" == "rootfs_device" ]]; then
-                log "Setting instdev=${value} from boot_device param"
+            elif [ "${param}" = "rootfs_device" ]; then
+                log_info "Setting instdev=${value} from boot_device param"
                 instdev=${value}
             fi
 
             PARAM_LIST="${PARAM_LIST} ${param}=${value}"
         done
+        log_info "Using parameters: ${PARAM_LIST}"
     fi
 
-    log "Parameters: ${PARAM_LIST}"
-
     if [[ "${KS_PATCH}" == "true" ]]; then
-        log "Setting Kickstart patch from the kickstart_patches directory"
+        log_info "Setting Kickstart patch from the kickstart_patches directory"
         ks="${KICKSTART_PATCH_DIR}"/kickstart.cfg
     else
-        log "Setting Kickstart patch from the kickstart directory"
+        log_info "Setting Kickstart patch from the kickstart directory"
         ks=kickstart/kickstart.cfg
     fi
 
@@ -248,14 +252,14 @@ function generate_boot_cfg {
     COMMON_ARGS="${COMMON_ARGS} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
     COMMON_ARGS="${COMMON_ARGS} defaultkernel=vmlinuz*[!t]-amd64"
 
-    if [[ -n "${FORCE_INSTALL}" ]]; then
+    if [ -n "${FORCE_INSTALL}" ]; then
         COMMON_ARGS="${COMMON_ARGS} force_install"
     fi
 
     # Uncomment for LAT debugging:
     #COMMON_ARGS="${COMMON_ARGS} instsh=2"
     COMMON_ARGS="${COMMON_ARGS} ${PARAM_LIST}"
-    log "COMMON_ARGS: $COMMON_ARGS"
+    log_info "COMMON_ARGS: ${COMMON_ARGS}"
 
     for f in ${isodir}/isolinux/isolinux.cfg; do
         cat <<EOF > "${f}"
@@ -283,8 +287,7 @@ LABEL 1
     append ${COMMON_ARGS} traits=controller console=tty0
 
 EOF
-done
-
+    done
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
         cat <<EOF > "${f}"
 default=${DEFAULT_GRUB_ENTRY}
@@ -323,18 +326,19 @@ function generate_ostree_checkum {
     fi
     (
         # subshell:
-        log "Calculating new checksum for ostree_repo at ${dest_dir}"
+        log_info "Calculating new checksum for ostree_repo at ${dest_dir}"
         cd "${dest_dir}" || log_fatal "generate_ostree_checkum: cd ${dest_dir} failed"
         find ostree_repo -type f -exec md5sum {} + | LC_ALL=C sort | md5sum | awk '{ print $1; }' \
             > .ostree_repo_checksum
-        log "ostree_repo checksum: $(cat .ostree_repo_checksum)"
+        log_info "ostree_repo checksum: $(cat .ostree_repo_checksum)"
     )
 }
 
 # Constants
 DIR_NAME=$(dirname "$0")
-if [[ ! -e "${DIR_NAME}"/stx-iso-utils.sh ]]; then
-    log_fatal "${DIR_NAME}/stx-iso-utils.sh does not exist"
+if [ ! -e "${DIR_NAME}"/stx-iso-utils.sh ]; then
+    echo "${DIR_NAME}/stx-iso-utils.sh does not exist" >&2
+    exit 1
 else
     source "${DIR_NAME}"/stx-iso-utils.sh
 fi
@@ -343,13 +347,12 @@ fi
 declare INPUT_ISO=
 declare OUTPUT_ISO=
 declare -a IMAGES
-declare ORIG_PWD=$PWD
 declare KS_SETUP=
 declare KS_ADDON=
 declare UPDATE_TIMEOUT="no"
 declare -i FOREVER_GRUB_TIMEOUT=-1
 declare -i DEFAULT_GRUB_TIMEOUT=30
-declare -i DEFAULT_TIMEOUT=(DEFAULT_GRUB_TIMEOUT*10)
+declare -i DEFAULT_TIMEOUT=$(( DEFAULT_GRUB_TIMEOUT*10 ))
 declare -i TIMEOUT=${DEFAULT_TIMEOUT}
 declare -i GRUB_TIMEOUT=${DEFAULT_GRUB_TIMEOUT}
 declare -a PARAMS
@@ -381,97 +384,109 @@ SHORTOPTS+="I:"; LONGOPTS+="images:,"
 SHORTOPTS+="f";  LONGOPTS+="force-install,"
 SHORTOPTS+="h";  LONGOPTS+="help"
 
+declare -i rc
 OPTS=$(getopt -o "${SHORTOPTS}" --long "${LONGOPTS}" --name "$0" -- "$@")
-if [[ "$?" -ne 0 ]]; then
+if [ $? -ne 0 ]; then
     usage
     log_fatal "Options to $0 not properly parsed"
 fi
 
 eval set -- "${OPTS}"
 
-if [[ $# == 1 ]]; then
+if [ $# = 1 ]; then
     usage
     log_fatal "No arguments were provided"
 fi
 
 while :; do
     case $1 in
-    -i | --input)
-        INPUT_ISO="$2"
-        shift 2
-        ;;
-    -o | --output)
-        OUTPUT_ISO=$2
-        shift 2
-        ;;
-    -s | --setup)
-        KS_SETUP=$2
-        shift 2
-        ;;
-    -a | --addon)
-        KS_ADDON=$2
-        shift 2
-        ;;
-    -p | --param)
-        PARAMS+=(${2//,/ })
-        shift 2
-        ;;
-    -P | --patch)
-        PATCHES+=(${2//,/ })
-        shift 2
-        ;;
-    -K | --kickstart-patch)
-        KICKSTART_PATCHES+=(${2//,/ })
-        shift 2
-        ;;
-    -I | --images)
-        IMAGES+=(${2//,/ })
-        shift 2
-        ;;
-    -d | --default-boot)
-        DEFAULT_LABEL=$2
-        case ${DEFAULT_LABEL} in
-            0)
-                DEFAULT_SYSLINUX_ENTRY=0
-                DEFAULT_GRUB_ENTRY="serial"
-                ;;
-            1)
-                DEFAULT_SYSLINUX_ENTRY=1
-                DEFAULT_GRUB_ENTRY="graphical"
-                ;;
-            *)
-                usage
-                log_fatal "Invalid default boot menu option: ${DEFAULT_LABEL}"
-                ;;
-        esac
-        shift 2
-        ;;
-    -t | --timeout)
-        let -i timeout_arg=$2
-        if [[ "${timeout_arg}" -gt 0 ]]; then
-            let -i "TIMEOUT=${timeout_arg}*10"
-            GRUB_TIMEOUT="${timeout_arg}"
-        elif [[ "${timeout_arg}" -eq 0 ]]; then
-            TIMEOUT=0
-            GRUB_TIMEOUT=0.001
-        elif [[ "${timeout_arg}" -lt 0 ]]; then
-            TIMEOUT=0
-            GRUB_TIMEOUT=${FOREVER_GRUB_TIMEOUT}
-        fi
-        UPDATE_TIMEOUT="yes"
-        shift 2
-        ;;
-    -f | --force-install)
-            FORCE_INSTALL="true"
-        shift
-        ;;
-    --)
-        break
-        ;;
-    *)
-        shift
-        break
-        ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        -i | --input)
+            INPUT_ISO=$2
+            shift 2
+            ;;
+        -o | --output)
+            OUTPUT_ISO=$2
+            shift 2
+            ;;
+        -s | --setup)
+            KS_SETUP=$2
+            shift 2
+            ;;
+        -a | --addon)
+            KS_ADDON=$2
+            shift 2
+            ;;
+        -p | --param)
+            # shellcheck disable=2206
+            PARAMS+=(${2//,/ })
+            shift 2
+            ;;
+        # TODO(kmacleod) Does providing patches make sense?
+        -P | --patch)
+            # shellcheck disable=2206
+            PATCHES+=(${2//,/ })
+            shift 2
+            ;;
+        -K | --kickstart-patch)
+            # shellcheck disable=2206
+            KICKSTART_PATCHES+=(${2//,/ })
+            shift 2
+            ;;
+        -I | --images)
+            # shellcheck disable=2206
+            IMAGES+=(${2//,/ })
+            shift 2
+            ;;
+        -d | --default-boot)
+            DEFAULT_LABEL=${2}
+            case ${DEFAULT_LABEL} in
+                0)
+                    DEFAULT_SYSLINUX_ENTRY=0
+                    DEFAULT_GRUB_ENTRY="serial"
+                    ;;
+                1)
+                    DEFAULT_SYSLINUX_ENTRY=1
+                    DEFAULT_GRUB_ENTRY="graphical"
+                    ;;
+                *)
+                    usage
+                    log_fatal "Invalid default boot menu option: ${DEFAULT_LABEL}"
+                    ;;
+            esac
+            shift 2
+            ;;
+        -t | --timeout)
+            declare -i timeout_arg=${2}
+            if [ "${timeout_arg}" -gt 0 ]; then
+                TIMEOUT=$(( timeout_arg * 10 ))
+                GRUB_TIMEOUT=${timeout_arg}
+            elif [ ${timeout_arg} -eq 0 ]; then
+                TIMEOUT=0
+                GRUB_TIMEOUT=0.001
+            elif [ ${timeout_arg} -lt 0 ]; then
+                TIMEOUT=0
+                GRUB_TIMEOUT=${FOREVER_GRUB_TIMEOUT}
+            fi
+            # TODO(kmacleod): UPDATE_TIMEOUT is not used, why is that?
+            UPDATE_TIMEOUT="yes"
+            shift 2
+            ;;
+        -f | --force-install)
+            FORCE_INSTALL=true
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            usage
+            log_fatal "Unexpected argument: $*"
+            ;;
     esac
 done
 
@@ -480,51 +495,78 @@ done
 # Generate prestage iso.
 #
 ###############################################################################
+
+log_info "Checking system requirements"
 check_requirements
 
 ## Check for mandatory parameters
 check_required_param "--input" "${INPUT_ISO}"
 check_required_param "--output" "${OUTPUT_ISO}"
 
+# shellcheck disable=2068
 check_files_exist ${INPUT_ISO} ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
+# shellcheck disable=2068
 check_files_size               ${PATCHES[@]} ${IMAGES[@]} ${KS_SETUP} ${KS_ADDON} ${KICKSTART_PATCHES[@]}
 
-if [[ -e "${OUTPUT_ISO}" ]]; then
+if [ -e "${OUTPUT_ISO}" ]; then
     log_fatal "${OUTPUT_ISO} exists. Delete before you execute this script."
+fi
+# Check for rootfs_device/boot_device and warn if not present
+found_rootfs_device=
+found_boot_device=
+if [ ${#PARAMS[@]} -gt 0 ]; then
+    for p in "${PARAMS[@]}"; do
+        param=${p%%=*}
+        case "${param}" in
+            rootfs_device)
+                found_rootfs_device=1
+                ;;
+            boot_device)
+                found_boot_device=1
+                ;;
+        esac
+    done
+fi
+if [ -z "${found_rootfs_device}" ]; then
+    log_warn "Missing '--param rootfs_device=...'. A default device will be selected during install, which may not be desired"
+fi
+if [ -z "${found_boot_device}" ]; then
+    log_warn  "Missing '--param boot_device=...'. A default device will be selected during install, which may not be desired"
 fi
 
 ## Catch Control-C and handle.
 trap cleanup EXIT
 
 # Create a temporary build directory.
-BUILDDIR=$(mktemp -d -p $PWD updateiso_build_XXXXXX)
-if [ -z "${BUILDDIR}" -o ! -d ${BUILDDIR} ]; then
+BUILDDIR=$(mktemp -d -p "${PWD}" updateiso_build_XXXXXX)
+if [ -z "${BUILDDIR}" ] || [ ! -d "${BUILDDIR}" ]; then
     log_fatal "Failed to create builddir. Aborting..."
 fi
-echo ${BUILDDIR}
+log_info "Using BUILDDIR=${BUILDDIR}"
 mount_iso "${INPUT_ISO}"
 
 #
 # Determine release version from ISO
 #
-if [ ! -f ${MNTDIR}/upgrades/version ]; then
+if [ ! -f "${MNTDIR}"/upgrades/version ]; then
     log_error "Version info not found on ${INPUT_ISO}"
     exit 1
 fi
 
-ISO_VERSION=$(source ${MNTDIR}/upgrades/version && echo ${VERSION})
+ISO_VERSION=$(source "${MNTDIR}/upgrades/version" && echo "${VERSION}")
 if [ -z "${ISO_VERSION}" ]; then
     log_error "Failed to determine version of installation ISO"
     exit 1
 fi
 
 # Copy the contents of the input iso to the build directory.
-# This ensures that the ostree, kernel and the initramfs are all copied over
+# This ensures that the ostree_repo, kernel and the initramfs are all copied over
 # to the prestage iso.
 
+log_info "Copying input ISO"
 rsync -a --exclude "pxeboot" "${MNTDIR}/" "${BUILDDIR}/"
 rc=$?
-if [[ "${rc}" -ne 0 ]]; then
+if [ "${rc}" -ne 0 ]; then
     unmount_iso
     log_fatal "Unable to rsync content from the ISO: Error rc=${rc}"
 fi
@@ -541,27 +583,32 @@ unmount_iso
 PLATFORM_PATH="${PLATFORM_ROOT}/${ISO_VERSION}"
 mkdir_on_iso "${PLATFORM_PATH}"
 
-for PATCH in ${PATCHES[@]}; do
-    copy_to_iso "${PATCH}" "${PLATFORM_PATH}/"
-done
+if [ -n "${PATCHES[*]}" ]; then
+    log_info "Including patches: ${PATCHES[*]}"
+    for PATCH in "${PATCHES[@]}"; do
+        copy_to_iso "${PATCH}" "${PLATFORM_PATH}/"
+    done
+fi
 
-for IMAGE in ${IMAGES[@]}; do
-    copy_to_iso "${IMAGE}" "${PLATFORM_PATH}/" "${PLATFORM_PATH}/${MD5_FILE}"
-done
+if [ -n "${IMAGES[*]}" ]; then
+    log_info "Including images: ${IMAGES[*]}"
+    for IMAGE in "${IMAGES[@]}"; do
+        copy_to_iso "${IMAGE}" "${PLATFORM_PATH}/" "${PLATFORM_PATH}/${MD5_FILE}"
+    done
+fi
 
 KICKSTART_PATCH_DIR="kickstart_patch"
 mkdir_on_iso "${KICKSTART_PATCH_DIR}"
-for PATCH in ${KICKSTART_PATCHES[@]}; do
-    log "Found kickstart patch"
+for PATCH in "${KICKSTART_PATCHES[@]}"; do
+    log_info "Including kickstart patch: ${PATCH}"
     copy_to_iso "${PATCH}" "${KICKSTART_PATCH_DIR}"
     KS_PATCH="true"
 done
 
 # generate the grub and isolinux cmd line parameters
-
 generate_boot_cfg "${BUILDDIR}"
-# copy the addon and setup files to the BUILDDIR
 
+# copy the addon and setup files to the BUILDDIR
 if [[ -e "${KS_SETUP}" ]]; then
     cp "${KS_SETUP}" "${BUILDDIR}"
 fi
@@ -584,4 +631,4 @@ mkisofs -o "${OUTPUT_ISO}" \
 
 isohybrid --uefi "${OUTPUT_ISO}"
 
-log "Prestage ISO created successfully"
+log_info "Prestage ISO created successfully: ${OUTPUT_ISO}"

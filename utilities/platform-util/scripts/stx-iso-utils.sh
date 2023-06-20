@@ -1,29 +1,32 @@
 #!/bin/bash
 #
-# Copyright (c) 2020,2022 Wind River Systems, Inc.
+# Copyright (c) 2020-2023 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 # Common bash utility functions for StarlingX ISO tools
 #
+# Global shellcheck ignores:
+# shellcheck disable=2181
 
 declare BUILDDIR=
 declare EFIBOOT_IMG_LOOP=
 declare EFI_MOUNT=
 declare MNTDIR=
 declare WORKDIR=
+declare VERBOSE=
 
 function ilog {
-    echo "$(date "+%F %H-%M-%S"): $*" >&2
+    echo "$(date "+%F %H:%M:%S"): $*" >&2
 }
 
 function elog {
-    echo "$(date "+%F %H-%M-%S") Error: $*" >&2
+    echo "$(date "+%F %H:%M:%S") Error: $*" >&2
     exit 1
 }
 
 function vlog {
-    [ "${VERBOSE}" = true ] && echo "$(date "+%F %H-%M-%S"): $*" >&2
+    [ "${VERBOSE}" = true ] && echo "$(date "+%F %H:%M:%S"): $*" >&2
 }
 
 function common_cleanup {
@@ -130,12 +133,13 @@ function check_files_size {
 function mount_iso {
     local input_iso=$1
     local basedir=${2:-$PWD}
-    local mount=${3:-"/dev/sda1"}
+    local guestmount_dev=${3:-"/dev/sda1"}
 
     MNTDIR=$(mktemp -d -p "$basedir" stx-iso-utils_mnt_XXXXXX)
     if [ -z "${MNTDIR}" ] || [ ! -d "${MNTDIR}" ]; then
         elog "Failed to create mntdir $MNTDIR. Aborting..."
     fi
+    ilog "mount_iso input_iso=${input_iso} basedir=${basedir} MNTDIR=${MNTDIR}"
 
     if [ $UID -eq 0 ]; then
         # Mount the ISO
@@ -146,15 +150,15 @@ function mount_iso {
         fi
     else
         # As non-root user, mount the ISO using guestmount
-        ilog "guestmounting ${input_iso} using ${mount} to ${MNTDIR}"
+        ilog "guestmounting ${input_iso} using ${guestmount_dev} to ${MNTDIR}"
 
-        guestmount -a "${input_iso}" -m "${mount}" --ro "${MNTDIR}"
+        guestmount -a "${input_iso}" -m "${guestmount_dev}" --ro "${MNTDIR}"
         rc=$?
         if [ "${rc}" -ne 0 ]; then
             # Add a retry
             ilog "guestmount failed with rc=${rc}. Retrying once..."
 
-            guestmount -a "${input_iso}" -m "${mount}" --ro "${MNTDIR}" >&/dev/null
+            guestmount -a "${input_iso}" -m "${guestmount_dev}" --ro "${MNTDIR}" >&/dev/null
             rc=$?
             if [ ${rc} -ne 0 ]; then
                 elog "guestmount retry failed with rc=$rc. Aborting..."
@@ -286,7 +290,7 @@ function update_parameter {
         fi
     done
 
-    for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg ; do
+    for f in "${isodir}/EFI/BOOT/grub.cfg" "${EFI_MOUNT}/EFI/BOOT/grub.cfg" ; do
         grep -q "^[[:space:]]*linux\>.*[[:space:]]${param}=" "${f}"
         if [ $? -eq 0 ]; then
             # Parameter already exists. Update the value
