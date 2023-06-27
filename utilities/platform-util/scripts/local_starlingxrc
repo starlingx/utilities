@@ -1,0 +1,37 @@
+#
+# Copyright (c) 2023 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Creates and/or loads local file "~/$USER-openrc".
+# It is assumed that the Keystone username is the same as the logged in
+# username.
+#
+
+# Check if openrc file exists.
+if [ -e "$HOME/$USER-openrc" ]; then
+
+    source $HOME/$USER-openrc
+    return $?
+
+else
+
+    # Create and source openrc file.
+    read -s -p "Enter the password to be used with Keystone user $USER: " password
+    echo
+    touch $HOME/$USER-openrc
+    chmod 600 $HOME/$USER-openrc
+    printf "%s\n" \
+           "source /etc/platform/openrc --no_credentials" \
+           "if [[ \"\$?\" != \"0\" ]]; then" \
+           "    return 1" \
+           "fi" \
+           "export OS_USERNAME=$USER" \
+           "export OS_PASSWORD=$password" \
+           "export PS1='[\u@\h \W(keystone_\$OS_USERNAME)]\$ '" \
+           "return 0" >> $HOME/$USER-openrc
+    echo "Created file $HOME/$USER-openrc"
+    source $HOME/$USER-openrc
+    return $?
+
+fi

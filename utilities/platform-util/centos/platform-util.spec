@@ -68,6 +68,7 @@ install -m 555 %{_buildsubdir}/scripts/stx-iso-utils-centos.sh %{buildroot}%{loc
 install -m 555 %{_buildsubdir}/scripts/show-certs.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/update_docker_registry_auth.sh %{buildroot}%{local_bindir}
 install -m 555 %{_buildsubdir}/scripts/change_system_private_registry.sh %{buildroot}%{local_bindir}
+install -m 555 %{_buildsubdir}/scripts/local_starlingxrc %{buildroot}%{local_bindir}
 
 install -d %{buildroot}%{local_etc_initd}
 install %{_buildsubdir}/scripts/log_functions.sh %{buildroot}%{local_etc_initd}
@@ -121,6 +122,7 @@ systemctl enable opt-platform.service
 %{local_bindir}/show-certs.sh
 %{local_bindir}/update_docker_registry_auth.sh
 %{local_bindir}/change_system_private_registry.sh
+%{local_bindir}/local_starlingxrc
 
 %files noncontroller
 %defattr(-,root,root,-)
