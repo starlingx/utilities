@@ -4,5 +4,6 @@
 /usr/local/bin/stx-iso-utils.sh
 /usr/local/bin/stx-iso-utils-centos.sh
 /usr/local/bin/update-iso.sh
+/usr/local/bin/update-dm.sh
 /usr/local/bin/update_docker_registry_auth.sh
 /usr/local/bin/change_system_private_registry.sh

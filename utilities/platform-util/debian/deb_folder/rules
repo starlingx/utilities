@@ -30,6 +30,7 @@ override_dh_auto_install:
 
 	install -d $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/update-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/update-dm.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/gen-bootloader-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/gen-bootloader-iso-centos.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/stx-iso-utils.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
@@ -49,6 +50,6 @@ override_dh_auto_install:
 	dh_install
 
 override_dh_fixperms:
-	dh_fixperms -Xupdate-iso.sh -Xgen-bootloader-iso.sh -Xstx-iso-utils.sh \
+	dh_fixperms -Xupdate-iso.sh -Xpatch-dm.sh -Xgen-bootloader-iso.sh -Xstx-iso-utils.sh \
 	-Xshow-certs.sh -Xupdate_docker_registry_auth.sh -Xchange_system_private_registry.sh \
         -Xis-rootdisk-device.sh -Xpatch-restart-* -Xconnectivity_test -Xset_keystone_user_option.sh
