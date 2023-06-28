@@ -205,7 +205,7 @@ function parse_arguments {
     local longopts opts
     longopts="input:,addon:,param:,default-boot:,timeout:,lock-timeout:,patches-from-iso"
     longopts="${longopts},base-url:,www-root:,id:,delete"
-    longopts="${longopts},base-url:,repack,initrd:,no-cache"
+    longopts="${longopts},repack,initrd:,no-cache"
     longopts="${longopts},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
     longopts="${longopts},help,verbose"
 
@@ -485,6 +485,10 @@ function generate_boot_cfg {
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} inst_ostree_root=/dev/mapper/cgts--vg-root--lv"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
+    if grep -q 'gpg-verify=false' "${WWW_ROOT_DIR}/ostree_repo/config"; then
+        log_info "Found gpg-verify=false, including instgpg=0"
+        BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instgpg=0"
+    fi
     if [ -n "$VERBOSE" ]; then
         # pass this through to the miniboot.cfg kickstart to turn on debug:
         BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} debug_kickstart"
@@ -654,8 +658,9 @@ function create_miniboot_iso {
         log_info "Trimming miniboot ISO content"
         log_path_size "$BUILDDIR" "Size of extracted miniboot before trim"
         # Remove unused kernel images:
-        rm "$BUILDDIR"/{bzImage,bzImage.sig,bzImage-rt,bzImage-rt.sig}
+        rm "${BUILDDIR}"/{bzImage,bzImage-rt}
         check_rc_exit $? "failed to trim miniboot iso files"
+        rm "${BUILDDIR}"/{bzImage.sig,bzImage-rt.sig} || log_warn "failed to remove bzImage{-rt}.sig files"
         log_path_size "$BUILDDIR" "Size of extracted miniboot after trim"
     fi
 
