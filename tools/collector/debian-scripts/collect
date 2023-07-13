@@ -491,7 +491,7 @@ function report_error()
         elog "Permission error ; exiting (${string})"
 
     elif [ ${code} -eq ${FAIL_UNREACHABLE} ] ; then
-        elog "${string} (reason:${code}:unreachable)"
+        wlog "${string} (reason:${code}:unreachable)"
 
     elif [ ${code} -eq ${FAIL_PERMISSION_SKIP} ] ; then
         elog "${string} (reason:${code}:permission error)"
@@ -503,7 +503,7 @@ function report_error()
         elog "${string} (reason:${code}:${FAIL_NOT_ENOUGH_SPACE_STR}) ; ${COLLECT_BASE_DIR} usage must be below ${MIN_PERCENT_SPACE_REQUIRED}%"
 
     elif [ ${code} -ge ${FAIL_TIMEOUT} -a ${code} -le ${FAIL_TIMEOUT9} ] ; then
-        elog "${FAIL_TIMEOUT_STR} ; ${string} (reason:${code})"
+        wlog "${FAIL_TIMEOUT_STR} ; ${string} (reason:${code})"
 
     elif [ ${code} -eq ${FAIL_SUBCLOUD_TIMEOUT} ] ; then
         elog "${FAIL_SUBCLOUD_TIMEOUT_STR} ; ${string} (reason:${code})"
@@ -531,6 +531,9 @@ function report_error()
 
     elif [ ${code} -eq ${FAIL_MISSING_PARAMETER} ] ; then
         elog "${FAIL_MISSING_PARAMETER_STR} ; ${string} (reason:${code})"
+
+    elif [ ${code} -eq ${FAIL_TIMEOUT_ARG} ] ; then
+        wlog "${FAIL_TIMEOUT_ARG_STR} ; ${string} (reason:${code})"
 
     else
         elog "${string} (reason:${code})"
@@ -728,11 +731,9 @@ while [[ ${#} -gt 0 ]] ; do
         if [[ ${2} =~ ^[0-9]+$ ]] ; then
             if [ ${2} -lt ${TIMEOUT_MIN_MINS} -o \
                  ${2} -gt ${TIMEOUT_MAX_MINS} ] ; then
-                elog "timeout must be between ${TIMEOUT_MIN_MINS} and ${TIMEOUT_MAX_MINS} minutes"
-                collect_exit ${FAIL_TIMEOUT_ARG}
-            else
-                TIMEOUT="$((${2}*60))"
+                report_error "specified ${2} minute timeout is out-of-range ; should be between ${TIMEOUT_MIN_MINS} and ${TIMEOUT_MAX_MINS} minutes" ${FAIL_TIMEOUT_ARG}
             fi
+            TIMEOUT="$((${2}*60))"
         else
             elog "timeout value must be an integer"
             collect_exit ${FAIL_TIMEOUT_ARG}
@@ -924,7 +925,7 @@ else
                         HOSTLIST+=("${host}")
                     fi
                 else
-                    report_error "cannot collect data from unknown host '${host}'" ${WARN_HOSTNAME}
+                    wlog "cannot collect data from unknown host '${host}'"
                 fi
             done
         fi
@@ -981,7 +982,7 @@ else
                             SUBCLOUDLIST+=("${subcloud}")
                         fi
                     else
-                        report_error "cannot collect data from unknown subcloud '${subcloud}'" ${WARN_SUBCLOUD}
+                        wlog "cannot collect data from unknown subcloud '${subcloud}'"
                     fi
                 fi
             done
@@ -1004,7 +1005,7 @@ else
                         SUBCLOUDLIST+=("${subcloud}")
                     fi
                 else
-                    report_error "cannot collect data from unknown subcloud '${subcloud}'" ${WARN_SUBCLOUD}
+                    wlog "cannot collect data from unknown subcloud '${subcloud}'"
                 fi
             done
         fi
@@ -1405,7 +1406,7 @@ EOF
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
         dlog "delete_remote_dir_or_file parms=${remote_hostname}:${login_prompt}:${dir_or_file}"
-        report_error "failed to delete ${dir_or_file} on ${remote_hostname} (${login_prompt})" ${rc}
+        wlog "failed to delete ${dir_or_file} on ${remote_hostname} (reason:${rc}:${login_prompt})"
     fi
     return ${rc}
 }
@@ -2136,7 +2137,7 @@ function collect_host_complete_local()
             collect_exit ${FAIL_OUT_OF_SPACE}
 
         else
-            report_error "failed to collect from ${HOSTNAME} [host complete]" ${rc}
+            wlog "failed to collect from ${HOSTNAME} (reason:${rc}:host complete:${COLLECT_DIR}:${tarname})"
             dlog "collect_host_complete_local failure: ${COLLECT_DIR}:${tarname}:${rc}"
         fi
     fi
@@ -2189,7 +2190,7 @@ function collect_host_complete_remote ()
             rc=${PASS}
         fi
     else
-        report_error "failed to collect from ${host} [get file]" ${rc}
+        wlog "failed to collect from ${host} (reason:${rc}:get file:${COLLECT_DIR}:${tarname}.${SUFFIX})"
         dlog "get_file_from_host failure: ${host}:${tarname}.${SUFFIX}:${COLLECT_DIR}"
     fi
     return ${rc}
@@ -2428,7 +2429,7 @@ function collect_subcloud_clean()
 
     check_host_reachable "${subcloud}"
     if [ ${?} -ne ${PASS} ] ; then
-        report_error "cannot clean ${subcloud}" ${FAIL_UNREACHABLE}
+        wlog "cannot clean unreachable subcloud ${subcloud}"
         return ${FAIL_UNREACHABLE}
     fi
 
@@ -2637,7 +2638,7 @@ function collect_hosts()
 
             check_host_reachable "${host}"
             if [ ${?} -ne ${PASS} ] ; then
-                report_error "cannot collect from ${host}" ${FAIL_UNREACHABLE}
+                wlog "cannot collect from ${host} (reason:${FAIL_UNREACHABLE}:${FAIL_UNREACHABLE_STR})"
                 continue
             fi
 
@@ -2688,16 +2689,16 @@ function collect_hosts()
                     rc=${?}
                     if [ ${rc} -ne ${PASS} ] ; then
                         # handle copy error here
-                        report_error "failed to collect from ${host} [host file get]" ${rc}
+                        wlog "failed to collect from ${host} (reason:${rc}:host file get)"
                     else
                         secs=$((SECONDS-HOST_START_TIME))
                         echo -n "done"
                         echo_stats $secs "${TARNAME}" "${COLLECT_DIR}/${TARNAME}.tgz"
                     fi
                 elif [ ${rc} -ge ${FAIL_TIMEOUT} -a ${rc} -le ${FAIL_TIMEOUT9} -a "${DCROLE}" == "${DCROLE_SUBCLOUD}" ] ; then
-                    report_error "failed to collect from ${host} [subcloud host run timeout]" ${FAIL_SUBCLOUD_TIMEOUT}
+                    wlog "failed to collect from ${host} (reason:${FAIL_SUBCLOUD_TIMEOUT}:subcloud host run timeout)"
                 else
-                    report_error "failed to collect from ${host} [host]" ${rc}
+                    wlog "failed to collect from ${host} (reason:${rc}:host)"
                 fi
             fi
         fi
@@ -2749,7 +2750,7 @@ function collect_hosts()
                             DONE_COUNT=$((DONE_COUNT+1))
                         else
                             collect_host_done ${index} ${rc}
-                            report_error "failed to collect from ${info[${INDEX_HOST}]} [target]" ${rc}
+                            wlog "failed to collect from ${info[${INDEX_HOST}]} (reason:${rc}:target)"
                         fi
                     else
                         if [ ${DONE_COUNT} -eq 0 ] ; then
@@ -2779,7 +2780,6 @@ function collect_hosts()
 
     # Report that the overall collect timed-out
     if [ "$monitoring" = true ]; then
-        # there may be partial collect worth keeping
         report_error "collect operation timeout after $TIMEOUT secs" ${FAIL_TIMEOUT}
     fi
 }
@@ -2826,7 +2826,7 @@ collect_subclouds()
 
             check_host_reachable "${subcloud}"
             if [ ${?} -ne ${PASS} ] ; then
-                report_error "cannot collect from ${subcloud}" ${FAIL_UNREACHABLE}
+                wlog "cannot collect from ${subcloud} (reason:${FAIL_UNREACHABLE}:${FAIL_UNREACHABLE_STR})"
                 continue
             fi
 
@@ -3061,7 +3061,7 @@ function get_report_tool()
 
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
-        report_error "failed to get report tool from ${local_path}" ${rc}
+        wlog "failed to get report tool from ${local_path} (reason:${rc})"
     fi
 }
 
@@ -3085,7 +3085,7 @@ function get_report_plugins()
 
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
-        report_error "failed to get report plugins from ${local_path}" ${rc}
+        wlog "failed to get report tool plugins from ${local_path} (reason:${rc})"
     fi
 }
 
