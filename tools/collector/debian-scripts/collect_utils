@@ -77,6 +77,8 @@ FAIL_INSUFFICIENT_SPACE_STR="Not enough space on device"
 FAIL_UNREACHABLE_STR="Unreachable"
 
 FAIL_TIMEOUT_STR="operation timeout"
+FAIL_TIMEOUT_ARG_STR="out-of-range timeout"
+
 FAIL_SUBCLOUD_TIMEOUT_STR="subcloud collect timeout"
 
 FAIL_NO_FILE_SPECIFIED_STR="no file specified"
