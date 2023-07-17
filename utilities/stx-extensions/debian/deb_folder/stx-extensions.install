@@ -1,3 +1,4 @@
 etc/sysctl.d/50-coredump.conf
 etc/systemd/coredump.conf.d/coredump.conf
 etc/modules-load.d/vfio.conf
+etc/modules-load.d/intel-uncore-frequency.conf

@@ -20,5 +20,6 @@ override_dh_install:
 
 	install -d -m 755 $(ROOT)/$(LOCAL_ETC_MODLOAD)
 	install -p -D -m 644 modules-load-vfio.conf $(ROOT)/$(LOCAL_ETC_MODLOAD)/vfio.conf
+	install -p -D -m 644 modules-load-intel-uncore-frequency.conf $(ROOT)/$(LOCAL_ETC_MODLOAD)/intel-uncore-frequency.conf
 
 	dh_install
