@@ -4,6 +4,7 @@ scripts/show-certs.sh usr/local/bin
 scripts/stx-iso-utils.sh usr/local/bin
 scripts/stx-iso-utils-centos.sh usr/local/bin
 scripts/update-iso.sh usr/local/bin
+scripts/update-dm.sh usr/local/bin
 scripts/update_docker_registry_auth.sh usr/local/bin
 scripts/change_system_private_registry.sh usr/local/bin
 scripts/local_starlingxrc usr/local/bin
