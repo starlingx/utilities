@@ -25,6 +25,9 @@ import logging
 import os
 import re
 
+# internal imports
+import algorithms
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,15 +50,19 @@ class Correlator:
             FileNotFoundError
         """
         failures = []
-        try:
-            failures += self.uncontrolled_swact()
-        except FileNotFoundError as e:
-            logger.error(e)
+        if os.path.exists(os.path.join(
+                self.plugin_output_dir, algorithms.SWACT_ACTIVITY)):
+            try:
+                failures += self.uncontrolled_swact()
+            except FileNotFoundError as e:
+                logger.error(e)
 
-        try:
-            failures += self.mtc_errors()
-        except FileNotFoundError as e:
-            logger.error(e)
+        if os.path.exists(os.path.join(
+                self.plugin_output_dir, algorithms.MAINTENANCE_ERR)):
+            try:
+                failures += self.mtc_errors()
+            except FileNotFoundError as e:
+                logger.error(e)
 
         events = []
         try:
@@ -70,10 +77,12 @@ class Correlator:
             logger.error(e)
 
         state_changes = []
-        try:
-            state_changes += self.get_state_changes(hostname)
-        except FileNotFoundError as e:
-            logger.error(e)
+        if os.path.exists(os.path.join(
+                self.plugin_output_dir, algorithms.STATE_CHANGES)):
+            try:
+                state_changes += self.get_state_changes(hostname)
+            except FileNotFoundError as e:
+                logger.error(e)
 
         return (sorted(failures), sorted(events), sorted(alarms),
                 sorted(state_changes))
@@ -96,8 +105,8 @@ class Correlator:
         hb_loss = active_failed = go_active_failed = link_down = False
 
         # Open output file from swact activity plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "swact_activity")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.SWACT_ACTIVITY)
         with open(file_path, "r") as swact_activity:
             for line in swact_activity:
                 if "Uncontrolled swact" in line and not start_time:
@@ -201,8 +210,8 @@ class Correlator:
         daemon_fail = comm_loss = auto_recov_dis = False
 
         # Open output file from maintenance errors plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "maintenance_errors")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.MAINTENANCE_ERR)
         with open(file_path, "r") as mtc:
             for line in mtc:
                 if "auto recovery disabled" in line and not auto_recov_dis:
@@ -376,8 +385,8 @@ class Correlator:
         hb_loss = False
 
         # Open output file from heartbeat loss plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "heartbeat_loss")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.HEARTBEAT_LOSS)
         with open(file_path, "r") as heartbeat_loss:
             for line in heartbeat_loss:
                 if (re.search("Error : " + host + " (.+) Heartbeat Loss ",
@@ -401,8 +410,8 @@ class Correlator:
         daemon_fail = False
 
         # Open output file from daemon failures plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "daemon_failures")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.DAEMON_FAILURES)
         with open(file_path, "r") as daemon_failures:
             for line in daemon_failures:
                 if (re.search("\\d " + host +
@@ -427,8 +436,8 @@ class Correlator:
         puppet_log = None
 
         # Open output file from puppet errors plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "puppet_errors")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.PUPPET_ERRORS)
         with open(file_path, "r") as puppet_errors:
             for line in puppet_errors:
                 if "Error: " in line:
@@ -453,49 +462,52 @@ class Correlator:
         mnfa_start, mnfa_hist = None, ""
 
         # Open output file from maintenance errors plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "maintenance_errors")
-
-        with open(file_path, "r") as mtc:
-            for line in mtc:
-                if "force failed by SM" in line:
-                    host = re.findall("Error : (.+) is being", line)[0]
-                    if hostname == "all" or host == hostname:
-                        data.append(line[0:19] + " " + host +
-                                    " force failed by SM\n")
-                elif "Graceful Recovery Failed" in line:
-                    host = re.findall("Info : (.+) Task:", line)[0]
-                    if hostname == "all" or host == hostname:
-                        data.append(line[0:19] + " " + host +
-                                    " graceful recovery failed\n")
-                elif "MNFA ENTER" in line:
-                    mnfa_start = datetime.strptime(line[0:19],
-                                                   "%Y-%m-%dT%H:%M:%S")
-                elif "MNFA POOL" in line:
-                    pool_hosts = len(line.split("MNFA POOL: ")[1].split())
-                    if mnfa_start:
-                        mnfa_hist += (" " + str(pool_hosts))
-                    else:
-                        data_len = len(data)
-                        for n in range(0, data_len):
-                            event = data[data_len - 1 - n]
-                            if "Multi-node failure" in event:
-                                temp = " " + str(pool_hosts) + ")\n"
-                                data[data_len - 1 - n] = event[:-2] + temp
-                                break
-                elif "MNFA EXIT" in line:
-                    mnfa_duration = datetime.strptime(line[0:19],
-                                                      "%Y-%m-%dT%H:%M:%S")
-                    mnfa_duration -= mnfa_start
-                    mnfa_start = mnfa_start.strftime("%Y-%m-%dT%H:%M:%S")
-                    data.append(mnfa_start + " Multi-node failure avoidance " +
-                                "(duration: " + str(mnfa_duration) +
-                                "; history:" + mnfa_hist + ")\n")
-
-                    mnfa_start, mnfa_hist = None, ""
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.MAINTENANCE_ERR)
+        if os.path.exists(file_path):
+            with open(file_path, "r") as mtc:
+                for line in mtc:
+                    if "force failed by SM" in line:
+                        host = re.findall("Error : (.+) is being", line)[0]
+                        if hostname == "all" or host == hostname:
+                            data.append(line[0:19] + " " + host +
+                                        " force failed by SM\n")
+                    elif "Graceful Recovery Failed" in line:
+                        host = re.findall("Info : (.+) Task:", line)[0]
+                        if hostname == "all" or host == hostname:
+                            data.append(line[0:19] + " " + host +
+                                        " graceful recovery failed\n")
+                    elif "MNFA ENTER" in line:
+                        mnfa_start = datetime.strptime(line[0:19],
+                                                       "%Y-%m-%dT%H:%M:%S")
+                    elif "MNFA POOL" in line:
+                        pool_hosts = len(line.split("MNFA POOL: ")[1].split())
+                        if mnfa_start:
+                            mnfa_hist += (" " + str(pool_hosts))
+                        else:
+                            data_len = len(data)
+                            for n in range(0, data_len):
+                                event = data[data_len - 1 - n]
+                                if "Multi-node failure" in event:
+                                    temp = " " + str(pool_hosts) + ")\n"
+                                    data[data_len - 1 - n] = event[:-2] + temp
+                                    break
+                    elif "MNFA EXIT" in line:
+                        mnfa_duration = datetime.strptime(line[0:19],
+                                                          "%Y-%m-%dT%H:%M:%S")
+                        mnfa_duration -= mnfa_start
+                        mnfa_start = mnfa_start.strftime("%Y-%m-%dT%H:%M:%S")
+                        data.append(mnfa_start +
+                                    " Multi-node failure avoidance " +
+                                    "(duration: " + str(mnfa_duration) +
+                                    "; history:" + mnfa_hist + ")\n")
+                        mnfa_start, mnfa_hist = None, ""
 
         # Open output file from swact activity plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "swact_activity")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.SWACT_ACTIVITY)
+        if not os.path.exists(file_path):
+            return data
         with open(file_path, "r") as swact_activity:
             for line in swact_activity:
                 if (re.search("Service (.+) is failed and has reached max "
@@ -523,7 +535,7 @@ class Correlator:
         data = []
 
         # Open 'alarm' output file from alarm plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "alarm")
+        file_path = os.path.join(self.plugin_output_dir, algorithms.ALARM)
         if not os.path.exists(file_path):
             logger.debug("No alarms found")
             return data
@@ -566,8 +578,8 @@ class Correlator:
         data = []
 
         # Open output file from state changes plugin and read it
-        file_path = os.path.join(self.plugin_output_dir, "state_changes")
-
+        file_path = os.path.join(self.plugin_output_dir,
+                                 algorithms.STATE_CHANGES)
         with open(file_path, "r") as state_changes:
             for line in state_changes:
                 if "is ENABLED" in line:

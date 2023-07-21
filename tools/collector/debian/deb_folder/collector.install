@@ -3,4 +3,5 @@ etc/collect.d/* /etc/collect.d
 usr/local/sbin/* /usr/local/sbin
 usr/local/bin/collect /usr/local/bin
 usr/sbin/collect /usr/sbin
-/usr/local/bin/report/* /usr/local/bin/report
+usr/local/bin/report/* /usr/local/bin/report
+etc/collect/plugins/* /etc/collect/plugins

@@ -45,13 +45,18 @@ class Plugin:
             "start": None,
             "end": None,
         }
-        if file:
+        logger.debug("plugin init: %s", file)
+        if file and os.path.isfile(file):
             try:
+                logger.debug("calling _file_set_attributes file: %s", file)
                 self._file_set_attributes()
             except KeyError as e:
                 raise e
         elif opts:
+            logger.debug("calling _opts_set_attributes opts: %s", self.opts)
             self._opts_set_attributes()
+        else:
+            logger.debug("no plugin opts specified")
 
         try:
             self.verify()
@@ -128,7 +133,7 @@ class Plugin:
         """
 
         plugin_name = os.path.basename(self.file)
-        HOSTS_ERR = f"plugin: {plugin_name} should not have hosts specified"
+        HOSTS_ERR = f"plugin: '{plugin_name}' shouldn't have 'hosts' label"
 
         if self.state["algorithm"] == algorithms.SUBSTRING:
             self.validate_state(plugin_name, "files")
@@ -169,33 +174,34 @@ class Plugin:
                 datetime.strptime(self.state["start"], "%Y-%m-%d %H:%M:%S")
             except ValueError as e:
                 logger.error(
-                    "plugin : %s needs a valid start time in YYYY-MM-DD \
+                    "plugin '%s' needs a valid start time in YYYY-MM-DD \
                      HH:MM:SS format", plugin_name)
 
             try:
                 datetime.strptime(self.state["end"], "%Y-%m-%d %H:%M:%S")
             except ValueError as e:
                 logger.error(
-                    "plugin : %s needs a valid end time in YYYY-MM-DD \
+                    "plugin '%s' needs a valid end time in YYYY-MM-DD \
                      HH:MM:SS format", plugin_name)
 
         else:
             raise ValueError(
-                f"plugin: {plugin_name} unknown algorithm "
+                f"plugin: '{plugin_name}' algorithm label unsupported value: "
                 f"{self.state['algorithm']}"
             )
 
         for host in self.state["hosts"]:
             if host not in ["controllers", "workers", "storages", "all"]:
                 raise ValueError(
-                    f"host not recognized: '{host}', accepted hosts are "
+                    f"hosts label has unsupported values: '{host}', "
+                    f"accepted hosts are "
                     f"'controllers', 'workers', 'storages', 'all'"
                 )
 
     def validate_state(self, plugin_name, key):
         if len(self.state[key]) == 0:
             raise ValueError(
-                f"plugin: {plugin_name} needs {key} specified for "
+                f"plugin: {plugin_name} needs '{key}' label specified for "
                 f"substring algorithm"
             )
 
