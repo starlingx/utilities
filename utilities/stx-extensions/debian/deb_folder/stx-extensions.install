@@ -1,4 +1,7 @@
 etc/sysctl.d/50-coredump.conf
+etc/sysctl.d/50-net-sctp.conf
+etc/sysctl.d/50-net-core.conf
 etc/systemd/coredump.conf.d/coredump.conf
 etc/modules-load.d/vfio.conf
+etc/modules-load.d/sctp.conf
 etc/modules-load.d/intel-uncore-frequency.conf
