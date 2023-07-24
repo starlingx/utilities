@@ -416,10 +416,12 @@ class ExecutionEngine:
             # Sort the lines based on the numeric value
             sorted_lines = sorted(lines, key=lambda x: int(x.split()[0]),
                                   reverse=True)
-
-            for line in sorted_lines:
-                logger.info(line)
-
+            if sorted_lines:
+                for line in sorted_lines:
+                    logger.info(line)
+            else:
+                sys.exit("no plugin data found ; "
+                         "nothing to correlate ... exiting")
             if empty_files:
                 logger.info("")
                 logger.info("... nothing found by plugins: %s" % empty_files)
@@ -443,10 +445,6 @@ class ExecutionEngine:
             plugin_output_dir (string) : directory with output files from
                                          plugins
         """
-
-        # logger.info("Correlator Output Dir: %s", output_dir)
-        # logger.info("Correlator Plugin Dir: %s", plugin_output_dir)
-
         correlator = Correlator(plugin_output_dir)
         failures, events, alarms, state_changes = correlator.run(
             self.opts.hostname)

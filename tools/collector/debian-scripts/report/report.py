@@ -117,6 +117,8 @@ import tarfile
 import tempfile
 import time
 
+# internal imports
+import algorithms
 from execution_engine import ExecutionEngine
 from plugin import Plugin
 
@@ -177,16 +179,16 @@ parser.add_argument(
 parser.add_argument(
     "--hostname",
     default="all",
-    help="Specify host for correlator to find significant events and "
-    "state changes for (default: all hosts)",
+    help="Specify hostname to produce correlated results for "
+    "(default: all hosts)",
 )
 
 parser.add_argument(
     "--plugin", "-p",
     default=None,
     nargs="*",
-    help="Specify comma separated list of plugins to run "
-    "(default: runs all found plugins)",
+    help="Specify a space delimited list of plugins to run "
+    "(default: all plugins)",
 )
 
 parser.add_argument(
@@ -483,6 +485,7 @@ class BundleObject:
         self.bundles = []                # list of bundles
         self.tars = 0                    # number of tar files found
         self.tgzs = 0                    # number of host tgz files found
+        self.plugins = []
 
     def debug_state(self, func):
         if args.state:
@@ -790,6 +793,48 @@ class BundleObject:
 
         self.debug_state("get_bundle_type")
 
+    def load_plugin(self, path_plugin=None):
+        """Load a single plugin from the specified path location
+
+        Parameters:
+
+           path_plugin: string
+              The full path and file name of the plugin to load
+        """
+        if path_plugin is not None:
+            # redundant check but more robust
+            if os.path.exists(path_plugin):
+                logger.debug("adding plugin: %s", path_plugin)
+                self.plugins.append(Plugin(path_plugin))
+            else:
+                logger.warning("Warning: plugin '%s' not found", path_plugin)
+        else:
+            logger.warning("Warning: load_plugin failed ; no plugin specified")
+
+    def load_plugins(self, path=None):
+        """Load plugins from the specified path location
+
+        Parameters:
+
+           path: string
+              The path to the directory of where to load plugins
+        """
+        if path is not None and os.path.exists(path):
+            for plugin in os.listdir(path):
+                path_plugin = os.path.join(path, plugin)
+
+                # skip over empty files like __init__.py
+                if os.path.getsize(path_plugin) == 0:
+                    logger.debug("skipping empty plugin '%s'", plugin)
+                    continue
+
+                logger.debug("adding plugin: %s/%s", path, plugin)
+                self.plugins.append(Plugin(path_plugin))
+
+        else:
+            logger.warning("unable to load plugins from %s ; "
+                           "path does not exist", path)
+
 
 # Initialize the Bundle Object. Logging starts in /tmp
 obj = BundleObject(input_dir)
@@ -853,6 +898,12 @@ if not os.path.exists(output_dir):
         logger.error(e)
         sys.exit("Permission Error: Unable to create report")
 
+# remove the pluin data if it already exists
+plugin_data_output_dir = os.path.join(output_dir, "plugins")
+if os.path.exists(plugin_data_output_dir):
+    logger.debug("cleaning up old plugin data: %s", plugin_data_output_dir)
+    shutil.rmtree(plugin_data_output_dir)
+
 # relocate logging to the selected bundle directory
 remove_logging()
 new_log_file = output_dir + "/report.log"
@@ -870,35 +921,46 @@ except ValueError as e:
     logger.error(str(e))
     logger.error("Confirm you are running the report tool on a collect bundle")
 
+# Get the full path to the possible plugin dirs
+builtin_plugins_path = os.path.join(report_dir, "plugins")
+localhost_plugins_path = os.path.join("/etc/collect", "plugins")
+
+logger.debug("vars(args)    : %s", vars(args))
+logger.debug("args.algorithm: %s", args.algorithm)
+logger.debug("args.plugin   : %s", args.plugin)
+logger.debug("obj.plugins   : %s", obj.plugins)
+
 if args.algorithm:
     plugins.append(Plugin(opts=vars(args)))
 elif args.plugin:
+    logger.debug("plugin option specified")
+    system_info_plugin_added = False
     for p in args.plugin:
-        path = os.path.join(report_dir, "plugins", p)
-        if os.path.exists(path):
-            try:
-                plugins.append(Plugin(path))
-            except Exception as e:
-                logger.error(str(e))
+        logger.debug("searching for plugin '%s'", p)
 
+        # look for the plugin
+        if os.path.exists(os.path.join(builtin_plugins_path, p)):
+            obj.load_plugin(os.path.join(builtin_plugins_path, p))
+        elif os.path.exists(os.path.join(localhost_plugins_path, p)):
+            obj.load_plugin(os.path.join(localhost_plugins_path, p))
         else:
-            logger.warning("%s plugin does not exist", p)
+            logger.warning("Warning: specified plugin '%s' not found", p)
+
+        if p == algorithms.SYSTEM_INFO:
+            system_info_plugin_added = True
+    if not system_info_plugin_added:
+        obj.load_plugin(os.path.join(
+            builtin_plugins_path, algorithms.SYSTEM_INFO))
+
 else:
     # load builtin plugins
-    builtin_plugins = os.path.join(report_dir, "plugins")
-    if os.path.exists(builtin_plugins):
-        for file in os.listdir(builtin_plugins):
-            plugins.append(Plugin(os.path.join(builtin_plugins, file)))
-            logger.debug("loading built-in  plugin: %s", file)
+    obj.load_plugins(builtin_plugins_path)
 
     # add localhost plugins
-    localhost_plugins = os.path.join("/etc/collect", "plugins")
-    if os.path.exists(localhost_plugins):
-        for file in os.listdir(localhost_plugins):
-            plugins.append(Plugin(os.path.join(localhost_plugins, file)))
-            logger.debug("loading localhost plugin: %s", file)
+    obj.load_plugins(localhost_plugins_path)
 
-    # analyze the collect bundle
-    engine.execute(plugins, output_dir)
+
+# analyze the collect bundle
+engine.execute(obj.plugins, output_dir)
 
 sys.exit()

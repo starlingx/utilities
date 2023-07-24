@@ -29,6 +29,8 @@ def swact_activity(hosts, start, end):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+    Returns:
+        data (list): a list of logs that represent evidence of swact activity
     """
     data = []
     sm_files = []
