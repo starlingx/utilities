@@ -435,7 +435,7 @@ fi
 
 if [ -n "${INITIAL_PASSWORD}" ]; then
     ilog "Patching kickstart.cfg for custom default password"
-    sed -i.bak 's@sudo --password 4SuW8cnXFyxsk@sudo --password 4SuW8cnXFyxsk; echo "sysadmin:'"$(openssl passwd --crypt "$INITIAL_PASSWORD")"'" | chpasswd -e@' "${BUILDDIR}/kickstart/kickstart.cfg"
+    sed -i.bak 's@sudo --password 4SuW8cnXFyxsk@sudo --password 4SuW8cnXFyxsk; echo "sysadmin:'"$(openssl passwd -quiet -crypt "$INITIAL_PASSWORD")"'" | chpasswd -e@' "${BUILDDIR}/kickstart/kickstart.cfg"
 fi
 
 unmount_efiboot_img
