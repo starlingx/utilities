@@ -382,6 +382,8 @@ function print_help()
     echo ""
     echo "collect [--skip-mask]                           ... skip masking of collect data"
     echo ""
+    echo "collect [--omit-certs]                          ... do not include certificates in the collect data"
+    echo ""
     echo "Create a collect report"
     echo ""
     echo "collect [--report | -r ]                        ... run the collect report tool on the collected bundle"
@@ -408,6 +410,7 @@ CLEAN=false
 REPORT=false
 VERBOSE=false
 SKIP_MASK=false
+OMIT_CERTS=false
 INVENTORY=false
 SUBCLOUD_COLLECT=false
 SUBCLOUD_LOGIN_PROMPT="controller-"
@@ -745,6 +748,10 @@ while [[ ${#} -gt 0 ]] ; do
         SKIP_MASK=true
         ;;
 
+        --omit-certs)
+        OMIT_CERTS=true
+        ;;
+
         -in|--inline)
         # switch to inline ; one-after-the-other (legacy) mode
         PARALLEL_COLLECT_MODE=false
@@ -815,6 +822,7 @@ dlog "INVENTORY = ${INVENTORY}"
 dlog "STARTDATE = ${STARTDATE}"
 dlog "ENDDATE   = ${ENDDATE}"
 dlog "SKIPMASK  = ${SKIP_MASK}"
+dlog "OMITCERTS = ${OMIT_CERTS}"
 dlog "ALLHOSTS  = ${ALLHOSTS}"
 dlog "LISTING   = ${LISTING}"
 dlog "CLEAN     = ${CLEAN}"
@@ -1813,7 +1821,7 @@ function collect_host_run()
         spawn bash -i
 
         set timeout ${TIMEOUT}
-        send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
+        send "sudo OMIT_CERTS=${OMIT_CERTS} SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
         expect {
             "assword:" {
                 send "${pw}\r"
@@ -1847,7 +1855,7 @@ EOF
                 expect {
                     "${host}:" {
                         set timeout ${COLLECT_HOST_TIMEOUT}
-                        send "sudo SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
+                        send "sudo OMIT_CERTS=${OMIT_CERTS} SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${VERBOSE} ${INVENTORY}\n"
                         expect {
                             "assword:" {
                                 send "${pw}\r"
