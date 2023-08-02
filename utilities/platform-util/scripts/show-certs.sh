@@ -83,6 +83,25 @@ PrintCertInfo-fromFile () {
     FILE=$2
     RENEWAL=$3
     FILENAME=$4
+    DC_ROLE=$(cat /etc/platform/platform.conf | grep 'distributed_cloud_role' | awk -F= '{print $2'})
+
+    if [ -n "$DC_ROLE" ]; then
+        CERT_TYPE=""
+        if [ "$DC_ROLE" == "systemcontroller" ]; then
+            CERT_TYPE="dc-cert/dc"
+        elif [ "$DC_ROLE" == "subcloud" ]; then
+            CERT_TYPE="sc-cert/sc"
+        fi
+
+        if [ "$NAME" == "DC-AdminEp-RootCA" ]; then
+            NAME="$NAME ($CERT_TYPE-adminep-root-ca-certificate)"
+        elif [ "$NAME" == "DC-AdminEp-InterCA" ]; then
+            NAME="$NAME ($CERT_TYPE-adminep-inter-ca-certificate)"
+        elif [ "$NAME" == "DC-AdminEp-Server" ]; then
+            NAME="$NAME ($CERT_TYPE-adminep-certificate)"
+        fi
+    fi
+
     if [ ! -f "$FILE" ]; then
         return
     fi
@@ -120,12 +139,14 @@ PrintCertInfo-fromTlsSecret () {
 
         kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o yaml | fgrep tls.crt | fgrep -v "f:tls.crt" | awk '{print $2}' | base64 --decode > $TMP_SECRET_SECRET_FILE
 
-        if [ ! -z "$NAME" ]; then
-            NAME=$(echo $NAME " / ")
+        if [ -n "$NAME" ]; then
+            NAME="$NAME ($NAMESPACE/$SECRET) CERTIFICATE: $RESET"
+        else
+            NAME="$NAMESPACE/$SECRET CERTIFICATE: $RESET"
         fi
 
         echo
-        echo "$BOLD" $NAME $NAMESPACE " / " $SECRET " CERTIFICATE:" "$RESET"
+        echo "$BOLD" $NAME
         echo "$BOLD" "------------------------------------------" "$RESET"
 
         echo -e '\t' "Renewal    \t: " $RENEWAL
@@ -145,7 +166,11 @@ PrintCertInfo-fromGenericSecret () {
     NAMESPACE=$2
     SECRET=$3
     SECRETFILE=$4
-    RENEWAL="${RED}Manual${RESET}"
+    if [[ -z $5 ]]; then
+        RENEWAL="${RED}Manual${RESET}"
+    else
+        RENEWAL=$5
+    fi
 
     kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET &> /dev/null
     if [ $? -eq 0 ]; then
@@ -175,7 +200,7 @@ PrintCertInfo-fromGenericSecret () {
         echo "$SECRET_VALUE" | base64 --decode > $TMP_GEN_SECRET_FILE
 
         echo
-        echo "$BOLD" $NAME $NAMESPACE " / " $SECRET " / " $SECRETFILE " CERTIFICATE:" "$RESET"
+        echo "$BOLD" $NAME $NAMESPACE"/"$SECRET"/"$SECRETFILE " CERTIFICATE:" "$RESET"
         echo "$BOLD" "------------------------------------------" "$RESET"
 
         echo -e '\t' "Renewal    \t: " "${RENEWAL}"
@@ -199,10 +224,14 @@ PrintCertInfo-from-TlsSecret-or-File () {
 
     kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET &> /dev/null
     if [ $? -eq 0 ]; then
-        PrintCertInfo-fromTlsSecret "$NAME" "$NAMESPACE" "$SECRET"
-    else
-        PrintCertInfo-fromFile "$NAME" "$FILE" "${RED}Manual${RESET}"
+        NAME="$NAME ($NAMESPACE/$SECRET)"
     fi
+    if [[ $CERT_MANAGER_SECRETS == *$SECRET* ]]; then
+        RENEWAL="${GREEN}$AUTO_LABEL${RESET}"
+    else
+        RENEWAL="${RED}Manual${RESET}"
+    fi
+    PrintCertInfo-fromFile "$NAME" "$FILE" "${RENEWAL}"
 }
 
 
@@ -316,7 +345,11 @@ if [ "$KUBERNETES_SECRETS_MODE" = "YES" ]; then
         echo "$MATCHES" > $TMP_GEN_SECRETS_FILE
         while read line; do
             KEY_FOUND=$(echo $line | cut -d':' -f1)
-            PrintCertInfo-fromGenericSecret "" $NAMESPACE $SECRET $KEY_FOUND
+            if [[ "cm-cert-manager-webhook-ca" == $SECRET ]]; then
+                PrintCertInfo-fromGenericSecret "" $NAMESPACE $SECRET $KEY_FOUND "${GREEN}$AUTO_LABEL${RESET}"
+            else
+                PrintCertInfo-fromGenericSecret "" $NAMESPACE $SECRET $KEY_FOUND
+            fi
         done < $TMP_GEN_SECRETS_FILE
 
     done
@@ -337,10 +370,10 @@ fi
 PrintCertInfo-from-TlsSecret-or-File "ssl (restapi/gui)" "deployment" "system-restapi-gui-certificate" "/etc/ssl/private/server-cert.pem"
 
 # Local Registry Certificate
-PrintCertInfo-from-TlsSecret-or-File "registry.local" "deployment" "system-registry-local-certificate" "/etc/ssl/private/registry-cert.crt"
+PrintCertInfo-from-TlsSecret-or-File "docker_registry" "deployment" "system-registry-local-certificate" "/etc/ssl/private/registry-cert.crt"
 
 # Local Openldap Certificate
-PrintCertInfo-from-TlsSecret-or-File "local-openldap" "deployment" "system-openldap-local-certificate" "/etc/openldap/certs/openldap-cert.crt"
+PrintCertInfo-from-TlsSecret-or-File "local-openldap" "deployment" "system-openldap-local-certificate" "/etc/ldap/certs/openldap-cert.crt"
 
 # Trusted CA Certifiates
 
