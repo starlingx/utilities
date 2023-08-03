@@ -398,10 +398,6 @@ PrintCertInfo-fromFile "etcd apiserver client certificate" "/etc/kubernetes/pki/
 
 # kubelet client certificates
 PrintCertInfo-fromFile "kubelet client" "/var/lib/kubelet/pki/kubelet-client-current.pem" "${GREEN}Automatically by k8s${RESET}"
-PrintCertInfo-fromFile "kubelet server" "/var/lib/kubelet/pki/kubelet.crt" "${RED}Manual${RESET}"
-
-cat /var/lib/kubelet/pki/kubelet.crt | sed -n '/-----END CERTIFICATE/,/END CERTIFICATE-----$/p' | tail -n +2 > $TMP_KUBELET_CA_CERT_FILE
-PrintCertInfo-fromFile "kubelet CA" "$TMP_KUBELET_CA_CERT_FILE" "${RED}Manual${RESET}" "/var/lib/kubelet/pki/kubelet.crt"
 
 echo
 CleanUp
