@@ -66,34 +66,34 @@ EFI_MOUNT=
 # Set this to a directory path containing kickstart *.cfg script(s) for testing:
 KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR:-/var/miniboot/kickstart-override}
 
+# Logging functions: logs are printed to stderr and logged to /var/log/user.log:
 function log_verbose {
     if [ -n "$VERBOSE" ]; then
-        echo "$@"
+        >&2 echo "$@"
     fi
 }
 
 function log_info {
-    echo "$@"
+    logger --id=$$ --stderr --priority user.info --tag "${LOG_TAG}" -- "$@"
 }
 
 function log_error {
-    logger -i -s -t "${LOG_TAG}" -- "ERROR: $*"
+    logger --id=$$ --stderr --priority user.err --tag "${LOG_TAG}" -- "ERROR: $*"
 }
 
 function log_warn {
-    logger -i -s -t "${LOG_TAG}" -- "WARN: $*"
+    logger --id=$$ --stderr --priority user.warning --tag "${LOG_TAG}" -- "WARN: $*"
 }
 
 function fatal_error {
-    logger -i -s -t "${LOG_TAG}" -- "FATAL: $*"
+    logger --id=$$ --stderr --priority user.err --tag "${LOG_TAG}" -- "FATAL: $*"
     exit 1
 }
 
 function check_rc_exit {
-    local rc=$1
-    shift
+    local rc=$1; shift
     if [ "$rc" -ne 0 ]; then
-        logger -i -s -t "${LOG_TAG}" -- "FATAL: $* [exit: $rc]"
+        logger --id=$$ --stderr --priority user.err --tag "${LOG_TAG}" -- "FATAL: $* [exit: $rc]"
         exit "$rc"
     fi
 }
@@ -117,12 +117,6 @@ function get_os {
 function get_path_size {
     local path=$1
     du -hs "$path" | awk '{print $1}'
-}
-
-function log_path_size {
-    local path=$1
-    local msg=$2
-    log_info "$msg: $(get_path_size "$path")"
 }
 
 function usage {
@@ -462,7 +456,6 @@ function generate_boot_cfg {
     local BOOT_IP_ARG="${BOOT_IP},,${BOOT_GATEWAY},${BOOT_NETMASK},${BOOT_HOSTNAME},${BOOT_INTERFACE},off"
 
     local PARAM_LIST=
-    log_info "Generating miniboot.iso from params: ${PARAMS[*]}"
     # Set/update boot parameters
     if [ ${#PARAMS[@]} -gt 0 ]; then
         for p in "${PARAMS[@]}"; do
@@ -474,7 +467,7 @@ function generate_boot_cfg {
             else
                 # Pull the boot device out of PARAMS and convert to instdev
                 if [ "$param" = "boot_device" ]; then
-                    log_info "Setting instdev=$value from boot_device param"
+                    log_verbose "Setting instdev=$value from boot_device param"
                     instdev=$value
                 fi
                 PARAM_LIST="${PARAM_LIST} ${param}=${value}"
@@ -629,13 +622,51 @@ function handle_delete {
 }
 
 function create_miniboot_iso {
-    log_info "Creating miniboot ISO"
-    # Copy files for mini ISO build
+    local iso_version
+    iso_version=$(awk -F '=' '/VERSION/ { print $2; }' "${MNTDIR}/upgrades/version")
+    log_info "Creating miniboot ISO for ${NODE_ID}, ISO version: ${iso_version}"
+
+    # Copy files for miniboot ISO build from the mounted INPUT_ISO
     rsync ${VERBOSE_RSYNC} -a \
           --exclude ostree_repo \
           --exclude pxeboot \
         "${MNTDIR}/" "${BUILDDIR}"
     check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
+
+    # Compare ISO version with our running version
+    # shellcheck disable=SC1091
+    source /etc/build.info
+    if [ "${SW_VERSION}" != "${iso_version}" ]; then
+        # Different software version from imported ISO
+        log_info "Imported ISO is different version [SW_VERSION=${SW_VERSION}, ISO: ${iso_version}]."
+
+        # Use initrd-mini from the imported ISO by pulling it from the ISO ostree repo
+        if [ -z "${INITRD_FILE}" ]; then
+            log_info "Pulling initrd from ${MNTDIR}/ostree_repo"
+            local initrd_mini_dir="/var/miniboot/${iso_version}"
+            local initrd_mini_file="${initrd_mini_dir}/initrd-mini"
+
+            # Extract initrd-mini{,.sig} from ostree_repo as well
+            if [ ! -d "${initrd_mini_dir}" ]; then
+                mkdir "${initrd_mini_dir}" || log_error "mkdir ${initrd_mini_dir} failed"
+            fi
+            if [ ! -f "${initrd_mini_file}" ]; then
+                ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
+                        "/var/miniboot/initrd-mini" > "${initrd_mini_file}"
+                rc=$?
+                if [ "$rc" -ne 0 ]; then
+                    log_fatal "failed to pull initrd-mini from ostree [rc=${rc}]"
+                fi
+                ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
+                        "/var/miniboot/initrd-mini.sig" > "${initrd_mini_file}.sig"
+                rc=$?
+                if [ "$rc" -ne 0 ]; then
+                    log_fatal "failed to pull initrd-mini.sig from ostree [rc=${rc}]"
+                fi
+            fi
+            MINIBOOT_INITRD_FILE=${initrd_mini_file}
+        fi
+    fi
 
     if [ "${REPACK}" = yes ]; then
         # Use default initrd-mini location if none specified
@@ -660,31 +691,39 @@ function create_miniboot_iso {
         else
             log_warn "Could not find initrd file at ${INITRD_FILE} ...skipping initrd repack"
         fi
-        log_info "Trimming miniboot ISO content"
-        log_path_size "${BUILDDIR}" "Size of extracted miniboot before trim"
+        log_verbose "Trimming miniboot ISO content"
+        log_verbose "Size of extracted miniboot before trim: $(get_path_size "${BUILDDIR}")"
         # Remove unused kernel images:
         rm "${BUILDDIR}"/{bzImage,bzImage-rt}
         check_rc_exit $? "failed to trim miniboot iso files"
         rm "${BUILDDIR}"/{bzImage.sig,bzImage-rt.sig} || log_warn "failed to remove bzImage{-rt}.sig files"
-        log_path_size "$BUILDDIR" "Size of extracted miniboot after trim"
+        log_verbose "Size of extracted miniboot after trim: $(get_path_size "${BUILDDIR}")"
     fi
 
     # For testing/debugging kickstart scripts. Support an override directory,
     # where any .cfg files are now copied into the /kickstart directory in the ISO
     # Any files in this override directory can replace the files from the ISO copied
     # from the rsync above.
-    if [ -n "${KICKSTART_OVERRIDE_DIR}" ] \
-        && [ -d "${KICKSTART_OVERRIDE_DIR}" ] \
-        && [ "$(echo "${KICKSTART_OVERRIDE_DIR}/"*.cfg)" != "${KICKSTART_OVERRIDE_DIR}/*.cfg" ]; then
-        log_info "Copying .cfg files from KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR} to ${BUILDDIR}/kickstart"
-        cp "${KICKSTART_OVERRIDE_DIR}/"*.cfg "${BUILDDIR}/kickstart"
+    # First, test the location at /var/miniboot/kickstart-override/<version>. This location takes precedence.
+    if [ -d "${KICKSTART_OVERRIDE_DIR}/${iso_version}" ] \
+        && [ "$(echo "${KICKSTART_OVERRIDE_DIR}/${iso_version}/"*.cfg)" != "${KICKSTART_OVERRIDE_DIR}/${iso_version}/*.cfg" ]; then
+        log_info "Copying kickstart override files from ${KICKSTART_OVERRIDE_DIR}/${iso_version} to ${BUILDDIR}/kickstart"
+        cp "${KICKSTART_OVERRIDE_DIR}/${iso_version}/"*.cfg "${BUILDDIR}/kickstart"
+    elif [ "${SW_VERSION}" = "${iso_version}" ]; then
+        # Support the original /var/miniboot/kickstart-override directory, but
+        # only if the installed version is the same as the ISO version.
+        if [ -d "${KICKSTART_OVERRIDE_DIR}" ] \
+            && [ "$(echo "${KICKSTART_OVERRIDE_DIR}/"*.cfg)" != "${KICKSTART_OVERRIDE_DIR}/*.cfg" ]; then
+            log_info "Copying kickstart override files from ${KICKSTART_OVERRIDE_DIR} to ${BUILDDIR}/kickstart"
+            cp "${KICKSTART_OVERRIDE_DIR}/"*.cfg "${BUILDDIR}/kickstart"
+        fi
     fi
 
     # Setup syslinux and grub cfg files
     if [ -z "${EFI_MOUNT}" ]; then
         mount_efiboot_img "${BUILDDIR}"
         check_rc_exit $? "failed to mount EFI"
-        log_info "Using EFI_MOUNT=${EFI_MOUNT}"
+        log_verbose "Using EFI_MOUNT=${EFI_MOUNT}"
     fi
     generate_boot_cfg "${BUILDDIR}"
     unmount_efiboot_img
@@ -709,7 +748,7 @@ function create_miniboot_iso {
     check_rc_exit $? "isohybrid failed"
     # implantisomd5 "${OUTPUT_ISO}"
     # check_rc_exit $? "implantisomd5 failed"
-    log_path_size "$OUTPUT_ISO" "Size of bootimage.iso"
+    log_info "Size of ${OUTPUT_ISO}: $(get_path_size "${OUTPUT_ISO}")"
 }
 
 #
@@ -721,6 +760,7 @@ function main {
         "$SCRIPTDIR/gen-bootloader-iso-centos.sh" "$@"
         exit $?
     fi
+    log_info "Executing: $0 $*"
     parse_arguments "$@"
     initialize_and_lock
     mount_iso "${INPUT_ISO}" "${SCRATCH_DIR}"
