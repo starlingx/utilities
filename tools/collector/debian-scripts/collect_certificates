@@ -1,0 +1,70 @@
+#! /bin/bash
+#
+# Copyright (c) 2023 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+EXTRA_DIR="$1"
+CERT_DIR="${EXTRA_DIR}/certs"
+CERTS_INCLUDE="/etc/collect/certs.include"
+
+# sw_version is exported by collect_host
+RELEASE="$sw_version"
+
+# Log file is exported from collect_host
+LOGF="$COLLECT_ERROR_LOG"
+
+# Read only lines beginning with slash,
+# and replace %%RELEASE%% with the sw_version
+# Include a hardcoded search for ssl_ca in /opt/platform/config
+INCLUDE_LIST="$(
+    grep "^/" "$CERTS_INCLUDE" \
+    | sed "s;%%RELEASE%%;${RELEASE};";
+    ls "/opt/platform/config/$RELEASE/ssl_ca/ssl_ca_"* 2>/dev/null \
+    | grep "/ssl_ca_[0-9]\{20\}$" )"
+
+function read_cert {
+    local certf="$1"
+    local outf
+    local based
+
+    # Put a copy of the cert file in EXTRA_DIR, using the file's full
+    # path within that space.
+    # All listed files start with slash, per global INCLUDE_LIST.
+    outf="${CERT_DIR}${certf}"
+    based="$( dirname "$outf" )"
+
+    if [ -f "$certf" ]; then
+        # Use openssl to retrieve only certificates from the file.
+        # The output includes some extra lines like this, but which
+        # doesn't affect inspection using openssl command
+        # 0: Certificate
+        # <snip>certificate data</snip>
+        # 1: Certificate
+        # <snip>certificate data</snip>
+        # Total found: 2
+        mkdir -p "$based"
+        openssl storeutl -certs "$certf" > "${outf}" 2>>$LOGF
+    fi
+}
+
+function read_certs_path {
+    local certd="$1"
+    local crtf
+
+    # copy certificates in certd, from files ending in .crt
+    while read crtf; do
+        read_cert "$crtf"
+    done <<<"$( ls -1 "${certd}"*.crt 2>/dev/null )"
+}
+
+while read fpath; do
+    if [[ "$fpath" =~ /$ ]]; then
+        # the path is a directory
+        read_certs_path "$fpath"
+    else
+        read_cert "$fpath"
+    fi
+done <<<"$INCLUDE_LIST"
+

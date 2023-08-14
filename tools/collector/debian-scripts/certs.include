@@ -1,0 +1,42 @@
+# certs.include format:
+#
+# Ignore anything that does not start with slash
+# Replace "%%RELEASE%%" with the cluster's current release
+# If the line ends with slash treat it like a directory
+# Otherwise, treat it like a file
+
+# 1. k8s certificates:
+/etc/kubernetes/pki/
+/etc/etcd/
+/var/lib/kubelet/pki/kubelet-client-current.pem
+/var/lib/kubelet/pki/kubelet.crt
+
+# 2. DC admin endpoint certificates
+/etc/ssl/private/admin-ep-cert.pem
+/opt/platform/config/%%RELEASE%%/dc-adminep-root-ca.crt
+
+# 3. docker registry certificates
+/etc/ssl/private/registry-cert.crt
+/etc/docker/certs.d/registry.local:9001/registry-cert.crt
+/etc/docker/certs.d/registry.central:9001/registry-cert.crt
+
+# 4. openldap certificates
+/etc/ldap/certs/openldap-cert.crt
+
+# 5. GUI/REST API certificates
+/etc/ssl/private/server-cert.pem
+
+# 6. Installed ssl CA certificates
+/etc/pki/ca-trust/source/anchors/
+# The following path is hardcoded with regex in collect_certificates:
+# /opt/platform/config/%%RELEASE%%/ssl_ca/ssl_ca_[0-9]{20}
+
+# 7. ceph
+/run/ceph/mgr/restful.crt
+
+# 8. platform config
+/opt/platform/config/%%RELEASE%%/
+/opt/platform/config/%%RELEASE%%/etcd/
+/opt/platform/config/%%RELEASE%%/kubernetes/pki/
+/opt/platform/config/%%RELEASE%%/registry.central/registry-cert.crt
+/opt/platform/config/%%RELEASE%%/ca-cert.pem

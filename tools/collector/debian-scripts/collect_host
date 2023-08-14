@@ -450,6 +450,14 @@ if [ "${SKIP_MASK}" != "true" ]; then
     log_space "after passwd masking :"
 fi
 
+if [ "${OMIT_CERTS}" != "true" ]; then
+    # Collect certificates from the host
+    dlog "running /usr/local/sbin/collect_certificates ${EXTRA_DIR}"
+    COLLECT_ERROR_LOG="$COLLECT_ERROR_LOG" \
+        /usr/local/sbin/collect_certificates ${EXTRA_DIR}
+    log_space "after collecting certificates :"
+fi
+
 (cd ${COLLECT_BASE_DIR} ; ${IONICE_CMD} ${NICE_CMD} ${TAR_ZIP_CMD} ${COLLECT_NAME_DIR}.tgz ${COLLECT_NAME} 2>/dev/null 1>/dev/null )
 
 log_space "after first tarball .:"
