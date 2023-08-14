@@ -53,6 +53,7 @@ function usage {
         -t|--timeout <menu timeout>
         -m|--mount <guestmount point>
         --initial-password <password>
+        --no-force-password
         -v|--verbose
         -h|--help
 
@@ -62,6 +63,7 @@ function usage {
         -o <path/file>: Specify output ISO file
         -a <path/file>: Specify ks-addon.cfg file
         --initial-password <password>: Specify the initial login password for sysadmin user
+        --no-force-password: Do not force password change on initial login (insecure)
         -p <p=v>:  Specify boot parameter
 
             Example:
@@ -253,6 +255,7 @@ declare INPUT_ISO=
 declare OUTPUT_ISO=
 declare ADDON=
 declare INITIAL_PASSWORD=
+declare NO_FORCE_PASSWORD=
 declare -a PARAMS
 declare DEFAULT_LABEL=
 declare DEFAULT_GRUB_ENTRY=
@@ -263,7 +266,7 @@ declare VERBOSE=false
 
 script=$(basename "$0")
 OPTS=$(getopt -o a:d:hi:m:o:p:t:v \
-                --long addon:,initial-password:,default:,help,input:,mount:,output:,param:,timeout:,verbose \
+                --long addon:,initial-password:,no-force-password,default:,help,input:,mount:,output:,param:,timeout:,verbose \
                 -n "${script}" -- "$@")
 if [ $? != 0 ]; then
     echo "Failed parsing options." >&2
@@ -298,6 +301,10 @@ while true; do
         --initial-password)
             INITIAL_PASSWORD="${2}"
             shift 2
+            ;;
+        --no-force-password)
+            NO_FORCE_PASSWORD=1
+            shift 1
             ;;
         -a|--addon)
             ADDON="${2}"
@@ -436,6 +443,10 @@ fi
 if [ -n "${INITIAL_PASSWORD}" ]; then
     ilog "Patching kickstart.cfg for custom default password"
     sed -i.bak 's@sudo --password 4SuW8cnXFyxsk@sudo --password 4SuW8cnXFyxsk; echo "sysadmin:'"$(openssl passwd -quiet -crypt "$INITIAL_PASSWORD")"'" | chpasswd -e@' "${BUILDDIR}/kickstart/kickstart.cfg"
+fi
+if [ -n "${NO_FORCE_PASSWORD}" ]; then
+    ilog "Patching kickstart.cfg for no forced password change"
+    sed -i.bak 's@chage -d 0 sysadmin@# DISABLED by update-iso.sh: chage -d 0 sysadmin@' "${BUILDDIR}/kickstart/kickstart.cfg"
 fi
 
 unmount_efiboot_img
