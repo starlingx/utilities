@@ -14,6 +14,8 @@ export LOCAL_ETC_MODLOAD = etc/modules-load.d
 override_dh_install:
 	install -d -m 755 $(ROOT)/$(LOCAL_ETC_SYSCTL)
 	install -p -D -m 644 coredump-sysctl-debian.conf $(ROOT)/$(LOCAL_ETC_SYSCTL)/50-coredump.conf
+	install -p -D -m 644 net-core-sysctl-debian.conf $(ROOT)/$(LOCAL_ETC_SYSCTL)/50-net-core.conf
+	install -p -D -m 644 sctp-sysctl-debian.conf $(ROOT)/$(LOCAL_ETC_SYSCTL)/50-net-sctp.conf
 
 	install -d -m 755 $(ROOT)/$(LOCAL_ETC_COREDUMP)
 	install -p -D -m 644 coredump.conf $(ROOT)/$(LOCAL_ETC_COREDUMP)/coredump.conf
@@ -21,5 +23,6 @@ override_dh_install:
 	install -d -m 755 $(ROOT)/$(LOCAL_ETC_MODLOAD)
 	install -p -D -m 644 modules-load-vfio.conf $(ROOT)/$(LOCAL_ETC_MODLOAD)/vfio.conf
 	install -p -D -m 644 modules-load-intel-uncore-frequency.conf $(ROOT)/$(LOCAL_ETC_MODLOAD)/intel-uncore-frequency.conf
+	install -p -D -m 644 modules-load-sctp.conf $(ROOT)/$(LOCAL_ETC_MODLOAD)/sctp.conf
 
 	dh_install
