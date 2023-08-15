@@ -536,7 +536,7 @@ function handle_delete {
             rmdir "${NODE_DIR_BASE}"
         fi
 
-        if [ -d "${SHARED_DIR} "]; then
+        if [ -d "${SHARED_DIR}" ]; then
             rm -rf "${SHARED_DIR}"
         fi
     fi
