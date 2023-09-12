@@ -7,11 +7,13 @@ RUN     apt-get update -y &&    \
         python3-eventlet        \
         python3-fm-api          \
         fm-rest-api             \
+        python3-cephclient      \
         python3-fmclient        \
         fm-common               \
         librados2               \
         librbd1                 \
         ceph-common             \
+        ceph-manager            \
         ceph-mon                \
         ceph-osd                \
         ceph-mgr
