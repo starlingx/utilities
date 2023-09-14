@@ -1,6 +1,6 @@
 [stx-compiler-outputs-installer]
 name=stx-compiler-outputs-installer
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/compiler/latest_build/outputs/RPMS/installer/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/compiler/latest_build/outputs/RPMS/installer/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -8,7 +8,7 @@ priority=1
 
 [stx-compiler-outputs-rt]
 name=stx-compiler-outputs-rt
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/compiler/latest_build/outputs/RPMS/rt/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/compiler/latest_build/outputs/RPMS/rt/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -16,7 +16,7 @@ priority=1
 
 [stx-compiler-outputs-std]
 name=stx-compiler-outputs-std
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/compiler/latest_build/outputs/RPMS/std/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/compiler/latest_build/outputs/RPMS/std/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -24,7 +24,7 @@ priority=1
 
 [stx-distro-outputs-installer]
 name=stx-distro-outputs-installer
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/distro/latest_build/outputs/RPMS/installer/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/distro/latest_build/outputs/RPMS/installer/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -32,7 +32,7 @@ priority=1
 
 [stx-distro-outputs-rt]
 name=stx-distro-outputs-rt
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/distro/latest_build/outputs/RPMS/rt/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/distro/latest_build/outputs/RPMS/rt/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -40,7 +40,7 @@ priority=1
 
 [stx-distro-outputs-std]
 name=stx-distro-outputs-std
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/distro/latest_build/outputs/RPMS/std/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/distro/latest_build/outputs/RPMS/std/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -48,7 +48,7 @@ priority=1
 
 [stx-distro-inputs]
 name=stx-distro-inputs
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/distro/latest_build/inputs/RPMS
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/distro/latest_build/inputs/RPMS
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -56,7 +56,7 @@ priority=1
 
 [stx-flock-outputs-rt]
 name=stx-flock-outputs-rt
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/flock/latest_build/outputs/RPMS/rt/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/flock/latest_build/outputs/RPMS/rt/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -64,7 +64,7 @@ priority=1
 
 [stx-flock-outputs-std]
 name=stx-flock-outputs-std
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/flock/latest_build/outputs/RPMS/std/
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/flock/latest_build/outputs/RPMS/std/
 enabled=1
 gpgcheck=0
 metadata_expire=0
@@ -72,7 +72,7 @@ priority=1
 
 [stx-flock-inputs]
 name=stx-flock-inputs
-baseurl=http://mirror.starlingx.cengn.ca/mirror/starlingx/master/centos/flock/latest_build/inputs/RPMS
+baseurl=https://mirror.starlingx.windriver.com/mirror/starlingx/master/centos/flock/latest_build/inputs/RPMS
 enabled=1
 gpgcheck=0
 metadata_expire=0

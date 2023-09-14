@@ -1,7 +1,7 @@
 ARG BASE
 FROM ${BASE}
 
-# Install stx-tools-dev repo (StarlingX-Debian CENGN repo)
+# Install stx-tools-dev repo (StarlingX-Debian repo)
 COPY stx-tools-dev.list /etc/apt/sources.list.d/stx-tools-dev.list.disabled
 
 #
@@ -107,8 +107,8 @@ RUN set -ex && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Enable StarlingX-Debian CENGN repo
-# Packages installs below this point will use DEB packages on CENGN repo.
+# Enable StarlingX-Debian repo
+# Packages installs below this point will use DEB packages from the StarlingX-Debian repo.
 RUN set -ex && \
     cp -f /etc/apt/sources.list.d/stx-tools-dev.list.disabled /etc/apt/sources.list.d/stx.list && \
     apt-get update && \
