@@ -1,3 +1,6 @@
+libldap2-dev [pylint platform:dpkg]
+libsasl2-dev [pylint platform:dpkg]
+libssl-dev [pylint platform:dpkg]
 libvirt-dev [platform:dpkg]
 libvirt-devel [platform:redhat]
 pkg-config [platform:dpkg]
