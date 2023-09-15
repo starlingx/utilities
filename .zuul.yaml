@@ -48,6 +48,7 @@
       - starlingx/fault
       - starlingx/config
     vars:
+      bindep_profile: pylint
       tox_envlist: pylint
 
 - job:
