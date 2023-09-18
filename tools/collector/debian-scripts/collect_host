@@ -397,10 +397,6 @@ collect_parts
 # in elif clause collect-before
 #
 VAR_LOG="/var/log"
-if [ -e /www/var/log ]; then
-    VAR_LOG="$VAR_LOG /www/var/log"
-fi
-
 rm -f ${VAR_LOG_INCLUDE_LIST}
 
 if [ "${STARTDATE_RANGE}" == true ] ; then
@@ -418,6 +414,18 @@ elif [ "${ENDDATE_RANGE}" == true ] ; then
 else
     ilog "collecting all of $VAR_LOG"
     find $VAR_LOG ! -empty > ${VAR_LOG_INCLUDE_LIST}
+fi
+
+# collect the www lighttpd logs if they exists and are not empty.
+# note: The lighttpd logs don't have the date in the right place.
+#       So there is no point in passing those potentially large
+#       files through the dated collect; it would just waste time.
+#       Add that path in the raw form after.
+WWW_LOG="www/var/log"
+if [ -e "/var/${WWW_LOG}" ] ; then
+    find "/var/${WWW_LOG}" ! -empty >> ${VAR_LOG_INCLUDE_LIST}
+elif [ -e "/${WWW_LOG}" ] ; then
+    find "/${WWW_LOG}" ! -empty >> ${VAR_LOG_INCLUDE_LIST}
 fi
 
 # Add VM console.log
