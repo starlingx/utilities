@@ -183,6 +183,9 @@ function collect_extra()
     delimiter ${LOGFILE} "${BUILD_INFO_CMD}"
     ${BUILD_INFO_CMD} >> ${LOGFILE}
 
+    delimiter ${LOGFILE} "timedatectl"
+    timedatectl >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
     delimiter ${LOGFILE} "uptime"
     uptime >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
