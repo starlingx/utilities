@@ -254,15 +254,15 @@ PrintCertInfo-for-OIDC-Certificates () {
     # OIDC certificates - Tries to get secret names from helm overrides. If not found, uses default values
     OIDC_CLIENT_OVERRIDES=$(system helm-override-show oidc-auth-apps oidc-client $NAMESPACE 2> /dev/null)
 
-    OIDC_CLIENT_CERT=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep tlsName: | grep -oP ": \K.+\s")
+    OIDC_CLIENT_CERT=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep -a "tlsName:" | grep -oP ": \K.+\s")
     if [ -z "$OIDC_CLIENT_CERT" ]; then
         OIDC_CLIENT_CERT="local-dex.tls"
     fi
 
     PrintCertInfo-fromTlsSecret "OIDC" $NAMESPACE $OIDC_CLIENT_CERT
 
-    OIDC_CA_CERT=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep issuer_root_ca_secret: | grep -oP ": \K.+\s")
-    OIDC_CA_CERT_FILE=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep issuer_root_ca: | grep -oP ": \K.+\s" | grep -o "[^/]*$")
+    OIDC_CA_CERT=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep -a "issuer_root_ca_secret:" | grep -oP ": \K.+\s")
+    OIDC_CA_CERT_FILE=$(echo "$OIDC_CLIENT_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep -a "issuer_root_ca:" | grep -oP ": \K.+\s" | grep -o "[^/]*$")
     if [ -z "$OIDC_CA_CERT" ] || [ -z "$OIDC_CA_CERT_FILE" ]; then
         OIDC_CA_CERT="dex-client-secret"
         OIDC_CA_CERT_FILE="dex-ca.pem"
@@ -272,8 +272,8 @@ PrintCertInfo-for-OIDC-Certificates () {
 
     DEX_OVERRIDES=$(system helm-override-show oidc-auth-apps dex $NAMESPACE 2> /dev/null)
 
-    WAD_CA_CERTS=$(echo "$DEX_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep secretName: | grep -oP ": \K.+\s")
-    WAD_CA_CERT_FILES=$(echo "$DEX_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep rootCA: | grep -oP ": \K.+\s" | grep -o "[^/]*$")
+    WAD_CA_CERTS=$(echo "$DEX_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep -a "secretName:" | grep -oP ": \K.+\s")
+    WAD_CA_CERT_FILES=$(echo "$DEX_OVERRIDES" | grep -Pzo "combined_overrides(.|\n)*?(\|\s+\|\s\|)" | grep -a "rootCA:" | grep -oP ": \K.+\s" | grep -o "[^/]*$")
 
     # supports multiple WAD CAS, based on the assumption that secrets for WAD has only one file (key inside secret)
     # which is supported by documented process: 'kubectl create secret generic wadcert --from-file=ssl/AD_CA.cer -n kube-system'
