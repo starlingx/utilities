@@ -39,7 +39,6 @@ INSTALL_TYPE=
 LOCK_FILE=/var/run/.gen-bootloader-iso.lock
 LOCK_TMOUT=600  # Wait up to 10 minutes, by default
 LOG_TAG=$SCRIPTNAME
-MINIBOOT_INITRD_FILE=/var/miniboot/initrd-mini  # populated by the loadbuild at this location
 NODE_ID=
 OUTPUT_ISO=
 REPACK=yes  # Repack/trim the initrd and kernel images by default
@@ -325,10 +324,11 @@ function parse_arguments {
                 shift
                 ;;
             --initrd)
-                # Allow specifying an existing initrd file. If none is specified,
-                # then $MINIBOOT_INITRD_FILE is used, if it exists
+                # Allow specifying an existing initrd file to override the initrd-mini
+                # from ostree inside the mounted ISO
                 INITRD_FILE=$2
-                [ -f "$INITRD_FILE" ] || fatal_error "initrd file not found: $INITRD_FILE"
+                [ -f "${INITRD_FILE}" ] || fatal_error "initrd file not found: ${INITRD_FILE}"
+                [ -f "${INITRD_FILE}.sig" ] || fatal_error "initrd sig file not found: ${INITRD_FILE}.sig"
                 shift 2
                 ;;
             --lock-timeout)
@@ -624,6 +624,13 @@ function handle_delete {
 function create_miniboot_iso {
     local iso_version
     iso_version=$(awk -F '=' '/VERSION/ { print $2; }' "${MNTDIR}/upgrades/version")
+    check_rc_exit $? "Failed to parse VERSION from ${MNTDIR}/upgrades/version"
+    if [ -z "${iso_version}" ]; then
+        log_fatal "Could not find VERSION in ${MNTDIR}/upgrades/version"
+    fi
+    # shellcheck disable=SC1091
+    source /etc/build.info  # initialize SW_VERSION
+
     log_info "Creating miniboot ISO for ${NODE_ID}, ISO version: ${iso_version}"
 
     # Copy files for miniboot ISO build from the mounted INPUT_ISO
@@ -633,41 +640,6 @@ function create_miniboot_iso {
         "${MNTDIR}/" "${BUILDDIR}"
     check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
 
-    # Compare ISO version with our running version
-    # shellcheck disable=SC1091
-    source /etc/build.info
-    if [ "${SW_VERSION}" != "${iso_version}" ]; then
-        # Different software version from imported ISO
-        log_info "Imported ISO is different version [SW_VERSION=${SW_VERSION}, ISO: ${iso_version}]."
-
-        # Use initrd-mini from the imported ISO by pulling it from the ISO ostree repo
-        if [ -z "${INITRD_FILE}" ]; then
-            log_info "Pulling initrd from ${MNTDIR}/ostree_repo"
-            local initrd_mini_dir="/var/miniboot/${iso_version}"
-            local initrd_mini_file="${initrd_mini_dir}/initrd-mini"
-
-            # Extract initrd-mini{,.sig} from ostree_repo as well
-            if [ ! -d "${initrd_mini_dir}" ]; then
-                mkdir "${initrd_mini_dir}" || log_error "mkdir ${initrd_mini_dir} failed"
-            fi
-            if [ ! -f "${initrd_mini_file}" ]; then
-                ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
-                        "/var/miniboot/initrd-mini" > "${initrd_mini_file}"
-                rc=$?
-                if [ "$rc" -ne 0 ]; then
-                    log_fatal "failed to pull initrd-mini from ostree [rc=${rc}]"
-                fi
-                ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
-                        "/var/miniboot/initrd-mini.sig" > "${initrd_mini_file}.sig"
-                rc=$?
-                if [ "$rc" -ne 0 ]; then
-                    log_fatal "failed to pull initrd-mini.sig from ostree [rc=${rc}]"
-                fi
-            fi
-            MINIBOOT_INITRD_FILE=${initrd_mini_file}
-        fi
-    fi
-
     if [ "${REPACK}" = yes ]; then
         # Use default initrd-mini location if none specified
         # This picks up the initrd-mini file if it is available
@@ -675,21 +647,24 @@ function create_miniboot_iso {
         # and continue without repacking initrd - instead using
         # the original from the ISO.
         if [ -z "${INITRD_FILE}" ]; then
-            INITRD_FILE="${MINIBOOT_INITRD_FILE}"
-        fi
-        if [ -f "${INITRD_FILE}" ]; then
-            if [ -f "${INITRD_FILE}.sig" ]; then
-                # Overwrite the original ISO initrd file:
-                log_info "Repacking miniboot ISO using initrd: ${INITRD_FILE} and ${INITRD_FILE}.sig"
-                cp "${INITRD_FILE}" "${BUILDDIR}/initrd"
-                check_rc_exit $? "copy initrd failed"
-                cp "${INITRD_FILE}.sig" "${BUILDDIR}/initrd.sig"
-                check_rc_exit $? "copy initrd.sig failed"
-            else
-                log_error "No initrd.sig found at: ${INITRD_FILE}.sig ...skipping initrd repack"
-            fi
+            # Extract initrd-mini,.sig} from the load-imported/mounted
+            # ostree_repo
+            log_info "Extracting initrd-mini{,.sig} from ${MNTDIR}/ostree_repo"
+
+            ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
+                    "/var/miniboot/initrd-mini" > "${BUILDDIR}/initrd"
+            check_rc_exit $? "Failed to pull initrd-mini from ostree"
+
+            ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
+                    "/var/miniboot/initrd-mini.sig" > "${BUILDDIR}/initrd.sig"
+            check_rc_exit $? "failed to pull initrd-mini.sig from ostree"
         else
-            log_warn "Could not find initrd file at ${INITRD_FILE} ...skipping initrd repack"
+            # Use the file from --initrd argument (already verified existence)
+            log_info "Repacking miniboot ISO using supplied initrd: ${INITRD_FILE} and ${INITRD_FILE}.sig"
+            cp "${INITRD_FILE}" "${BUILDDIR}/initrd"
+            check_rc_exit $? "copy initrd failed"
+            cp "${INITRD_FILE}.sig" "${BUILDDIR}/initrd.sig"
+            check_rc_exit $? "copy initrd.sig failed"
         fi
         log_verbose "Trimming miniboot ISO content"
         log_verbose "Size of extracted miniboot before trim: $(get_path_size "${BUILDDIR}")"
