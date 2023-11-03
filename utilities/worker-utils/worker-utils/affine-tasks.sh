@@ -62,6 +62,7 @@ INIT_INTERVAL_SECONDS=10
 CHECK_INTERVAL_SECONDS=30
 PRINT_INTERVAL_SECONDS=300
 STABILIZATION_SECONDS=150
+SYSINV_URL="http://controller:6385"
 
 # Define pidfile
 LNAME=$(readlink -n -f $0)
@@ -486,6 +487,74 @@ function affine_tasks_to_platform_cores {
     LOG "Affined ${count} processes to platform cores."
 }
 
+function is_active_controller {
+    active_controller=$(sudo sm-query service management-ip | grep "enabled-active")
+    if [ -z "${active_controller}" ] ; then
+        false
+    else
+        true
+    fi
+}
+
+function wait_for_sysinv_REST {
+    while true; do
+        sysinv_REST=$(curl -sf ${SYSINV_URL}/v1)
+        if [ "$?" -eq 0 ]; then
+            LOG "System Inventory Service (sysinv-api) is reachable" \
+                "via direct request URL"
+            break
+        fi
+        LOG "Waiting for System Inventory Service" \
+            "to be reachable in ${CHECK_INTERVAL_SECONDS} seconds"
+        sleep ${CHECK_INTERVAL_SECONDS}
+    done
+}
+
+# Wait for platform upgrade to complete if upgrade in progress.
+# This effectively spreads out upgrades cpu-intensive activity
+# (primarily on the active-controller) to all non-isolated cores.
+function wait_for_platform_upgrade_complete {
+    # Check whether system inventory service is reachable
+    wait_for_sysinv_REST
+
+    while true; do
+        # Check overall upgrade status. We don't have an API to tell us
+        # when we reach activation-complete. This API ignores host UUID.
+        is_upgrade_in_progress=$(curl -sf \
+            ${SYSINV_URL}/v1/upgrade/hostname/upgrade_in_progress)
+        if [ "$?" -ne 0 ]; then
+            ERROR "upgrade_in_progress api returned $?."
+            return
+        fi
+
+        if [ "${is_upgrade_in_progress}" = "true" ]; then
+            if is_active_controller; then
+                # cpu-intensive operations have completed when upgrade
+                # has progressed to any of these states: completing,
+                # activation-complete, activation-failed,
+                # or '' which implies upgrade was deleted.
+                source /etc/platform/openrc
+                UPGRADE_STATE=$(system upgrade-show | grep state | awk '{ print $4; }' 2>/dev/null)
+                if [ "${UPGRADE_STATE}" = "activation-complete" ] || \
+                    [ "${UPGRADE_STATE}" = "activation-failed" ] || \
+                    [ "${UPGRADE_STATE}" = "completing" ] || \
+                    [ "${UPGRADE_STATE}" = "" ]
+                then
+                    LOG "Platform upgrade reached completion"
+                    break
+                fi
+            fi
+        else
+            LOG "Platform upgrade is not in progress"
+            break
+        fi
+
+        LOG "Upgrade wait, elapsed ${SECONDS} seconds." \
+            "Reason: upgrade in progress"
+        sleep ${CHECK_INTERVAL_SECONDS}
+    done
+}
+
 function start {
     # Ensure this only runs on AIO
     if ! { [[ "$nodetype" = "controller" ]] && [[ $subfunction = *worker* ]]; }
@@ -586,6 +655,9 @@ function start {
             update_cgroup_cpuset_platform ${CGDIR_K8S}
         fi
     fi
+
+    # Wait for platform upgrade to complete if upgrade in progress
+    wait_for_platform_upgrade_complete
 
     # Affine all floating tasks back to platform cores
     affine_tasks_to_platform_cores
