@@ -267,7 +267,9 @@ class ExecutionEngine:
                                 system_info_output,
                                 self.hosts, True)
 
-                    for host_dir in self.host_dirs:
+                    start_index = self.active_controller_directory is None
+
+                    for host_dir in self.host_dirs[start_index:]:
                         if host_dir != self.active_controller_directory:
                             hostname = re.sub(regex_chop_bundle_date, "",
                                               os.path.basename(host_dir))

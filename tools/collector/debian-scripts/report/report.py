@@ -121,6 +121,7 @@ import time
 import algorithms
 from execution_engine import ExecutionEngine
 from plugin import Plugin
+import render
 
 # Globals
 now = datetime.now(timezone.utc)
@@ -962,5 +963,8 @@ else:
 
 # analyze the collect bundle
 engine.execute(obj.plugins, output_dir)
+
+# generate report tool rendering html file
+render.main(input_dir, output_dir)
 
 sys.exit()
