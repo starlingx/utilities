@@ -15,7 +15,7 @@ SERVICE="crash"
 LOGFILE="${extradir}/${SERVICE}.info"
 
 
-CRASHDIR="/var/lib/kdump"
+CRASHDIR="/var/crash"
 
 echo    "${hostname}: Kernel Crash Info .: ${LOGFILE}"
 
