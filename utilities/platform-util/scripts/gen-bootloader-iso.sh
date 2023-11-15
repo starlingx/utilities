@@ -626,7 +626,7 @@ function create_miniboot_iso {
     iso_version=$(awk -F '=' '/VERSION/ { print $2; }' "${MNTDIR}/upgrades/version")
     check_rc_exit $? "Failed to parse VERSION from ${MNTDIR}/upgrades/version"
     if [ -z "${iso_version}" ]; then
-        log_fatal "Could not find VERSION in ${MNTDIR}/upgrades/version"
+        fatal_error "Could not find VERSION in ${MNTDIR}/upgrades/version"
     fi
     # shellcheck disable=SC1091
     source /etc/build.info  # initialize SW_VERSION
@@ -653,11 +653,16 @@ function create_miniboot_iso {
 
             ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
                     "/var/miniboot/initrd-mini" > "${BUILDDIR}/initrd"
-            check_rc_exit $? "Failed to pull initrd-mini from ostree"
+            check_rc_exit $? "failed to pull initrd-mini from ostree"
 
             ostree --repo="${MNTDIR}/ostree_repo" cat starlingx \
                     "/var/miniboot/initrd-mini.sig" > "${BUILDDIR}/initrd.sig"
-            check_rc_exit $? "failed to pull initrd-mini.sig from ostree"
+            rc=$?
+            if [ "${rc}" -ne 0 ]; then
+                # Designer builds do not have the initrd-mini.sig in ostree repo.
+                # Note: if configured as secure boot it will fail.
+                log_warn "failed to pull initrd-mini.sig from ostree [rc=$rc]"
+            fi
         else
             # Use the file from --initrd argument (already verified existence)
             log_info "Repacking miniboot ISO using supplied initrd: ${INITRD_FILE} and ${INITRD_FILE}.sig"
