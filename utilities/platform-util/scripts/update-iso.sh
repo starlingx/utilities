@@ -442,7 +442,9 @@ fi
 
 if [ -n "${INITIAL_PASSWORD}" ]; then
     ilog "Patching kickstart.cfg for custom default password"
-    sed -i.bak 's@sudo --password 4SuW8cnXFyxsk@sudo --password 4SuW8cnXFyxsk; echo "sysadmin:'"$(openssl passwd -quiet -crypt "$INITIAL_PASSWORD")"'" | chpasswd -e@' "${BUILDDIR}/kickstart/kickstart.cfg"
+    # Replace the default password with the given initial password (securely encrypted)
+    encpw=$(openssl passwd -6 -quiet -noverify "${INITIAL_PASSWORD}")
+    sed -i.bak 's@sudo --password 4SuW8cnXFyxsk@sudo --password 4SuW8cnXFyxsk; echo '\''sysadmin:'"${encpw}"''\'' | chpasswd -e@' "${BUILDDIR}/kickstart/kickstart.cfg"
 fi
 if [ -n "${NO_FORCE_PASSWORD}" ]; then
     ilog "Patching kickstart.cfg for no forced password change"
