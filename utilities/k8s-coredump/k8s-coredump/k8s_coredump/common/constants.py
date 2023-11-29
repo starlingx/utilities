@@ -14,5 +14,7 @@ LOCALHOST_URL = "https://localhost:10250/pods"
 SYSTEMD_COREDUMP = "/usr/lib/systemd/systemd-coredump"
 
 
-logging.basicConfig(filename=K8S_COREDUMP_LOG, level=logging.DEBUG)
+logging.basicConfig(filename=K8S_COREDUMP_LOG, level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%FT%T')
 LOG = logging.getLogger("k8s-coredump")
