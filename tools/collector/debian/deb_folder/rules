@@ -38,6 +38,7 @@ override_dh_auto_install:
 	install -m 755 -p report/algorithms.py $(ROOT)/usr/local/bin/report/algorithms.py
 	install -m 755 -p report/plugin.py $(ROOT)/usr/local/bin/report/plugin.py
 	install -m 755 -p report/correlator.py $(ROOT)/usr/local/bin/report/correlator.py
+	install -m 755 -p report/render.py $(ROOT)/usr/local/bin/report/render.py
 	install -m 644 -p report/README $(ROOT)/usr/local/bin/report/README
 
 	# Report Tool Plugin Algorithms
