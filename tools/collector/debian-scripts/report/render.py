@@ -6,17 +6,45 @@
 #
 ########################################################################
 #
-# This file contains the Render function
-# The Rendering tool visualizes the collect bundle and generates index.html file
+# This file contains the Render function.
+# The Rendering tool visualizes the collect bundle and generates
+# an index.html file
 #
 ########################################################################
 
 from datetime import datetime
 import os
+from pathlib import Path
+import re
+
+
+def exclude_path():
+    """Generate a set for files to be excluded
+
+    """
+    exclude_file = Path(__file__).parent / 'render.exclude'
+    exclude_paths = set()
+    if exclude_file.exists():
+        with exclude_file.open('r') as file:
+            exclude_paths = set(line.strip() for line in file)
+    return exclude_paths
+
+
+def can_open_file(file_path):
+    """Test if the file can be opened or not empty
+
+    Parameters:
+    file_path(Path): path of the file
+    """
+    try:
+        with open(file_path, 'r'):
+            return os.path.getsize(file_path) != 0
+    except IOError:
+        return False
 
 
 def extract_section(log_contents, start_phrase):
-    """extract the correlated or plugin content of the summary
+    """Extract the correlated or plugin content of the summary
 
     Parameters:
     log_contents (string): content of the log
@@ -32,7 +60,7 @@ def extract_section(log_contents, start_phrase):
 
 
 def remove_timestamp(text):
-    """remove timestamp of summary message
+    """Remove timestamp of summary message
 
     Parameters:
     text (string): the summary message
@@ -51,7 +79,7 @@ def remove_timestamp(text):
 
 
 def remove_emptyinfo(text):
-    """ remove 'INFO' text of summary message
+    """Remove 'INFO' text of summary message
 
     Parameters:
     text (string): the summary message
@@ -66,7 +94,7 @@ def remove_emptyinfo(text):
 
 
 def process_section(section, title):
-    """return text with timestamp and INFO: removed
+    """Return text with timestamp and INFO: removed
 
     Parameters:
     section (string): the message of the correlated/plugins section
@@ -79,7 +107,7 @@ def process_section(section, title):
 
 
 def classify_node(data):
-    """classify node type in system_info summary
+    """Classify node type in system_info summary
 
     Parameters:
     data (string): the summary of system_info
@@ -92,7 +120,7 @@ def classify_node(data):
 
 
 def controller_sort(x):
-    """sort the controller, place the controller-0 first
+    """Sort the controller, place the controller-0 first
 
     Parameters:
     x (list): list of controller info
@@ -101,7 +129,7 @@ def controller_sort(x):
 
 
 def html_css():
-    """static css code of the rendering tool
+    """Static css code of the rendering tool
 
     iframe, textarea: the content panel showing information
     #show-worker: the show more worker button
@@ -132,7 +160,7 @@ def html_css():
 
             .container-menu {{
                 display: grid;
-                grid-template-columns: 25% 75%;
+                grid-template-columns: 25% auto 1fr;
                 grid-gap: 10px;
                 background-color: #f0f0f0;
             }}
@@ -161,17 +189,26 @@ def html_css():
                 text-decoration: none;
                 color: #00ada4;
                 font-weight: bold;
+                font-family: Courier;
                 display: block;
                 padding: 6px 10px;
             }}
 
             .menuTitle {{
+                font-weight: bold;
+                font-family: Courier;
                 color: #00857e !important;
             }}
 
             .menuItem {{
                 cursor: pointer;
                 display: flex;
+            }}
+
+            .resizer {{
+                width: 10px;
+                background: #ccc;
+                cursor: ew-resize;
             }}
 
             .menuItem .icon {{
@@ -193,7 +230,7 @@ def html_css():
                 margin-top: 10px;
             }}
 
-            .content-item, .content-itemtwo {{
+            .content-item, .content-itemtwo, .content-itemthree {{
                 display: none;
             }}
 
@@ -218,6 +255,32 @@ def html_css():
                 color: #2F4F4F;
             }}
 
+            .caret {{
+                cursor: pointer;
+                user-select: none;
+                color: #00857e;
+                font-weight: bold;
+                font-family: Courier;
+            }}
+
+            .caret::before {{
+                content: '+';
+                color: #2F4F4F;
+                margin-right: 6px;
+            }}
+
+            .caret-down::before {{
+                color: #2F4F4F;
+                content: '-';
+            }}
+
+            .text-color {{
+              color: #00ada4;
+            }}
+
+            .nested {{ display: none; }}
+            .active {{ display: block; }}
+
         </style>
     </head>
     """
@@ -225,7 +288,7 @@ def html_css():
 
 
 def html_script():
-    """static script code
+    """Static script code
 
     Functions:
     toggleContent: show content in System Info section
@@ -234,6 +297,7 @@ def html_script():
     showContentStorage: display content of selected storage item
     showContentWorker: display content of selected worker item
     showContentTwo: display content of result section
+    toggleTree: show the collect bundle
     """
     html_content_script = """
     <script>
@@ -323,6 +387,20 @@ def html_script():
         }}
     }}
 
+    function showContentThree(event, contentId) {{
+        event.preventDefault();
+
+        const contentItems = document.querySelectorAll('.content-itemthree');
+        contentItems.forEach(item => {{
+            item.style.display = 'none';
+        }});
+
+        const selectedContent = document.getElementById(contentId);
+        if (selectedContent) {{
+            selectedContent.style.display = 'block';
+        }}
+    }}
+
     function toggleContent(option, menuItem) {{
         const contentDiv = document.getElementById(option);
         const icon = menuItem.querySelector('.icon');
@@ -395,6 +473,84 @@ def html_script():
         }}
     }}
 
+    function toggleTree() {{
+        var toggler = document.getElementsByClassName('caret');
+        for (var i = 0; i < toggler.length; i++) {{
+            var nested = toggler[i].parentElement.querySelector('.nested');
+            var isEmpty = nested.querySelectorAll('li').length === 0;
+
+            if (!isEmpty) {{
+                toggler[i].addEventListener('click', function() {{
+                    this.parentElement.querySelector('.nested').classList.toggle('active');
+                    this.classList.toggle('caret-down');
+                    this.parentElement.classList.toggle('text-color');
+                }});
+            }} else {{
+                toggler[i].style.color = '#808080';
+            }}
+        }}
+    }}
+
+    // Call the function when the page loads to initialize the tree behavior
+    toggleTree();
+
+    document.addEventListener("DOMContentLoaded", function() {{
+    var hash = window.location.hash;
+    var sectionA = document.getElementById('content-one');
+    var sectionB = document.getElementById('content-two');
+    var sectionC = document.getElementById('content-three');
+    var collectSections = document.querySelectorAll('[id*="collect"]');
+
+    collectSections.forEach(function(section) {{
+        section.classList.add('hidden');
+    }});
+
+    sectionC.classList.add('hidden');
+
+    if (hash.includes("collect")) {{
+        sectionA.classList.add('hidden');
+        sectionB.classList.add('hidden');
+        sectionC.classList.remove('hidden');
+        var matchingElement = document.querySelector(hash);
+        if (matchingElement) {{
+            matchingElement.classList.remove('hidden');
+        }}
+    }}
+    }});
+
+    document.addEventListener("DOMContentLoaded", function() {{
+        const containers = document.querySelectorAll('.container-menu');
+
+        containers.forEach(container => {{
+            const resizer = container.querySelector('.resizer');
+            let startX, startWidth;
+
+            resizer.addEventListener('mousedown', function(e) {{
+                startX = e.clientX;
+                startWidth = container.querySelector('.menu').offsetWidth;
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', stopResize);
+            }});
+
+            function handleMouseMove(e) {{
+                let currentWidth = startWidth + e.clientX - startX;
+                container.style.gridTemplateColumns = `${currentWidth}px auto 1fr`;
+            }}
+
+            function stopResize() {{
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', stopResize);
+            }}
+        }});
+    }});
+
+    window.onload = function() {{
+        var hash = window.location.hash;
+        if (hash.includes("collect")) {{
+            document.title = hash.substring(8, hash.length - 14);
+        }}
+    }};
+
     </script>
     </html>
     """
@@ -402,7 +558,7 @@ def html_script():
 
 
 def html_info(sys_section):
-    """system info part generation
+    """System info part generation
     reads from plugin/system_info and show by different types
     order: controller, storage(if there exists), worker(if there exists)
 
@@ -440,7 +596,7 @@ def html_info(sys_section):
 
     html_content_one += """
     <body>
-    <div class="container-menu">
+    <div id="content-one" class="container-menu">
         <div class="menu">
         <ul>
         <a href="#" class="menuTitle" onclick="location.reload()">System Information</a>
@@ -480,12 +636,12 @@ def html_info(sys_section):
 
         html_content_one += "</ul></li>"
 
-    html_content_one += """</ul></div><div class="content" id="content-maxheight">"""
+    html_content_one += """</ul></div><div class="resizer"></div><div class="content" id="content-maxheight">"""
 
     # controller-0
     html_content_one += """<div id="controller-0">"""
     for i in controller_zero:
-        html_content_one += f'{i}'
+        html_content_one += f'{i}'.replace(' ', '&nbsp;')
         html_content_one += "<br>"
     html_content_one += "<br></div>"
 
@@ -497,7 +653,8 @@ def html_info(sys_section):
                 div_id = f"{section_type}-{i}"
             html_content_one += f'<div id="{div_id}" style="display:none">'
             for j in section:
-                html_content_one += f'{j}<br>'
+                html_content_one += f'{j}'.replace(' ', '&nbsp;')
+                html_content_one += "<br>"
             html_content_one += "<br></div>"
 
     html_content_one += "</div></div><br>"""
@@ -505,7 +662,7 @@ def html_info(sys_section):
 
 
 def html_result(log_contents, output_dir):
-    """result part generation in the menu-content style
+    """Result part generation in the menu-content style
     generates correlated results, plugin results, and the items under them
     subitems for plugins and correlated results under separate menus
 
@@ -540,7 +697,7 @@ def html_result(log_contents, output_dir):
     html_content_two = ""
 
     html_content_two += """
-    <div class="container-menu">
+    <div id="content-two" class="container-menu">
         <div class="menu">
         <ul>
         <li>
@@ -562,7 +719,7 @@ def html_result(log_contents, output_dir):
     for item in plugin_items:
         html_content_two += f'<li><a href="#" class="toggle-sign" onclick="showContentTwo(event, \'{item["id"]}\')">{item["name"]}</a></li>'
 
-    html_content_two += """</ul></li></ul></div>"""
+    html_content_two += "</ul></li><hr>" + generate_collect() + "</ul></div><div class='resizer'></div>"
     html_content_two += """<div class="content">"""
 
     for item in correlated_items:
@@ -576,10 +733,88 @@ def html_result(log_contents, output_dir):
     html_content_two += """
     </div>
     </div>
-    </body>
     """
 
     return html_content_two
+
+
+def generate_collect():
+    os.chdir('../../')
+    current_directory = Path('.')
+    finalstr = """<li><a href="#" class="menuTitle">
+        <span id="bundle-toggle" onclick="toggleSub(event, 'bundle-submenu', 'bundle-toggle')">+ </span>
+        Collect Bundle</a><ul id="bundle-submenu" style="display: none">"""
+    for item in current_directory.iterdir():
+        if item.is_dir() and item.name != "report_analysis":
+            temp_item = re.sub(r'[^a-zA-Z0-9]', '', item.name)
+            finalstr += f'<a href="#collect{temp_item}" target="_blank">{item.name}</a>'
+    finalstr += "</ul></li>"
+    return finalstr
+
+
+def html_collect():
+    """Collect bundle code generation
+
+    Calls a helper function to to generate the collect bundle
+    """
+    current_directory = Path('.')
+    tree_html = ""
+    content_html = "<div class='content'>"
+    target_dir = current_directory.resolve()
+    newtree_html, newcontent_html = generate_directory_tree(current_directory, exclude_path(), target_dir, 0)
+    tree_html += newtree_html
+    content_html += newcontent_html
+    content_html += "</div>"
+    html_content_three = """<div class="container-menu" id="content-three"><div class="menu" style="max-height: 90vh">
+        """ + tree_html + "</div><div class='resizer'></div>" + content_html + "</div></body>"
+    return html_content_three
+
+
+def generate_directory_tree(directory_path, exclude_path, target_dir, is_top_level):
+    """Helper function for Collect bundle generation
+
+    Parameters:
+    directory_path(Path): the path of the directory in each call
+    target_dir(string): the path of the file/folder
+    is_top_level(bool): if the level is the top level of the collect bundle
+    """
+    directory_name = directory_path.name
+    tree_html = ""
+    content_html = ""
+    approved_list = ['.log', '.conf', '.info', '.json', '.alarm', '.pid', '.list', '.lock', '.txt']
+    if is_top_level == 1:
+        temp_name = re.sub(r'[^a-zA-Z0-9]', '', directory_name)
+        tree_html = f'<li id=collect{temp_name}><div class="menuTitle">{directory_name}</div><ul>'
+    if is_top_level > 1:
+        tree_html = f'<li><span class="caret">{directory_name}</span><ul class="nested">'
+    for item in directory_path.iterdir():
+        # write to a file called 'exclude', all the files including the full path
+        # if item in exclude, do not add to html
+        # else add it to another
+        item_path = str(item)
+        if not any(exclude_item in item_path for exclude_item in exclude_path):
+            try:
+                if item.is_dir() and item.name != "report_analysis":
+                    nested_tree_html, nested_content_html = generate_directory_tree(item, exclude_path, target_dir, is_top_level + 1)
+                    tree_html += nested_tree_html
+                    content_html += nested_content_html
+                elif item.is_file():
+                    if not can_open_file(item):
+                        tree_html += f'<li><a style="color: #808080">{item}</a></li>'
+                    else:
+                        if item.name.endswith(tuple(approved_list)):
+                            tree_html += f'<li><a href="#" class="toggle-sign" onclick="showContentThree(event, \'{item}\')">{item.name}</a></li>'
+                            content_html += f'<div class="content-itemthree" id="{item}"><h2>{item.name}</h2><iframe src="{target_dir}/{item}"></iframe></div>'
+                        else:
+                            if not item.name.endswith(".tgz") and not item.name.endswith(".gz"):
+                                tree_html += f'<li><a href="../{item}" target="_blank">{item}</a></li>'
+            # if it's permission error, just skip reading the file or folder
+            except PermissionError as e:
+                continue
+    if is_top_level:
+        tree_html += '</ul></li>'
+
+    return tree_html, content_html
 
 
 # main
@@ -596,8 +831,9 @@ def main(input_dir, output_dir):
     html_file = os.path.abspath(os.path.join(output_dir, 'index.html'))
 
     sys_section = sysinfo_contents.strip().split("\n\n")
-    html_content = html_css() + html_info(sys_section) + html_result(log_contents, output_dir) + html_script()
+    html_content = html_css() + html_info(sys_section) + html_result(log_contents, output_dir)
     html_content = html_content.format()
+    html_content += html_collect() + html_script()
 
     # write the HTML content to file
     with open(html_file, "w") as file:
