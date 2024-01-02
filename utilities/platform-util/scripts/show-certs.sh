@@ -415,7 +415,7 @@ echo "Note: 'CERTIFICATE AUTHORITIES' are Renewal: ${RED}Manual${RESET}"
 echo
 
 # works with stable and experimenal certs subcommand
-kubeadm certs &> /dev/null
+kubeadm certs -h &> /dev/null
 if [ $? -eq 0 ]; then
     kubeadm certs check-expiration
 else
