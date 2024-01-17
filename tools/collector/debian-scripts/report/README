@@ -210,3 +210,88 @@ Failures     : 4  /localdisk/CGTS-44887/ALL_NODES_20230307.183540/report_analysi
 
 Inspect the Correlated and Plugin results files for failures,
 alarms, events and state changes.
+
+The report analysis and collect bundle can be viewed in a html browser
+by loading the index.html file is created in the report_analysis folder
+when the report tool is run.
+The rendering tool is displayed with a menu-content layout.
+There are four sections:
+System Information, Correlated Results, Plugin Results, Collect Bundle.
+System Information contains controller, storage, and worker.
+controller-0 is shown by default.
+Users can click '+'/'-' in menu to show/hide system info contents in content panel.
+
+System Info        controller-0
+                   ------------
+- controller-0     System Type: All-in-one
++ controller-1     S/W Version: 22.12
+------------       System Node: duplex
+- Storage          DC Role    : systemcontroller
++ storage-0        Node Type  : Controller
++ storage-1        subfunction: controller
+------------       Mgmt Iface : vlan166
+- Workers          Clstr Iface: vlan167
++ compute-0        Build Type : formal
++ compute-1        Build Date : 2022-12-19 07:22:00 +0000
+                   controllers: controller-1, controller-0
+                   workers    : compute-0, compute-1
+
+Result section contains Correlated Results and Plugin Results.
+Both Correlated Results and Plugin Results have their subitems.
+Collect Bundle is shown after the Result section.
+Clicking the menu item will show the content in the right panel.
+
+Menu Default
+- Correlated Results
+  failures
+  state_changes
+  events
+  alarms
+--------
++ Plugin Results
+--------
++ Collect Bundle
+
+Menu Expanded
+- Correlated Results
+  failures
+  state_changes
+  events
+  alarms
+--------
+- Plugin Results
+  substring_controller-0
+  puppet_errors
+  log
+  state_changes
+  alarm
+  daemon_failures
+  heartbeat_loss
+  substring_controller-1
+  process_failures
+  maintenance_errors
+  swact_activity
+--------
+- Collect Bundle
+  controller-0_20231214.180318
+  controller-1_20231214.180318
+  storage-0_20231214.180318
+  storage-1_20231214.180318
+  compute-0_20231214.180318
+  compute-1_20231214.180318
+
+Inside Collect Bundle
+controller-0_20231214.180318
++ var
++ root
++ etc
+
+Opening the Collect Bundle menu shows all the collect bundle items.
+Clicking a bundle will open the new tab corresponding to that bundle.
+If the folder or file is empty or does not have permission to open,
+it will show grey color.
+Files that are not empty will show light green color.
+File content is shown on the right panel, as previous layouts.
+For files that do not have a specific extension, a new tab will be opened.
+If they cannot be opened, a download popup will be shown, or it will be directly downloaded,
+depending on the browser settings.
