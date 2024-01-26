@@ -45,7 +45,7 @@ Usage:
                   --output <output bootimage.iso>
                   [ --images <images.tar.gz> ]
                   [ --patch <patch-name.patch> ]
-                  [ --kickstart-patch <kickstart-enabler.patch> ]
+                  [ --kickstart-patch <kickstart.cfg> ]
                   [ --addon <ks-addon.cfg> ]
                   [ --param <param>=<value> ]
                   [ --default-boot <default menu option> ]
@@ -63,9 +63,8 @@ Usage:
         --patch <patch-name.patch>:
                          Specify software patch file(s).
                          Can be specified more than once, or provide a comma separated list.
-        --kickstart-patch <kickstart-enabler.patch>:
-                         A patch to replace the prestaged installer kickstart.
-                         Not to be included in the runtime patches.
+        --kickstart-patch <kickstart.cfg>:
+                         A cfg to replace the prestaged installer kickstart.
 
         --setup  <file>: Specify ks-setup.cfg file.
         --addon  <file>: Specify ks-addon.cfg file.
