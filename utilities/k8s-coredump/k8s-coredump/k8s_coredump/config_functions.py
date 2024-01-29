@@ -66,9 +66,12 @@ def parse_core_pattern(string_core_pattern, **kwargs):
     str
         String with all the information replaced accordingly
     """
-    string_core_pattern = string_core_pattern.lower()
+    LOG.info(f'Full path passed to parse_core_pattern: {string_core_pattern}')
+    splitted_path = string_core_pattern.split("/")
+    string_core_pattern = splitted_path[-1]
+
     LOG.info(f'Parsing core pattern: {string_core_pattern}')
-    processed_string = string_core_pattern
+    processed_string = string_core_pattern.lower()
     processed_string = processed_string.replace('%p', kwargs['pid'])
     processed_string = processed_string.replace('%u', kwargs['uid'])
     processed_string = processed_string.replace('%g', kwargs['gid'])
@@ -77,7 +80,12 @@ def parse_core_pattern(string_core_pattern, **kwargs):
     processed_string = processed_string.replace('%h', kwargs['hostname'])
     processed_string = processed_string.replace('%e', kwargs['comm2'])
     LOG.info(f'Core pattern parsed to {processed_string}')
-    return processed_string
+
+    splitted_path[-1] = processed_string
+    full_path_processed = "/".join(splitted_path)
+    LOG.info(f'Full path parsed by parse_core_pattern: {full_path_processed}')
+
+    return full_path_processed
 
 
 def parse_size_config(string_config):
@@ -108,6 +116,7 @@ def parse_size_config(string_config):
                  f'(Multiplier of bytes: {size_properties["multiplier"]})')
         return float(value), size_properties
 
+    LOG.info(f'Unable to parse size configuration from: {string_config}')
     return None
 
 

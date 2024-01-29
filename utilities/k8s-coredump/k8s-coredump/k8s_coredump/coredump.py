@@ -127,8 +127,8 @@ def CoreDumpHandler(**kwargs):
         except ValueError as e:
             LOG.error("Pod defined an invalid core dump annotation: %s" % e)
             sys.exit(-1)
-        except KeyError:
-            LOG.debug("Pod does have annotations defined")
+        except KeyError as e:
+            LOG.debug("Pod does have annotations defined but some configuration is missing: %s" % e)
             pass
 
     # not handled by pod, redirect to systemd coredump handler
