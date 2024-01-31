@@ -174,7 +174,8 @@ PrintCertInfo-fromGenericSecret () {
 
     kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET &> /dev/null
     if [ $? -eq 0 ]; then
-        SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o yaml | fgrep " $SECRETFILE" | awk '{print $2}')
+
+        SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o yaml | fgrep " $SECRETFILE:" | awk '{print $2}')
 
         if ! IsACertificate $SECRET_VALUE; then
             return
