@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2021-2023 Wind River Systems, Inc.
+# Copyright (c) 2021-2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -399,13 +399,26 @@ PrintCertInfo-fromFile "DC-AdminEp-Server" "/etc/ssl/private/admin-ep-cert.pem" 
 PrintCertInfo-fromFile "openstack" "/etc/ssl/private/openstack/cert.pem" "${RED}Manual${RESET}"
 PrintCertInfo-fromFile "openstack CA" "/etc/ssl/private/openstack/ca-cert.pem" "${RED}Manual${RESET}"
 
-# OIDC
-PrintCertInfo-for-OIDC-Certificates
+# works with stable and experimental certs subcommand
+kubeadm certs -h &> /dev/null
+if [ $? -eq 0 ]; then
+    CERTS_CMD='certs'
+else
+    CERTS_CMD='alpha certs'
+fi
 
-# analytics certificates
-PrintCertInfo-fromGenericSecret "Internal Analytics CA Certificate" "monitor" "mon-elastic-services-secrets" "ca.crt"
-PrintCertInfo-fromGenericSecret "External Analytics CA Certificate" "monitor" "mon-elastic-services-secrets" "ext-ca.crt"
-PrintCertInfo-fromGenericSecret "External Kibana Certificate" "monitor" "mon-elastic-services-secrets" "kibana.crt"
+K8S_CERTS_OUTPUT=$(kubeadm $CERTS_CMD check-expiration 2> /dev/null)
+K8S_CERTS_RC=$?
+
+if [ $K8S_CERTS_RC -eq 0 ]; then
+    # OIDC
+    PrintCertInfo-for-OIDC-Certificates
+
+    # analytics certificates
+    PrintCertInfo-fromGenericSecret "Internal Analytics CA Certificate" "monitor" "mon-elastic-services-secrets" "ca.crt"
+    PrintCertInfo-fromGenericSecret "External Analytics CA Certificate" "monitor" "mon-elastic-services-secrets" "ext-ca.crt"
+    PrintCertInfo-fromGenericSecret "External Kibana Certificate" "monitor" "mon-elastic-services-secrets" "kibana.crt"
+fi
 
 # Kubernetes Certificates
 echo
@@ -415,13 +428,7 @@ echo "Note: 'CERTIFICATES'            are Renewal: ${GREEN}Automatic${RESET}"
 echo "Note: 'CERTIFICATE AUTHORITIES' are Renewal: ${RED}Manual${RESET}"
 echo
 
-# works with stable and experimenal certs subcommand
-kubeadm certs -h &> /dev/null
-if [ $? -eq 0 ]; then
-    kubeadm certs check-expiration
-else
-    kubeadm alpha certs check-expiration
-fi
+echo "$K8S_CERTS_OUTPUT"
 
 # ETCD certificates
 # ETCD certificates are automatically renewed by kube_root_ca_rotation cron job
