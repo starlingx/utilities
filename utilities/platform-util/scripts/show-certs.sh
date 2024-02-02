@@ -44,7 +44,7 @@ source /etc/platform/platform.conf
 source /etc/platform/openrc
 
 # Gets the name of all secrets used by cert-manager certs
-CERT_MANAGER_SECRETS=$(kubectl --kubeconfig /etc/kubernetes/admin.conf get cert -A -o yaml | grep secretName: | grep -v f: | awk '{ print $2 }')
+CERT_MANAGER_SECRETS=$(kubectl --kubeconfig /etc/kubernetes/admin.conf get cert -A -o jsonpath='{range .items[*]}{.spec.secretName}{"\n"}{end}')
 
 PrintCertInfo () {
 
@@ -137,7 +137,7 @@ PrintCertInfo-fromTlsSecret () {
     kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET &> /dev/null
     if [ $? -eq 0 ]; then
 
-        kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o yaml | fgrep tls.crt | fgrep -v "f:tls.crt" | awk '{print $2}' | base64 --decode > $TMP_SECRET_SECRET_FILE
+        kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o jsonpath='{.data.tls\.crt}' | base64 --decode > $TMP_SECRET_SECRET_FILE
 
         if [ -n "$NAME" ]; then
             NAME="$NAME ($NAMESPACE/$SECRET) CERTIFICATE: $RESET"
@@ -172,10 +172,13 @@ PrintCertInfo-fromGenericSecret () {
         RENEWAL=$5
     fi
 
+    ESCAPEDSTRING="${SECRETFILE/./\\.}"
+    JSONPATH="{.data.${ESCAPEDSTRING}}"
+
     kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET &> /dev/null
     if [ $? -eq 0 ]; then
 
-        SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o yaml | fgrep " $SECRETFILE:" | awk '{print $2}')
+        SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o jsonpath=$JSONPATH)
 
         if ! IsACertificate $SECRET_VALUE; then
             return
@@ -188,8 +191,15 @@ PrintCertInfo-fromGenericSecret () {
             elif [[ "ext-ca.crt" == $SECRETFILE ]]; then
                 TLS_SECRET_NAME="mon-elastic-services-extca-crt"
             fi
-            TLS_SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $TLS_SECRET_NAME -o yaml 2> /dev/null | fgrep " tls.crt" | awk '{print $2}')
+            TLS_SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $TLS_SECRET_NAME -o jsonpath='{.data.tls\.crt}')
             if [[ $TLS_SECRET_VALUE == $SECRET_VALUE && $CERT_MANAGER_SECRETS == *$TLS_SECRET_NAME* ]]; then
+                RENEWAL="${GREEN}$AUTO_LABEL${RESET}"
+            fi
+        fi
+
+        if [[ "OIDC CA" == $NAME ]]; then
+            TLS_SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $SECRET -o jsonpath='{.data.tls\.crt}')
+            if [[ $TLS_SECRET_VALUE == $SECRET_VALUE && $CERT_MANAGER_SECRETS == *$SECRET* ]]; then
                 RENEWAL="${GREEN}$AUTO_LABEL${RESET}"
             fi
         fi
