@@ -386,6 +386,9 @@ PrintCertInfo-from-TlsSecret-or-File "docker_registry" "deployment" "system-regi
 # Local Openldap Certificate
 PrintCertInfo-from-TlsSecret-or-File "local-openldap" "deployment" "system-openldap-local-certificate" "/etc/ldap/certs/openldap-cert.crt"
 
+# system-local-ca certificate
+PrintCertInfo-fromGenericSecret "system-local-ca" "cert-manager" "system-local-ca" "tls.crt"
+
 # Trusted CA Certifiates
 
 for FILE in /opt/platform/config/${sw_version}/ssl_ca/*; do
