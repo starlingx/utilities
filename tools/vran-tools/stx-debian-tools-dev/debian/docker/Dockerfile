@@ -55,6 +55,7 @@ RUN set -ex && \
         gettext \
         isomd5sum \
         kmod \
+        libaccel-config1 \
         libcap-dev \
         libelf-dev \
         libncurses-dev \
@@ -88,6 +89,8 @@ RUN set -ex && \
     apt-get update -y && \
     apt-get upgrade -y && \
     apt-get install -y \
+        accel-config \
+        accel-config-test \
         acpica-tools \
         dmidecode \
         ethtool \

@@ -2,6 +2,7 @@ ceph/ceph-manager
 ceph/python-cephclient
 tools/collector
 tools/engtools/hostdata-collectors
+tools/accel-config
 tools/opae/opae-sdk
 tools/opae/python3-opae.admin
 tools/opae/python3-opae.pacsign
