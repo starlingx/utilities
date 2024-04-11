@@ -191,8 +191,7 @@ PrintCertInfo-fromGenericSecret () {
             elif [[ "ext-ca.crt" == $SECRETFILE ]]; then
                 TLS_SECRET_NAME="mon-elastic-services-extca-crt"
             fi
-            TLS_SECRET_VALUE=$(kubectl --kubeconfig /etc/kubernetes/admin.conf -n $NAMESPACE get secret $TLS_SECRET_NAME -o jsonpath='{.data.tls\.crt}')
-            if [[ $TLS_SECRET_VALUE == $SECRET_VALUE && $CERT_MANAGER_SECRETS == *$TLS_SECRET_NAME* ]]; then
+            if [[ $CERT_MANAGER_SECRETS == *$TLS_SECRET_NAME* ]]; then
                 RENEWAL="${GREEN}$AUTO_LABEL${RESET}"
             fi
         fi
