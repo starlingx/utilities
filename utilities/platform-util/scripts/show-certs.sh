@@ -394,6 +394,8 @@ for FILE in /opt/platform/config/${sw_version}/ssl_ca/*; do
     PrintCertInfo-fromFile "$FILE" "$FILE" "${RED}Manual${RESET}"
 done
 
+PrintCertInfo-fromFile "IPsec" "/etc/swanctl/x509/system-ipsec-certificate-$(cat /etc/hostname).crt" "${GREEN}Automatic${RESET}"
+
 # DC AdminEp Certificates
 PrintCertInfo-fromFile "DC-AdminEp-RootCA" "/etc/pki/ca-trust/source/anchors/dc-adminep-root-ca.crt" "${GREEN}$AUTO_LABEL${RESET}"
 
