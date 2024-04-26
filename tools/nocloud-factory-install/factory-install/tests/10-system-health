@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Factory install system health checks triggered during the tests stage
+#
+
+
+echo "System Health Checks - Start"
+
+fail () {
+    echo "FAIL: $1" && exit 1
+}
+
+# check for service impacting alarms
+# TODO update alarm check - currently checks for any alarms
+source /etc/platform/openrc
+fm --timeout 10 alarm-list --nowrap|grep -e "major\|minor\|warning\|critical"
+if [ $? == 0 ]; then
+    fail "service impacting alarms present"
+fi
+
+echo "System Health Checks - Complete"
+
+exit 0

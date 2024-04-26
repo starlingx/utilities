@@ -1,0 +1,10 @@
+enable factory-install.target
+
+enable factory-install-bootstrap.path
+enable factory-install-bootstrap.service
+enable factory-install-config.path
+enable factory-install-config.service
+enable factory-install-setup.path
+enable factory-install-setup.service
+enable factory-install-tests.path
+enable factory-install-tests.service

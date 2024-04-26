@@ -1,0 +1,22 @@
+[Unit]
+Description=Factory Installation Execute System Tests
+ConditionPathExists=/var/lib/factory-install/enabled
+ConditionPathExists=/var/lib/factory-install/stage/tests
+ConditionPathExists=!/var/lib/factory-install/state/tests
+After=factory-install-setup.service
+
+[Service]
+Type=oneshot
+User=sysadmin
+ExecStart=/usr/bin/run-parts --verbose --exit-on-error /var/lib/factory-install/tests
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/tests
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/final
+ExecStartPost=+/usr/bin/rm /var/lib/factory-install/enabled
+StandardOutput=append:/var/log/factory-install.log
+RemainAfterExit=yes
+Restart=no
+TimeoutStartSec=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=factory-install.target

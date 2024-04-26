@@ -1,0 +1,7 @@
+# Target enabled by cloud-init
+[Unit]
+Description=Factory Install Target
+After=cloud-init.target network-online.target
+
+[Install]
+WantedBy=multi-user.target

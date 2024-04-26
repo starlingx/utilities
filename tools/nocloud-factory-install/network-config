@@ -1,0 +1,21 @@
+# Cloud-init networking config.
+#
+# "This network configuration format lets users customise their instance’s networking
+# interfaces by assigning subnet configuration, virtual device creation (bonds, bridges, VLANs)
+# routes and DNS configuration." [1]
+#
+# This config is meant to be a placeholder. It should be
+# updated based on the factory node networking requirements.
+#
+#  Offical cloutinit documentation with explination of the various file params can be found at:
+# [1] https://cloudinit.readthedocs.io/en/latest/reference/network-config-format-v1.html
+#
+version: 1
+config:
+   - type: physical
+     name: enp2s1
+     subnets:
+        - type: static
+          address: 10.10.10.2
+          netmask: 255.255.255.0
+          gateway: 10.10.10.1

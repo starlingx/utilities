@@ -1,0 +1,20 @@
+[Unit]
+Description=Factory Installation Bootstrap
+ConditionPathExists=/var/lib/factory-install/enabled
+ConditionPathExists=/var/lib/factory-install/stage/bootstrap
+ConditionPathExists=!/var/lib/factory-install/state/bootstrap
+
+[Service]
+Type=oneshot
+User=sysadmin
+ExecStart=/usr/bin/ansible-playbook /usr/share/ansible/stx-ansible/playbooks/bootstrap.yml
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/bootstrap
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/config
+StandardOutput=append:/var/log/factory-install.log
+RemainAfterExit=yes
+Restart=no
+TimeoutStartSec=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=factory-install.target

@@ -1,0 +1,14 @@
+#cloud-config
+
+chpasswd:
+  list:
+    # Changes the sysadmin password - the hash below specifies St8rlingX*1234
+    - sysadmin:$5$HElSMXRZZ8wlTiEe$I0hValcFqxLRKm3pFdXrpGZlxnmzQt6i9lhIR9FWAf8
+  expire: False
+
+runcmd:
+  - [ /bin/bash, -c, "echo $(date): Initiating factory-install" ]
+  - mkdir -p /opt/nocloud
+  - mount LABEL=CIDATA /opt/nocloud
+  - run-parts --verbose --exit-on-error /opt/nocloud/factory-install/scripts
+  - eject /opt/nocloud

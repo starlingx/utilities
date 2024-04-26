@@ -1,0 +1,69 @@
+#!/bin/bash
+#
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# cloud-init script to setup the factory install services
+#
+
+USER=sysadmin
+HOME=/home/${USER}
+NOCLOUD=/opt/nocloud
+
+FACTORY_INSTALL=/var/lib/factory-install
+
+check_rc_die() {
+    local -i rc=${1}
+    msg=${2}
+    if [ ${rc} -ne 0 ]; then
+        echo "FATAL: ${msg} [rc=${rc}]" && exit 1
+    fi
+}
+
+echo "Factory Install Setup - Start"
+
+if [ -d "${FACTORY_INSTALL}" ]; then
+    echo "${FACTORY_INSTALL} exists, aborting"
+    exit 1
+fi
+
+mkdir -p "${FACTORY_INSTALL}"/{stage,state}
+check_rc_die $? "mkdir failed"
+
+# Copy system config, setup and test scripts
+cp -r "${NOCLOUD}"/factory-install/scripts "${FACTORY_INSTALL}"/scripts && \
+    cp -r "${NOCLOUD}"/factory-install/setup "${FACTORY_INSTALL}"/setup && \
+    cp -r "${NOCLOUD}"/factory-install/tests "${FACTORY_INSTALL}"/tests && \
+    cp -r "${NOCLOUD}"/factory-install/config "${FACTORY_INSTALL}"/config
+check_rc_die $? "copy failed"
+
+# Ensure files are executable for run-parts
+chmod a+x "${FACTORY_INSTALL}"/scripts/* && \
+    chmod a+x "${FACTORY_INSTALL}"/setup/* && \
+    chmod a+x "${FACTORY_INSTALL}"/tests/*
+check_rc_die $? "chmod failed"
+
+# Copy configuration files required for running bootstrap and deployment configuration services
+# NOTE: Configuration files are expected to be located in home directory
+su "${USER}" <<EOF
+if [ "$(ls "${FACTORY_INSTALL}"/config)" ]; then
+    cp -r "${FACTORY_INSTALL}"/config/* "${HOME}"
+fi
+EOF
+
+echo "Factory Install Setup - Initialize systemd services"
+
+mkdir -p /etc/systemd/system/factory-install.target.wants
+check_rc_die $? "mkdir failed (factory-install.target.wants)"
+
+cp "${NOCLOUD}"/factory-install/systemd/*.{path,service,target} /etc/systemd/system/
+check_rc_die $? "Copy failed (systemd path,service,target)"
+
+cp "${NOCLOUD}"/factory-install/systemd/20-factory-install.preset /etc/systemd/system-preset/ && \
+    chmod a+x /etc/systemd/system-preset/20-factory-install.preset
+check_rc_die $? "Copy failed (systemd preset)"
+
+echo "Factory Install Setup - Complete"
+
+exit 0

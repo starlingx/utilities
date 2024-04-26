@@ -1,0 +1,10 @@
+[Unit]
+Description=Factory Installation System Tests Stage
+ConditionPathExists=/var/lib/factory-install/enabled
+ConditionPathExists=!/var/lib/factory-install/state/tests
+
+[Path]
+PathExists=/var/lib/factory-install/stage/tests
+
+[Install]
+WantedBy=factory-install.target
