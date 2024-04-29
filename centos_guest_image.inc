@@ -1,3 +1,0 @@
-
-# build-info
-build-info
