@@ -61,8 +61,8 @@ RUN set -ex && \
         libhwloc-dev=1.11.12-3 \
         libjson-c-dev \
         libssl-dev \
-        linux-headers-5.10.0-6 \
-        linux-perf-5.10 \
+        linux-headers-stx-amd64 \
+        linux-perf \
         make \
         pciutils \
         python-is-python3 \
