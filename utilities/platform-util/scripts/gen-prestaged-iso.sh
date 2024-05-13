@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2023 Wind River Systems, Inc.
+# Copyright (c) 2022-2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,16 +19,19 @@
 # shellcheck disable=2181    # don't warn about using rc=$?
 
 function log_fatal {
-    echo "$(date "+%F %H:%M:%S") FATAL: $*" >&2
+    # red
+    echo "$(tput setaf 1)$(date "+%F %H:%M:%S") FATAL: ${*}$(tput sgr0)" >&2
     exit 1
 }
 
 function log_error {
-    echo "$(date "+%F %H:%M:%S"): ERROR: $*" >&2
+    # red
+    echo "$(tput setaf 1)$(date "+%F %H:%M:%S"): ERROR: ${*}$(tput sgr0)" >&2
 }
 
 function log_warn {
-    echo "$(date "+%F %H:%M:%S"): WARN: $*" >&2
+    # orange
+    echo "$(tput setaf 3)$(date "+%F %H:%M:%S"): WARN: ${*}$(tput sgr0)" >&2
 }
 
 function log_info {
@@ -249,7 +252,6 @@ function generate_boot_cfg {
     COMMON_ARGS="${COMMON_ARGS} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instl=/ostree_repo instdev=${instdev}"
     COMMON_ARGS="${COMMON_ARGS} inst_ostree_root=/dev/mapper/cgts--vg-root--lv"
     COMMON_ARGS="${COMMON_ARGS} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
-    COMMON_ARGS="${COMMON_ARGS} defaultkernel=vmlinuz*[!t]-amd64"
 
     if [ -n "${FORCE_INSTALL}" ]; then
         COMMON_ARGS="${COMMON_ARGS} force_install"
@@ -259,6 +261,9 @@ function generate_boot_cfg {
     #COMMON_ARGS="${COMMON_ARGS} instsh=2"
     COMMON_ARGS="${COMMON_ARGS} ${PARAM_LIST}"
     log_info "COMMON_ARGS: ${COMMON_ARGS}"
+
+    COMMON_ARGS_LOW_LATENCY="${COMMON_ARGS} defaultkernel=vmlinuz-*-rt-amd64"
+    COMMON_ARGS_DEFAULT="${COMMON_ARGS} defaultkernel=vmlinuz*[!t]-amd64"
 
     for f in ${isodir}/isolinux/isolinux.cfg; do
         cat <<EOF > "${f}"
@@ -273,17 +278,47 @@ menu title Debian Local Install : Select kernel options and boot kernel
 menu tabmsg Press [Tab] to edit, [Return] to select
 
 DEFAULT ${DEFAULT_SYSLINUX_ENTRY}
-LABEL 0
+menu begin
+  menu title Prestage Install
+  label 0
     menu label Serial Console
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} traits=controller console=ttyS0,115200 console=tty0
-
-LABEL 1
+    append ${COMMON_ARGS_DEFAULT} traits=controller console=ttyS0,115200 console=tty0
+  label 1
     menu label Graphical Console
     kernel /bzImage-std
     ipappend 2
-    append ${COMMON_ARGS} traits=controller console=tty0
+    append ${COMMON_ARGS_DEFAULT} traits=controller console=tty0
+menu end
+
+menu begin
+  menu title Prestage cloud-init All-in-one Install
+  label 2
+    menu label Serial Console
+    kernel /bzImage-std
+    ipappend 2
+    append ${COMMON_ARGS_DEFAULT} traits=controller,worker ${CLOUDINIT_BOOT_ARG} console=ttyS0,115200 console=tty0
+  label 3
+    menu label Graphical Console
+    kernel /bzImage-std
+    ipappend 2
+    append ${COMMON_ARGS_DEFAULT} traits=controller,worker ${CLOUDINIT_BOOT_ARG} console=tty0
+menu end
+
+menu begin
+  menu title Prestage cloud-init All-in-one (lowlatency) Install
+  label 4
+    menu label Serial Console
+    kernel /bzImage-rt
+    ipappend 2
+    append ${COMMON_ARGS_LOW_LATENCY} traits=controller,worker,lowlatency ${CLOUDINIT_BOOT_ARG} console=ttyS0,115200 console=tty0
+  label 5
+    menu label Graphical Console
+    kernel /bzImage-rt
+    ipappend 2
+    append ${COMMON_ARGS_LOW_LATENCY} traits=controller,worker,lowlatency ${CLOUDINIT_BOOT_ARG} console=tty0
+menu end
 
 EOF
     done
@@ -299,15 +334,39 @@ menuentry 'Debian Local Install : Select kernel options and boot kernel' --id=ti
     set fallback=1
 }
 
-menuentry 'Serial Console' --id=serial {
-    linux /bzImage-std ${COMMON_ARGS} traits=controller console=ttyS0,115200 serial
+submenu 'Prestage Install' --id=prestage-install {
+ menuentry 'Serial Console' --id=serial {
+    linux /bzImage-std ${COMMON_ARGS_DEFAULT} traits=controller console=ttyS0,115200 serial
     initrd /initrd
+  }
+  menuentry 'Graphical Console' --id=graphical {
+    linux /bzImage-std ${COMMON_ARGS_DEFAULT} traits=controller console=tty0
+    initrd /initrd
+  }
 }
 
-menuentry 'Graphical Console' --id=graphical {
-    linux /bzImage-std ${COMMON_ARGS} traits=controller console=tty0
+submenu 'Prestage cloud-init All-in-one Install' --id=cloud-init-aio {
+  menuentry 'Serial Console' --id=serial {
+    linux /bzImage-std ${COMMON_ARGS_DEFAULT} traits=controller,worker ${CLOUDINIT_BOOT_ARG} console=ttyS0,115200 serial
     initrd /initrd
+  }
+  menuentry 'Graphical Console' --id=graphical {
+    linux /bzImage-std ${COMMON_ARGS_DEFAULT} traits=controller,worker ${CLOUDINIT_BOOT_ARG} console=tty0
+    initrd /initrd
+  }
 }
+
+submenu 'Prestage cloud-init (lowlatency) All-in-one Install' --id=cloud-init-aio-lowlat {
+  menuentry 'Serial Console' --id=serial {
+    linux /bzImage-rt ${COMMON_ARGS_LOW_LATENCY} traits=controller,worker,lowlatency ${CLOUDINIT_BOOT_ARG} console=ttyS0,115200 serial
+    initrd /initrd
+  }
+  menuentry 'Graphical Console' --id=graphical {
+    linux /bzImage-rt ${COMMON_ARGS_LOW_LATENCY} traits=controller,worker,lowlatency ${CLOUDINIT_BOOT_ARG} console=tty0
+    initrd /initrd
+  }
+}
+
 EOF
     done
 
@@ -364,6 +423,7 @@ declare FORCE_INSTALL=
 declare PLATFORM_ROOT="opt/platform-backup"
 declare MD5_FILE="container-image.tar.gz.md5"
 declare KS_PATCH=false
+declare CLOUDINIT_BOOT_ARG=cloud-init=enabled
 
 ###############################################################################
 # Get the command line arguments.
@@ -417,6 +477,10 @@ while :; do
             ;;
         -a | --addon)
             KS_ADDON=$2
+            # warn about renaming to ks-addon.cfg:
+            if [ "$(basename "${KS_ADDON}")" != "ks-addon.cfg" ]; then
+                log_warn "--addon ${KS_ADDON}: will be renamed to ks-addon.cfg inside ISO"
+            fi
             shift 2
             ;;
         -p | --param)
@@ -445,11 +509,27 @@ while :; do
             case ${DEFAULT_LABEL} in
                 0)
                     DEFAULT_SYSLINUX_ENTRY=0
-                    DEFAULT_GRUB_ENTRY="serial"
+                    DEFAULT_GRUB_ENTRY="prestage-install>serial"
                     ;;
                 1)
                     DEFAULT_SYSLINUX_ENTRY=1
-                    DEFAULT_GRUB_ENTRY="graphical"
+                    DEFAULT_GRUB_ENTRY="prestage-install>graphical"
+                    ;;
+                2)
+                    DEFAULT_SYSLINUX_ENTRY=2
+                    DEFAULT_GRUB_ENTRY="cloud-init-aio>serial"
+                    ;;
+                3)
+                    DEFAULT_SYSLINUX_ENTRY=3
+                    DEFAULT_GRUB_ENTRY="cloud-init-aio>graphical"
+                    ;;
+                4)
+                    DEFAULT_SYSLINUX_ENTRY=4
+                    DEFAULT_GRUB_ENTRY="cloud-init-aio-lowlat>serial"
+                    ;;
+                5)
+                    DEFAULT_SYSLINUX_ENTRY=5
+                    DEFAULT_GRUB_ENTRY="cloud-init-aio-lowlat>graphical"
                     ;;
                 *)
                     usage
@@ -613,7 +693,8 @@ if [[ -e "${KS_SETUP}" ]]; then
 fi
 
 if [[ -e "${KS_ADDON}" ]]; then
-    cp "${KS_ADDON}" "${BUILDDIR}"
+    # always name the addon "ks-addon.cfg" since that is what kickstart.cfg looks for in the root directory
+    cp "${KS_ADDON}" "${BUILDDIR}/ks-addon.cfg"
 fi
 
 #  we are ready to create the prestage iso.
