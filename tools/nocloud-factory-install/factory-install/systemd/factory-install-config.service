@@ -1,0 +1,21 @@
+[Unit]
+Description=Factory Installation Deployment Configuration
+ConditionPathExists=/var/lib/factory-install/enabled
+ConditionPathExists=/var/lib/factory-install/stage/config
+ConditionPathExists=!/var/lib/factory-install/state/config
+After=factory-install-bootstrap.service
+
+[Service]
+Type=oneshot
+User=sysadmin
+ExecStart=/usr/bin/ansible-playbook /usr/local/share/applications/playbooks/wind-river-cloud-platform-deployment-manager.yaml -e "@/home/sysadmin/dm-playbook-overrides.yaml"
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/config
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/setup
+StandardOutput=append:/var/log/factory-install.log
+RemainAfterExit=yes
+Restart=no
+TimeoutStartSec=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=factory-install.target

@@ -1,0 +1,8 @@
+# Ansible Bootstrap Configurations - user configuration overrides
+#
+# System and network bootstrap properties cen be specified here as outlined in
+# the StarlingX documentation. For instance, OAM network configuration can
+# be specified: external_oam_subnet, external_oam_gateway_address,
+# external_oam_floating_address, etc.
+
+system_mode: simplex

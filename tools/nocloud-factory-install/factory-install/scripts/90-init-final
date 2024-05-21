@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# cloud-init script to Perform hardware and firmware checks
+# TODO: Sample only. Replace with real hardware checks
+#
+
+FACTORY_INSTALL=/var/lib/factory-install
+
+echo "Factory Install Final - Start"
+
+touch "${FACTORY_INSTALL}"/enabled
+
+systemctl daemon-reload
+systemctl preset-all
+
+# Trigger first stage (bootstrap) of factory install services
+touch ${FACTORY_INSTALL}/stage/bootstrap
+
+echo "Factory Install Final - Complete"
+
+systemctl start factory-install.target
+
+exit 0

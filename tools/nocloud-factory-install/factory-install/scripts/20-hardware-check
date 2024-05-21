@@ -1,0 +1,24 @@
+#!/bin/bash
+#
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# cloud-init script to Perform hardware and firmware checks
+# TODO: Sample only. Replace with real hardware checks
+
+echo "Hardware Check - Start"
+
+BOARD_VENDOR=$(cat /sys/devices/virtual/dmi/id/board_vendor)
+BOARD_NAME=$(cat /sys/devices/virtual/dmi/id/board_name)
+PRODUCT_NAME=$(cat /sys/devices/virtual/dmi/id/product_name)
+BIOS_VERSION=$(cat /sys/devices/virtual/dmi/id/bios_version)
+
+echo "BOARD_VENDOR=${BOARD_VENDOR}"
+echo "BOARD_NAME=${BOARD_NAME}"
+echo "PRODUCT_NAME=${PRODUCT_NAME}"
+echo "BIOS_VERISON=${BIOS_VERISON}"
+
+echo "Hardware Check - Complete"
+
+exit 0
