@@ -183,6 +183,9 @@ class ExecutionEngine:
         plugin_output_dir = os.path.join(output_dir, "plugins")
         os.makedirs(plugin_output_dir, exist_ok=True)
 
+        # track non utf-8 compliant logs in a dropped_logs file.
+        dropped_logs_file = os.path.join(plugin_output_dir, "dropped_logs")
+
         if self.opts.verbose:
             logger.info("Output files for plugins can be found at " +
                         os.path.abspath(plugin_output_dir))
@@ -218,6 +221,7 @@ class ExecutionEngine:
                                 for file in plugin.state["files"]
                             ],
                             plugin.state["exclude"],
+                            dropped_logs=dropped_logs_file,
                         )
 
                         # creating output file
@@ -304,7 +308,8 @@ class ExecutionEngine:
                     self._create_output_file(
                         "swact_activity", plugin_output_dir,
                         swact_activity(self.hosts, self.opts.start,
-                                       self.opts.end),
+                                       self.opts.end,
+                                       dropped_logs=dropped_logs_file),
                         processing
                     )
 
@@ -312,7 +317,8 @@ class ExecutionEngine:
                     self._create_output_file(
                         "puppet_errors", plugin_output_dir,
                         puppet_errors(self.hosts, self.opts.start,
-                                      self.opts.end),
+                                      self.opts.end,
+                                      dropped_logs=dropped_logs_file),
                         processing
                     )
 
@@ -320,7 +326,8 @@ class ExecutionEngine:
                     self._create_output_file(
                         "process_failures", plugin_output_dir,
                         process_failures(self.hosts, self.opts.start,
-                                         self.opts.end),
+                                         self.opts.end,
+                                         dropped_logs=dropped_logs_file),
                         processing
                     )
 
@@ -365,7 +372,8 @@ class ExecutionEngine:
                     self._create_output_file(
                         "heartbeat_loss", plugin_output_dir,
                         heartbeat_loss(self.hosts, self.opts.start,
-                                       self.opts.end),
+                                       self.opts.end,
+                                       dropped_logs=dropped_logs_file),
                         processing
                     )
                 elif plugin.state["algorithm"] == algorithms.MAINTENANCE_ERR:
@@ -373,7 +381,8 @@ class ExecutionEngine:
                         "maintenance_errors", plugin_output_dir,
                         maintenance_errors(self.hosts, self.opts.start,
                                            self.opts.end,
-                                           plugin.state["exclude"]),
+                                           plugin.state["exclude"],
+                                           dropped_logs=dropped_logs_file),
                         processing
                     )
                 elif plugin.state["algorithm"] == algorithms.DAEMON_FAILURES:
@@ -381,14 +390,16 @@ class ExecutionEngine:
                         "daemon_failures", plugin_output_dir,
                         daemon_failures(self.hosts, self.opts.start,
                                         self.opts.end,
-                                        plugin.state["exclude"]),
+                                        plugin.state["exclude"],
+                                        dropped_logs=dropped_logs_file),
                         processing
                     )
                 elif plugin.state["algorithm"] == algorithms.STATE_CHANGES:
                     self._create_output_file(
                         "state_changes", plugin_output_dir,
                         state_changes(self.hosts, self.opts.start,
-                                      self.opts.end),
+                                      self.opts.end,
+                                      dropped_logs=dropped_logs_file),
                         processing
                     )
 

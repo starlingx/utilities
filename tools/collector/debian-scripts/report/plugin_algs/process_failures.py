@@ -19,7 +19,7 @@ import os
 from plugin_algs.substring import substring
 
 
-def process_failures(hosts, start, end):
+def process_failures(hosts, start, end, dropped_logs=None):
     """Process failures algorithm
         Presents all "Error : " log messages from pmond
 
@@ -27,6 +27,7 @@ def process_failures(hosts, start, end):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+        dropped_logs (string): path/filename to write dropped logs
     """
     data = []
     files = []
@@ -35,6 +36,6 @@ def process_failures(hosts, start, end):
             pmond = os.path.join(folder, "var", "log", "pmond.log")
             files.append(pmond)
 
-    data = substring(start, end, ["Error :"], files)
+    data = substring(start, end, ["Error :"], files, dropped_logs=dropped_logs)
 
     return sorted(data)

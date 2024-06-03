@@ -19,7 +19,7 @@ import os
 from plugin_algs.substring import substring
 
 
-def state_changes(hosts, start, end):
+def state_changes(hosts, start, end, dropped_logs=None):
     """State changes algorithm
     Presents all messages in the system regarding the state of hosts, such
     as "is ENABLED"
@@ -28,6 +28,7 @@ def state_changes(hosts, start, end):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+        dropped_logs (string): path/filename to write dropped logs
     """
     data = []
     sc_files = []
@@ -37,6 +38,7 @@ def state_changes(hosts, start, end):
         sc_files.append(sc_path)
 
     sc_substrings = ["is ENABLED", "allStateChange (.+)locked-disabled"]
-    data = substring(start, end, sc_substrings, sc_files)
+    data = substring(start, end, sc_substrings, sc_files,
+                     dropped_logs=dropped_logs)
 
     return sorted(data)

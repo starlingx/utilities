@@ -20,7 +20,7 @@ import os
 from plugin_algs.substring import substring
 
 
-def swact_activity(hosts, start, end):
+def swact_activity(hosts, start, end, dropped_logs=None):
     """Swact activity algorithm
     Presents all log messages about swacting activity in the system, such as
     "Uncontrolled swact"
@@ -29,6 +29,7 @@ def swact_activity(hosts, start, end):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+        dropped_logs (string): path/filename to write dropped logs
     Returns:
         data (list): a list of logs that represent evidence of swact activity
     """
@@ -50,7 +51,8 @@ def swact_activity(hosts, start, end):
                      "Neighbor (.+) is now in the down",
                      "Service (.+) has reached max failures",
                      "Swact update"]
-    data = substring(start, end, sm_substrings, sm_files)
+    data = substring(start, end, sm_substrings, sm_files,
+                     dropped_logs=dropped_logs)
 
     for i, line in enumerate(data):
         if "Swact has started," in line and not swact_in_progress:
@@ -67,6 +69,6 @@ def swact_activity(hosts, start, end):
         "swact", "active-failed\\s+\\| disabling-failed\\s+\\|"
     ]
     data += substring(start, end, sm_customer_substrings,
-                      sm_customer_files)
+                      sm_customer_files, dropped_logs=dropped_logs)
 
     return sorted(data)

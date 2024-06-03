@@ -19,7 +19,7 @@ import os
 from plugin_algs.substring import substring
 
 
-def heartbeat_loss(hosts, start, end):
+def heartbeat_loss(hosts, start, end, dropped_logs=None):
     """Heartbeat loss algorithm
     Presents all "Heartbeat Loss" error messages in the system
 
@@ -27,6 +27,7 @@ def heartbeat_loss(hosts, start, end):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+        dropped_logs (string): path/filename to write dropped logs
     """
     data = []
     hb_files = []
@@ -36,6 +37,7 @@ def heartbeat_loss(hosts, start, end):
         hb_files.append(hb_path)
 
     hb_substrings = ["Heartbeat Loss"]
-    data = substring(start, end, hb_substrings, hb_files)
+    data = substring(start, end, hb_substrings, hb_files,
+                     dropped_logs=dropped_logs)
 
     return sorted(data)
