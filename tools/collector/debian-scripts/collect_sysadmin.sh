@@ -14,10 +14,18 @@ source /usr/local/sbin/collect_utils
 SYSADMIN_DIR="${extradir}/sysadmin"
 mkdir -p ${SYSADMIN_DIR}
 
-#check files exists and then copy to sysadmin directory
+# Function to copy files based on pattern
+copy_files()
+{
+    local pattern=$1
+    for file in /home/sysadmin/${pattern} ; do
+        [ -e "${file}" ] && cp "${file}" "${SYSADMIN_DIR}/"
+    done
+}
 
-[ -e /home/sysadmin/*.log ] && cp /home/sysadmin/*.log /${SYSADMIN_DIR}/
-[ -e /home/sysadmin/*.yml ] && cp /home/sysadmin/*.yml /${SYSADMIN_DIR}/
-[ -e /home/sysadmin/*.yaml ] && cp /home/sysadmin/*.yaml /${SYSADMIN_DIR}/
+# get the log and yaml files from the sysadmin home dir
+copy_files "*.log"
+copy_files "*.yml"
+copy_files "*.yaml"
 
 exit 0
