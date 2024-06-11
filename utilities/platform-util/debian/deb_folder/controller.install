@@ -10,3 +10,5 @@ scripts/update_docker_registry_auth.sh usr/local/bin
 scripts/change_system_private_registry.sh usr/local/bin
 scripts/local_starlingxrc usr/local/bin
 scripts/kubeconfig-setup usr/local/bin
+scripts/enroll-init-cleanup usr/local/bin
+scripts/enroll-init-reconfigure usr/local/bin

@@ -44,6 +44,8 @@ override_dh_auto_install:
 	install -m 555 scripts/kubeconfig-setup $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 755 scripts/connectivity_test $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/set_keystone_user_option.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/enroll-init-cleanup $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/enroll-init-reconfigure $(DEBIAN_BUILDDIR)/usr/local/bin/
 
 	install -d $(DEBIAN_BUILDDIR)/usr/local/sbin/
 	install -m 700 -p -D scripts/patch-restart-mtce $(DEBIAN_BUILDDIR)/usr/local/sbin/
@@ -56,4 +58,4 @@ override_dh_fixperms:
 	dh_fixperms -Xupdate-iso.sh -Xpatch-dm.sh -Xgen-bootloader-iso.sh -Xstx-iso-utils.sh \
 	-Xshow-certs.sh -Xupdate_docker_registry_auth.sh -Xchange_system_private_registry.sh \
 	-Xis-rootdisk-device.sh -Xlocal_starlingxrc -Xkubeconfig-setup -Xpatch-restart-* \
-	-Xconnectivity_test -Xset_keystone_user_option.sh
+	-Xconnectivity_test -Xset_keystone_user_option.sh -Xenroll-init-*

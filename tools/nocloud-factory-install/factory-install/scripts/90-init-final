@@ -4,8 +4,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# cloud-init script to Perform hardware and firmware checks
-# TODO: Sample only. Replace with real hardware checks
+# cloud-init script to finish the factory install setup and
+# trigger the first stage (booststrap)
 #
 
 FACTORY_INSTALL=/var/lib/factory-install

@@ -10,3 +10,5 @@
 /usr/local/bin/change_system_private_registry.sh
 /usr/local/bin/local_starlingxrc
 /usr/local/bin/kubeconfig-setup
+/usr/local/bin/enroll-init-cleanup
+/usr/local/bin/enroll-init-reconfigure

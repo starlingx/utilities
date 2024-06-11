@@ -5,7 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # cloud-init script to Perform hardware and firmware checks
-# TODO: Sample only. Replace with real hardware checks
+#
+# SAMPLE ONLY - REPLACE WITH REAL HARDWARE CHECKS
+#
 
 echo "Hardware Check - Start"
 

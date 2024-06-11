@@ -1,0 +1,171 @@
+#!/bin/bash
+#
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Utility to reconfigure OAM and update sysadmin password
+# by first ensuring sys-inv and mtc services are active
+# and ready to accept the password change.
+#
+
+function check_rc_die {
+    local -i rc=${1}
+    msg=${2}
+    if [ ${rc} -ne 0 ]; then
+        log_fatal "${msg} [rc=${rc}]"
+    fi
+}
+
+function log_fatal {
+    echo "$(tput setaf 1)$(date "+%F %H:%M:%S") FATAL: ${*}$(tput sgr0)" >&2
+    exit 1
+}
+
+function log_warn {
+    echo "$(tput setaf 3)$(date "+%F %H:%M:%S"): WARN: ${*}$(tput sgr0)" >&2
+}
+
+function log_info {
+    echo "$(date "+%F %H:%M:%S"): INFO: $*" >&2
+}
+
+function usage {
+    cat <<ENDUSAGE
+Utility to reconfigure OAM and update sysadmin password.
+
+Usage:
+   $(basename "$0") --oam_subnet <oam_subnet>
+                    --oam_gateway_ip <oam_gateway_ip>
+                    --oam_ip <oam_ip>
+                    --new_password <new_password>
+
+        --oam_subnet <subnet>: Specify OAM subnet
+        --oam_gateway_ip <ip>: Specify OAM gateway IP
+        --oam_ip <ip>: Specify OAM IP
+        --new_password <password>: Specify new password for sysadmin user
+ENDUSAGE
+}
+
+function verify_factory_install {
+    log_info "Checking factory-install..."
+
+    if [ ! -f /var/lib/factory-install/stage/final ]; then
+        log_fatal "/var/lib/factory-install/stage/final does not exist. Ensure factory-install was successful."
+    fi
+
+    log_info "factory-install check successfull."
+}
+
+function check_services_status {
+    log_info "Checking services status..."
+    max_retries=10
+    retries=0
+
+    while [ $retries -lt $max_retries ]; do
+        sm_output=$(sm-dump)
+
+        sysinv_status=$(echo "$sm_output" | awk '/sysinv-inv/ {print $2}')
+        mtc_status=$(echo "$sm_output" | awk '/mtc-agent/ {print $2}')
+
+        if [ "$sysinv_status" == "enabled-active" ] && [ "$mtc_status" == "enabled-active" ]; then
+            log_info "Required services are now enabled-active."
+            return 0
+        else
+            log_warn "Required services are not yet enabled-active. Retrying... "
+        fi
+
+        retries=$((retries + 1))
+        sleep 30
+    done
+
+    log_fatal "Required services are not enabled-active after $max_retries attempts."
+}
+
+function load_credentials {
+    log_info "Loading credentials..."
+    max_retries=10
+    retries=0
+
+    if [ ! -f /etc/platform/openrc ]; then
+        log_fatal "/etc/platform/openrc does not exist."
+    fi
+
+    while [ $retries -lt $max_retries ]; do
+        if source /etc/platform/openrc; then
+            log_info "Credentials loaded successfully."
+            return 0
+        else
+            log_warn "Failed to load credentials (waiting for the host to become active). Retrying..."
+        fi
+
+        retries=$((retries + 1))
+        sleep 30
+    done
+
+    log_fatal "Failed to load credentials."
+}
+
+function reconfigure_OAM {
+    log_info "Reconfiguring OAM with subnet: $OAM_SUBNET, gateway IP: $OAM_GATEWAY_IP, OAM IP: $OAM_IP..."
+    system oam-modify oam_subnet="$OAM_SUBNET" oam_gateway_ip="$OAM_GATEWAY_IP" oam_ip="$OAM_IP"
+    check_rc_die $? "system oam-modify failed"
+}
+
+function reconfigure_password {
+    log_info "Reconfiguring sysadmin password..."
+    echo "sysadmin:$NEW_PASSWORD" | sudo chpasswd -e
+    check_rc_die $? "chpasswd failed"
+}
+
+# Declare required variables
+OAM_SUBNET=""
+OAM_GATEWAY_IP=""
+OAM_IP=""
+NEW_PASSWORD=""
+
+log_info "Starting enroll-init reconfiguration..."
+
+# Parse command line arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --help)
+            usage
+            exit 0
+            ;;
+        --oam_subnet)
+            OAM_SUBNET="$2"
+            shift 2
+            ;;
+        --oam_gateway_ip)
+            OAM_GATEWAY_IP="$2"
+            shift 2
+            ;;
+        --oam_ip)
+            OAM_IP="$2"
+            shift 2
+            ;;
+        --new_password)
+            NEW_PASSWORD="$2"
+            shift 2
+            ;;
+        *)
+            log_fatal "Unexpected option: $1"
+            ;;
+    esac
+done
+
+# Ensure all required arguments are provided
+if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z "$NEW_PASSWORD" ]; then
+    usage
+    log_fatal "Missing required arguments"
+fi
+
+# Main execution flow
+verify_factory_install
+load_credentials
+check_services_status
+reconfigure_OAM
+reconfigure_password
+
+log_info "Successfully reconfigured OAM network and system password."
