@@ -27,6 +27,19 @@ RUN set -ex && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# These packages are only in debian snapshots repo
+RUN set -ex && \
+    cp -f /etc/apt/sources.list.d/debian.list.disabled /etc/apt/sources.list.d/debian.list && \
+    cp -f /etc/apt/sources.list.d/stx.list.disabled /etc/apt/sources.list.d/stx.list && \
+    apt-get update -y && \
+    apt-get install -y \
+        build-essential \
+        && \
+    rm -f /etc/apt/sources.list.d/stx.list && \
+    rm -f /etc/apt/sources.list.d/debian.list && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Enable stx repo only. Packages installs below this point will use
 # only the managed locally-built & 3rd-party repos.
 RUN set -ex && \
