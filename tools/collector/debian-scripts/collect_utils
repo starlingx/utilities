@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2019 Wind River Systems, Inc.
+# Copyright (c) 2013-2019, 2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -8,6 +8,7 @@
 ##########################################################################################
 
 DEBUG=false
+redirect="/dev/null"
 
 # Fail Codes
 PASS=0
@@ -16,18 +17,17 @@ RETRY=2
 
 FAIL_NODETYPE=3
 
-FAIL_TIMEOUT=10
-FAIL_TIMEOUT1=11
-FAIL_TIMEOUT2=12
-FAIL_TIMEOUT3=13
-FAIL_TIMEOUT4=14
-FAIL_TIMEOUT5=15
-FAIL_TIMEOUT6=16
-FAIL_TIMEOUT7=17
-FAIL_TIMEOUT8=18
-FAIL_TIMEOUT9=19
-
-FAIL_SUBCLOUD_TIMEOUT=20
+FAIL_TIMEOUT_GLOBAL=10
+FAIL_TIMEOUT_OPERATION=11
+FAIL_TIMEOUT_OPERATION_SCP=12
+FAIL_TIMEOUT_OPERATION_SSH=13
+FAIL_TIMEOUT_HOST_ACCESS=14
+FAIL_TIMEOUT_HOST=15
+FAIL_TIMEOUT_PW=16
+FAIL_TIMEOUT_SCP=17
+FAIL_TIMEOUT_SSH=18
+FAIL_TIMEOUT_SUBCLOUD_ACCESS=19
+FAIL_TIMEOUT_SUBCLOUD=20
 
 FAIL_PASSWORD=30
 FAIL_PERMISSION=31
@@ -35,7 +35,7 @@ FAIL_CLEANUP=32
 FAIL_UNREACHABLE=33
 FAIL_HOSTNAME=34
 FAIL_INACTIVE=35
-FAIL_PERMISSION_SKIP=36
+FAIL_PERMISSION_REMOTE=36
 FAIL_OUT_OF_SPACE=37
 FAIL_INSUFFICIENT_SPACE=38
 FAIL_INTERNAL=39
@@ -59,6 +59,13 @@ FAIL_INVALID_START_DATE=56
 FAIL_INVALID_END_DATE=57
 FAIL_INVALID_DATE_RANGE=58
 FAIL_TIMEOUT_ARG=59
+FAIL_NOT_SUDOER=60
+FAIL_NOT_SUDOER_REMOTE=61
+FAIL_PASSWORDLESS=65
+FAIL_PASSWORDLESS_REMOTE=66
+FAIL_INSUFFICIENT_SPACE_REMOTE=70
+FAIL_NOT_ENOUGH_SPACE_REMOTE=71
+FAIL_OUT_OF_SPACE_REMOTE=72
 
 # Warnings are above 200
 WARN_WARNING=200
@@ -69,23 +76,48 @@ COLLECT_ERROR="Error:"
 COLLECT_DEBUG="Debug:"
 COLLECT_WARN="Warning:"
 
+# common permission error strings
+pw_error="orry, try again"
+ac_error="ermission denied"
+su_error="not in the sudoers"
+
 # Failure Strings
 FAIL_NOT_ENOUGH_SPACE_STR="Not enough /scratch filesystem space"
+FAIL_NOT_ENOUGH_SPACE_REMOTE_STR="Not enough remote /scratch filesystem space"
 FAIL_OUT_OF_SPACE_STR="No space left on device"
+FAIL_OUT_OF_SPACE_REMOTE_STR="No space left on remote device"
 FAIL_TAR_OUT_OF_SPACE_STR="tar: Error is not recoverable"
 FAIL_INSUFFICIENT_SPACE_STR="Not enough space on device"
-FAIL_UNREACHABLE_STR="Unreachable"
+FAIL_INSUFFICIENT_SPACE_REMOTE_STR="Not enough space on remote device"
 
 FAIL_TIMEOUT_STR="operation timeout"
 FAIL_TIMEOUT_ARG_STR="out-of-range timeout"
 
-FAIL_SUBCLOUD_TIMEOUT_STR="subcloud collect timeout"
+# Operational timeouts
+FAIL_TIMEOUT_GLOBAL_STR="global collect timeout"
+FAIL_TIMEOUT_PW_STR="password prompt timeout"
+FAIL_TIMEOUT_SCP_STR="scp timeout"
+FAIL_TIMEOUT_SSH_STR="ssh timeout"
+FAIL_TIMEOUT_OPERATION_STR="linux operation timeout"
+FAIL_TIMEOUT_OPERATION_SSH_STR="ssh operation timeout"
+FAIL_TIMEOUT_OPERATION_SCP_STR="linux operation timeout"
+
+# host and subcloud timeouts
+FAIL_TIMEOUT_HOST_ACCESS_STR="host access timeout"
+FAIL_TIMEOUT_HOST_STR="host collect timeout"
+FAIL_TIMEOUT_SUBCLOUD_ACCESS_STR="subcloud access timeout"
+FAIL_TIMEOUT_SUBCLOUD_STR="subcloud collect timeout"
 
 FAIL_NO_FILE_SPECIFIED_STR="no file specified"
 FAIL_FILE_NOT_FOUND_STR="no such file or directory"
 FAIL_FILE_EMPTY_STR="file is empty"
 FAIL_PASSWORD_PROMPT_STR="password for"
-
+FAIL_PASSWORDLESS_STR="timeout waiting for password prompt"
+FAIL_PASSWORDLESS_REMOTE_STR="timeout waiting for remote password prompt"
+FAIL_NOT_SUDOER_STR="collect requires sudo on host"
+FAIL_NOT_SUDOER_REMOTE_STR="collect requires sudo on remote host"
+FAIL_INVALID_PASSWORD_STR="invalid password"
+FAIL_PERMISSION_STR="permission error"
 FAIL_DATE_FORMAT_STR="date format"
 FAIL_INACTIVE_STR="not active"
 FAIL_NO_HOSTS_STR="empty host list"
@@ -93,6 +125,9 @@ FAIL_NO_SUBCLOUDS_STR="empty subcloud list"
 FAIL_MISSING_PARAMETER_STR="missing parameter"
 FAIL_FILE_COPY_STR="failed to copy"
 FAIL_CONTINUE_STR="cannot continue"
+FAIL_UNREACHABLE_STR="Unreachable"
+FAIL_PERMISSION_REMOTE_STR="remote permission error"
+FAIL_UNSPECIFIED_CAUSE_STR="unspecified cause"
 
 # The minimum amount of % free space on /scratch to allow collect to proceed
 MIN_PERCENT_SPACE_REQUIRED=75
@@ -104,9 +139,9 @@ MIN_PERCENT_SPACE_REQUIRED=75
 declare -i COLLECT_BASE_DIR_FULL_THRESHOLD=2147484 # 2Gib in K blocks rounded up
 
 # Log file path/names
-COLLECT_LOG=/var/log/collect.log
-COLLECT_ERROR_LOG=/tmp/collect_error.log
-HOST_COLLECT_ERROR_LOG="/tmp/host_collect_error.log"
+COLLECT_LOG=collect.log
+COLLECT_ERROR_LOG=/tmp/$(whoami)_collect_error.log
+HOST_COLLECT_ERROR_LOG="/tmp/$(whoami)_host_collect_error.log"
 
 DCROLE_SYSTEMCONTROLLER="systemcontroller"
 DCROLE_SUBCLOUD="subcloud"
@@ -132,7 +167,7 @@ function source_openrc_if_needed
     fi
 
     if [ "${nodetype}" != "controller" -a "${nodetype}" != "worker" -a "${nodetype}" != "storage" ] ; then
-        logger -t ${COLLECT_TAG} "could not identify nodetype ($nodetype)"
+        wlog "could not identify nodetype ($nodetype)"
         exit $FAIL_NODETYPE
     fi
 
@@ -150,13 +185,13 @@ function source_openrc_if_needed
     fi
 }
 
-
 # Setup an expect command completion file.
 # This is used to force serialization of expect
 # sequences and highlight command completion
 collect_done="collect done"
 cmd_done_sig="expect done"
 cmd_done_file="/usr/local/sbin/expect_done"
+EXPECT_LOG_FILE="/tmp/collect_expect"
 
 # Compression Commands
 TAR_ZIP_CMD="tar -cvzf"
@@ -181,25 +216,25 @@ BUILD_INFO_CMD="cat /etc/build.info"
 ################################################################################
 function log
 {
-    logger -t ${COLLECT_TAG} $@
+    logger -t ${COLLECT_TAG} "$(whoami) $@"
 }
 
 function ilog
 {
     echo "$@"
-    logger -t ${COLLECT_TAG} $@
+    logger -t ${COLLECT_TAG} "$(whoami) $@"
 }
 
 function elog
 {
     echo "${COLLECT_ERROR} $@"
-    logger -t ${COLLECT_TAG} "${COLLECT_ERROR} $@"
+    logger -t ${COLLECT_TAG} "$(whoami) ${COLLECT_ERROR} $@"
 }
 
 function wlog
 {
     echo "${COLLECT_WARN} $@"
-    logger -t ${COLLECT_TAG} "${COLLECT_WARN} $@"
+    logger -t ${COLLECT_TAG} "$(whoami) ${COLLECT_WARN} $@"
 }
 
 function set_debug_mode()
@@ -210,7 +245,7 @@ function set_debug_mode()
 function dlog()
 {
     if [ "$DEBUG" == true ] ; then
-        logger -t ${COLLECT_TAG} "${COLLECT_DEBUG} $@"
+        logger -t ${COLLECT_TAG} $(whoami) "${COLLECT_DEBUG} $@"
         echo "$(date) ${COLLECT_DEBUG} $@"
     fi
 }
@@ -271,8 +306,8 @@ listOfOutOfSpaceErrors=(
 
 function collect_errors()
 {
-    local host=${1}
-    local RC=0
+    local host="${1}"
+    local rc=0
 
     if [ -e "${COLLECT_ERROR_LOG}" ] ; then
 
@@ -281,24 +316,19 @@ function collect_errors()
         while [ "x${listOfOutOfSpaceErrors[index]}" != "x" ] ; do
             grep -q "${listOfOutOfSpaceErrors[index]}" ${COLLECT_ERROR_LOG}
             if [ "$?" == "0" ] ; then
-
-                string="failed to collect from ${host} (reason:${FAIL_OUT_OF_SPACE}:${FAIL_OUT_OF_SPACE_STR})"
-
-                # /var/log/user.log it
-                logger -t ${COLLECT_TAG} "${string}"
-
-                # logs that show up in the foreground
-                echo "${string}"
-                echo "Increase available space in ${host}:${COLLECT_BASE_DIR} and retry operation."
-
+                wlog "Out of space error(s) found in ${host}:${COLLECT_ERROR_LOG}"
+                if [ "${REMOTE_HOST}" = false ] ; then
+                    rc=${FAIL_OUT_OF_SPACE}
+                else
+                    rc=${FAIL_OUT_OF_SPACE_REMOTE}
+                fi
                 # return error code
-                RC=1
                 break
             fi
             index=$(($index+1))
         done
     fi
-    return ${RC}
+    return ${rc}
 }
 
 ############################################################################
@@ -320,11 +350,13 @@ function space_precheck()
     size=`echo ${space1} | cut -f 1 -d '%'`
     if [ ${size} -ge 0 -a ${size} -le 100 ] ; then
         if [ ${size} -ge ${MIN_PERCENT_SPACE_REQUIRED} ] ; then
-            ilog "${COLLECT_BASE_DIR} is $size% full"
-            echo "${FAIL_INSUFFICIENT_SPACE_STR}"
-            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} does not have enough available space in to perform collect"
-            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} must be below ${MIN_PERCENT_SPACE_REQUIRED}% to perform collect"
-            wlog "Increase available space in ${HOSTNAME}:${COLLECT_BASE_DIR} and retry operation."
+            if [ "${REMOTE_HOST}" = false ] ; then
+                elog "${HOSTNAME}:${COLLECT_BASE_DIR} ${FAIL_INSUFFICIENT_SPACE_STR}"
+            else
+                wlog "${HOSTNAME}:${COLLECT_BASE_DIR} ${FAIL_INSUFFICIENT_SPACE_REMOTE_STR}"
+            fi
+            wlog "${HOSTNAME}:${COLLECT_BASE_DIR} at ${size}% ; usage must be below ${MIN_PERCENT_SPACE_REQUIRED}%"
+            wlog "Increase available space in ${HOSTNAME}:${COLLECT_BASE_DIR} and retry operation"
             exit ${FAIL_INSUFFICIENT_SPACE}
         fi
     else

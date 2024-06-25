@@ -143,7 +143,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     echo >>${LOGFILE_HELM}
 
     # NOTE: helm environment not configured for root user
-    CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
+    CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
     delimiter ${LOGFILE_HELM} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
@@ -152,16 +152,16 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     for RELEASE in "${RELEASES[@]:1}"; do
         NAME=$(echo ${RELEASE} | awk '{print $1}')
         NAMESPACE=$(echo ${RELEASE} | awk '{print $2}')
-        CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm history -n ${NAMESPACE} ${NAME}"
+        CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm history -n ${NAMESPACE} ${NAME}"
         delimiter ${HELM_DIR}/helm-history.info "${CMD}"
         ${CMD} >> ${HELM_DIR}/helm-history.info 2>>${COLLECT_ERROR_LOG}
     done
 
-    CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm search repo"
+    CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm search repo"
     delimiter ${LOGFILE_HELM} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
-    CMD="sudo -u sysadmin KUBECONFIG=${KUBECONFIG} helm repo list"
+    CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm repo list"
     delimiter ${LOGFILE_HELM} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
 
