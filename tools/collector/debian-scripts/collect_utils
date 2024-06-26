@@ -322,3 +322,62 @@ function space_precheck()
     fi
 }
 
+
+############################################################################
+#
+# Name       : remove_common_paths
+#
+# Description: Remove common strings from first 'include' file that
+#              exists in second 'exclude' file.
+#
+# Parameters : $1 include list file
+#              $2 exclude list file
+#
+# Updates    : include list file
+#
+############################################################################
+
+function remove_common_paths()
+{
+    local include_file=${1}
+    local exclude_file=${2}
+    local output_file=$(mktemp /tmp/collect_include_list.XXXXXX)
+
+    # Ensure both files exist
+    if [[ ! -f "${exclude_file}" || ! -f "${include_file}" ]] ; then
+        return 1
+    fi
+
+    # Read exclude path patterns into an array
+    mapfile -t exclude_patterns < "${exclude_file}"
+
+    # Use awk to filter out paths that are in exclude_file from
+    # include_file that match any exclude_patterns.
+    awk -v exclude="${exclude_patterns[*]}" '
+        BEGIN {split(exclude, patterns, " ")}
+        {
+            exclude_flag = 0
+            for (i in patterns)
+            {
+                if (index($0, patterns[i]) == 1)
+                {
+                    exclude_flag = 1
+                    break
+                }
+            }
+            if (!exclude_flag)
+            {
+                print
+            }
+        }
+    ' "${include_file}" > "${output_file}"
+
+    # replace the callers include file with the filtered file
+    rc=$?
+    if [[ ${rc} -eq 0 && -f ${output_file} ]] ; then
+        cp -a ${output_file} ${include_file}
+        rm -f ${output_file}
+    fi
+    return 0
+}
+
