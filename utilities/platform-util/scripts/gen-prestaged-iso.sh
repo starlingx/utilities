@@ -81,8 +81,12 @@ Usage:
 
         --default-boot <default menu option>:
                          Specify default boot menu option:
-                         0 - Serial Console
-                         1 - Graphical Console (default)
+                         0 - Prestage Serial Console
+                         1 - Prestage Graphical Console (default)
+                         2 - Prestage cloud-init All-in-one Serial Console
+                         3 - Prestage cloud-init All-in-one Graphical Console
+                         4 - Prestage cloud-init All-in-one (lowlatency) Serial Console
+                         5 - Prestage cloud-init All-in-one (lowlatency) Graphical Console
         --timeout <menu timeout>:
                          Specify boot menu timeout, in seconds.  (default 30)
                          A value of -1 will wait forever.
@@ -324,7 +328,7 @@ EOF
     done
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
         cat <<EOF > "${f}"
-default=${DEFAULT_GRUB_ENTRY}
+default="${DEFAULT_GRUB_ENTRY}"
 timeout=${GRUB_TIMEOUT}
 search --no-floppy --set=root -l 'instboot'
 set color_normal='light-gray/black'
@@ -418,7 +422,7 @@ declare -a PATCHES
 declare -a KICKSTART_PATCHES
 declare DEFAULT_LABEL=0
 declare DEFAULT_SYSLINUX_ENTRY=1
-declare DEFAULT_GRUB_ENTRY="graphical"
+declare DEFAULT_GRUB_ENTRY="prestage-install>graphical"
 declare FORCE_INSTALL=
 declare PLATFORM_ROOT="opt/platform-backup"
 declare MD5_FILE="container-image.tar.gz.md5"
