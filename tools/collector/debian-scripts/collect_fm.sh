@@ -12,21 +12,12 @@ source /usr/local/sbin/collect_utils
 SERVICE="alarms"
 LOGFILE="${extradir}/${SERVICE}.info"
 
-function is_service_active {
-    active=`sm-query service management-ip | grep "enabled-active"`
-    if [ -z "$active" ] ; then
-        return 0
-    else
-        return 1
-    fi
-}
-
 ###############################################################################
 # Only Controller
 ###############################################################################
 if [ "$nodetype" = "controller" ] ; then
 
-    is_service_active
+    is_active_controller
     if [ "$?" = "0" ] ; then
         exit 0
     fi

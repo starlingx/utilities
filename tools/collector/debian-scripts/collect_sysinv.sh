@@ -14,17 +14,8 @@ SERVICE="inventory"
 LOGFILE="${extradir}/${SERVICE}.info"
 INVENTORY=${4}
 
-function is_service_active {
-    active=`sm-query service management-ip | grep "enabled-active"`
-    if [ -z "$active" ] ; then
-        return 0
-    else
-        return 1
-    fi
-}
-
 function collect_inventory {
-    is_service_active
+    is_active_controller
     if [ "$?" = "0" ] ; then
         exit 0
     fi
