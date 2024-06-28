@@ -111,6 +111,16 @@ HOST_COLLECT_ERROR_LOG="/tmp/host_collect_error.log"
 DCROLE_SYSTEMCONTROLLER="systemcontroller"
 DCROLE_SUBCLOUD="subcloud"
 
+function is_active_controller
+{
+    active=`sm-query service-group controller-services | grep "controller-services active"`
+    if [ -z "$active" ] ; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 function source_openrc_if_needed
 {
     # get the node and subfunction types

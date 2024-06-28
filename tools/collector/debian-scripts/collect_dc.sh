@@ -13,15 +13,6 @@ source /usr/local/sbin/collect_utils
 SERVICE="distributed_cloud"
 LOGFILE="${extradir}/${SERVICE}.info"
 
-function is_active_controller {
-    active_controller=`sm-query service management-ip | grep "enabled-active"`
-    if [ -z "$active_controller" ] ; then
-        return 0
-    else
-        return 1
-    fi
-}
-
 function is_distributed_cloud_env {
     distributed_cloud=`sm-query service-group distributed-cloud-services | grep "active"`
     if [ -z "$distributed_cloud" ] ; then
