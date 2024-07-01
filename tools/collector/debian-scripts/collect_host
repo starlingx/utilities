@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2016-2022 Wind River Systems, Inc.
+# Copyright (c) 2016-2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -437,6 +437,15 @@ for i in /var/lib/nova/instances/*/console.log; do
         tmp=`dirname $i`
         mkdir -p ${COLLECT_NAME_DIR}/$tmp
         cp $i ${COLLECT_NAME_DIR}/$tmp
+    fi
+done
+
+# Add Rook-ceph logs
+for i in /var/lib/ceph/data/rook-ceph/log/*; do
+    if [ -e "$i" ]; then
+        rook_ceph_log_dir="var/log/rook-ceph"
+        mkdir -p ${COLLECT_NAME_DIR}/$rook_ceph_log_dir
+        cp $i ${COLLECT_NAME_DIR}/$rook_ceph_log_dir
     fi
 done
 
