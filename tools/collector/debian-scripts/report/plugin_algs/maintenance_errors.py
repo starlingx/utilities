@@ -19,7 +19,9 @@ import os
 from plugin_algs.substring import substring
 
 
-def maintenance_errors(hosts, start, end, exclude_list=None):
+def maintenance_errors(hosts, start, end,
+                       exclude_list=None,
+                       dropped_logs=None):
     """Maintenance errors algorithm
     Presents maintenance errors and other relevant log messages in system,
     such as "Configuration failure"
@@ -28,6 +30,8 @@ def maintenance_errors(hosts, start, end, exclude_list=None):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+        exclude_list (string list): list of strings to exclude from report
+        dropped_logs (string): path/filename to write dropped logs
     """
     data = []
     mtc_files = []
@@ -51,6 +55,7 @@ def maintenance_errors(hosts, start, end, exclude_list=None):
                       "auto recovery disabled",
                       "Graceful Recovery Failed",
                       "MNFA ENTER", "MNFA EXIT", "MNFA POOL"]
-    data = substring(start, end, mtc_substrings, mtc_files, exclude_list)
+    data = substring(start, end, mtc_substrings, mtc_files, exclude_list,
+                     dropped_logs=dropped_logs)
 
     return sorted(data)

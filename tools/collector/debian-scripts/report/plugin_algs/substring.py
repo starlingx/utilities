@@ -24,7 +24,7 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 
-def substring(start, end, substr, files, exclude_list=None):
+def substring(start, end, substr, files, exclude_list=None, dropped_logs=None):
     """Substring algorithm
     Looks for all substrings in substr within files
 
@@ -34,6 +34,7 @@ def substring(start, end, substr, files, exclude_list=None):
         substr (string list): List of substrings to look for
         files  (string list): List of absolute filepaths to search in
         exclude_list (string list): list of strings to exclude from report
+        dropped_logs (string): path/filename to write dropped logs
     Errors:
         FileNotFoundError
     """
@@ -63,7 +64,7 @@ def substring(start, end, substr, files, exclude_list=None):
                 # continue with current file
                 if status == CONTINUE_CURRENT:
                     cont = False
-                _evaluate_substring(start, end, data, command)
+                _evaluate_substring(start, end, data, command, dropped_logs)
 
             # Searching through rotated log files that aren't compressed
             n = 1
@@ -76,7 +77,8 @@ def substring(start, end, substr, files, exclude_list=None):
                         status == CONTINUE_CURRENT_OLD):
                     if status == CONTINUE_CURRENT:
                         cont = False
-                    _evaluate_substring(start, end, data, command)
+                    _evaluate_substring(start, end, data, command,
+                                        dropped_logs)
 
                 n += 1
 
@@ -91,7 +93,8 @@ def substring(start, end, substr, files, exclude_list=None):
                         status == CONTINUE_CURRENT_OLD):
                     if status == CONTINUE_CURRENT:
                         cont = False
-                    _evaluate_substring(start, end, data, command)
+                    _evaluate_substring(start, end, data, command,
+                                        dropped_logs)
 
                 n += 1
 
@@ -157,7 +160,7 @@ def _continue(start, end, file, compressed=False):
         return CONTINUE_OLD
 
 
-def _evaluate_substring(start, end, data, command):
+def _evaluate_substring(start, end, data, command, dropped_logs=None):
     """Adds log messages from output from running command to data if the
     timestamp of log message in greater than start and less than end
 
@@ -166,10 +169,19 @@ def _evaluate_substring(start, end, data, command):
         end (string): End time for analysis
         data (string list): Log messages extracted so far
         command (string): Shell command to run
+        dropped_logs (string): full path/filename of the file to record
+                               logs that have been dropped due to bad format.
     """
     p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
-    for line in p.stdout:
-        line = line.decode("utf-8")
+    for raw_line in p.stdout:
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError:
+            if dropped_logs is not None:
+                with open(dropped_logs, 'ab') as file:
+                    file.write(raw_line)
+            continue
+
         # different date locations for log events
         dates = [line[0:19], line[2:21]]
         for date in dates:

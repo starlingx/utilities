@@ -19,7 +19,7 @@ import os
 from plugin_algs.substring import substring
 
 
-def daemon_failures(hosts, start, end, exclude_list=None):
+def daemon_failures(hosts, start, end, exclude_list=None, dropped_logs=None):
     """Daemon failures algorithm
     Presents all "Failed to run the puppet manifest" log messages in the system
 
@@ -27,6 +27,8 @@ def daemon_failures(hosts, start, end, exclude_list=None):
         hosts (dictionary): Paths to folders for each host
         start (string): Start time for analysis
         end (string): End time for analysis
+        exclude_list (string list): list of strings to exclude from report
+        dropped_logs (string): path/filename to write dropped logs
     """
     data = []
     daemon_files = []
@@ -37,6 +39,7 @@ def daemon_failures(hosts, start, end, exclude_list=None):
             daemon_files.append(daemon_path)
 
     daemon_substrings = ["Failed to run the puppet manifest"]
-    data = substring(start, end, daemon_substrings, daemon_files, exclude_list)
+    data = substring(start, end, daemon_substrings, daemon_files, exclude_list,
+                     dropped_logs=dropped_logs)
 
     return sorted(data)
