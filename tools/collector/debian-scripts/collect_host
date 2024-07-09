@@ -431,6 +431,9 @@ elif [ -e "/${WWW_LOG}" ] ; then
     find "/${WWW_LOG}" ! -empty >> ${VAR_LOG_INCLUDE_LIST}
 fi
 
+# Filter any dirs or files in the exclude list from the include list
+remove_common_paths "${VAR_LOG_INCLUDE_LIST}" "${VAR_LOG_EXCLUDE}"
+
 # Add VM console.log
 for i in /var/lib/nova/instances/*/console.log; do
     if [ -e "$i" ]; then
