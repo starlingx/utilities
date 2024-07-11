@@ -1120,6 +1120,11 @@ if [ -z "${pw}" ] ; then
     echo ""
 fi
 
+# Save the original unmodified password so it can be used in a subcloud
+# collect which calls collect directly again.
+# In that case we don't want to do a double special character replacement.
+PW=${pw}
+
 # When the pw is used locally for expect requests ...
 #
 # Although bash 'read' will handle sanitizing the password
@@ -1963,7 +1968,9 @@ function collect_subcloud_run()
 
     # copy the pw file to the subcloud and then cleanup
     TEMPFILE=$(mktemp)
-    echo "${pw}" > ${TEMPFILE}
+    # Use the original password that was not already
+    # special character string replaced.
+    echo "${PW}" > ${TEMPFILE}
     copy_file_to_host "${TEMPFILE}" "${subcloud}" "/tmp"
     rc=${?}
     remove_file_local ${TEMPFILE}
