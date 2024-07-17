@@ -15,11 +15,21 @@ until [ -f /var/run/goenabled ]; do
 done
 echo "Ready - host goenabled"
 
+system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+
 echo "Wait - system deployment reconciled"
 while true; do
-    SYSTEM_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n deployment get system -o jsonpath='{.items[0].status.reconciled}')
+    if [ "$system_mode" = "duplex" ]; then
+        SYSTEM_RECONCILED=true
+    else
+        SYSTEM_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n deployment get system -o jsonpath='{.items[0].status.reconciled}')
+    fi
+
     HOST_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n deployment get host controller-0 -o jsonpath='{.status.reconciled}')
-    if [ $SYSTEM_RECONCILED = true -a $HOST_RECONCILED = true ]; then break; fi
+
+    if [ "$SYSTEM_RECONCILED" = true ] && [ "$HOST_RECONCILED" = true ]; then
+        break
+    fi
     sleep 10
 done
 echo "Ready - system deployment reconciled"

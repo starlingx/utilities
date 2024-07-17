@@ -42,7 +42,9 @@ Usage:
 
         --oam_subnet <subnet>: Specify OAM subnet
         --oam_gateway_ip <ip>: Specify OAM gateway IP
-        --oam_ip <ip>: Specify OAM IP
+        --oam_ip <ip>: Specify OAM IP (the floating IP for duplex system)
+        --oam_c0_ip <ip>: Specify Controller-0 OAM IP (required for duplex systems)
+        --oam_c1_ip <ip>: Specify Controller-1 OAM IP (required for duplex systems)
         --new_password <password>: Specify new password for sysadmin user
 ENDUSAGE
 }
@@ -107,9 +109,75 @@ function load_credentials {
 }
 
 function reconfigure_OAM {
-    log_info "Reconfiguring OAM with subnet: $OAM_SUBNET, gateway IP: $OAM_GATEWAY_IP, OAM IP: $OAM_IP..."
-    system oam-modify oam_subnet="$OAM_SUBNET" oam_gateway_ip="$OAM_GATEWAY_IP" oam_ip="$OAM_IP"
+    system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+
+    args="oam_subnet=$OAM_SUBNET oam_gateway_ip=$OAM_GATEWAY_IP"
+
+    if [ "$system_mode" = "duplex" ]; then
+        if [ -z "$OAM_C0_IP" ] || [ -z "$OAM_C1_IP" ]; then
+            log_fatal "Missing required arguments. Please specify both --oam_c0_ip and --oam_c1_ip"
+        fi
+
+        args="$args oam_floating_ip=$OAM_IP oam_c0_ip=$OAM_C0_IP oam_c1_ip=$OAM_C1_IP"
+    else
+        args="$args oam_ip=$OAM_IP"
+    fi
+
+    log_info "Reconfiguring OAM: $args ..."
+
+    max_retries=10
+    retries=0
+
+    # May fail if the system command is issued too early,
+    # before the endpoint is reachable to modify oam.
+    # TODO(srana): Consider checking a flag/service
+    while [ $retries -lt $max_retries ]; do
+        if system oam-modify $args; then
+            break
+        fi
+        log_warn "Failed to modify oam. Retrying in 30s ..."
+        retries=$((retries + 1))
+        sleep 30
+    done
+
     check_rc_die $? "system oam-modify failed"
+
+    # Apply manifest for duplex systems
+    if [ "$system_mode" = "duplex" ]; then
+        log_info "Applying manifest ..."
+        source /etc/build.info
+        OAM_CONFIG_DIR="/tmp/oam_config"
+        rm -rf $OAM_CONFIG_DIR
+        mkdir -p $OAM_CONFIG_DIR
+
+        # The applied manifest must align with sysinv update_oam_config()
+        cat > $OAM_CONFIG_DIR/oam_runtime.yml <<EOF
+classes: ['platform::network::runtime',
+'platform::kubernetes::certsans::runtime',
+'platform::firewall::runtime',
+'platform::smapi',
+'platform::sm::update_oam_config::runtime',
+'platform::nfv::webserver::runtime',
+'platform::haproxy::runtime',
+'openstack::keystone::endpoint::runtime::post',
+'platform::dockerdistribution::config',
+'platform::dockerdistribution::runtime']
+EOF
+        log_info "Wait 2m for system to settle and run puppet-manifest-apply ..."
+
+        sleep 120
+
+        /usr/local/bin/puppet-manifest-apply.sh \
+            /opt/platform/puppet/$SW_VERSION/hieradata/ \
+            controller-0 \
+            controller \
+            runtime \
+            $OAM_CONFIG_DIR/oam_runtime.yml
+
+        check_rc_die $? "puppet-manifest-apply failed"
+
+        rm -rf $OAM_CONFIG_DIR
+    fi
 }
 
 function reconfigure_password {
@@ -122,6 +190,8 @@ function reconfigure_password {
 OAM_SUBNET=""
 OAM_GATEWAY_IP=""
 OAM_IP=""
+OAM_C0_IP=""
+OAM_C1_IP=""
 NEW_PASSWORD=""
 
 log_info "Starting enroll-init reconfiguration..."
@@ -143,6 +213,14 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --oam_ip)
             OAM_IP="$2"
+            shift 2
+            ;;
+        --oam_c0_ip)
+            OAM_C0_IP="$2"
+            shift 2
+            ;;
+        --oam_c1_ip)
+            OAM_C1_IP="$2"
             shift 2
             ;;
         --new_password)

@@ -87,6 +87,8 @@ Usage:
                          3 - Prestage cloud-init All-in-one Graphical Console
                          4 - Prestage cloud-init All-in-one (lowlatency) Serial Console
                          5 - Prestage cloud-init All-in-one (lowlatency) Graphical Console
+                         6 - Prestage cloud-init Controller Serial Console
+                         7 - Prestage cloud-init Controller Graphical Console
         --timeout <menu timeout>:
                          Specify boot menu timeout, in seconds.  (default 30)
                          A value of -1 will wait forever.
@@ -324,6 +326,20 @@ menu begin
     append ${COMMON_ARGS_LOW_LATENCY} traits=controller,worker,lowlatency ${CLOUDINIT_BOOT_ARG} console=tty0
 menu end
 
+menu begin
+  menu title Prestage cloud-init Controller Install
+  label 6
+    menu label Serial Console
+    kernel /bzImage-std
+    ipappend 2
+    append ${COMMON_ARGS_DEFAULT} traits=controller ${CLOUDINIT_BOOT_ARG} console=ttyS0,115200 console=tty0
+  label 7
+    menu label Graphical Console
+    kernel /bzImage-std
+    ipappend 2
+    append ${COMMON_ARGS_DEFAULT} traits=controller ${CLOUDINIT_BOOT_ARG} console=tty0
+menu end
+
 EOF
     done
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
@@ -367,6 +383,17 @@ submenu 'Prestage cloud-init (lowlatency) All-in-one Install' --id=cloud-init-ai
   }
   menuentry 'Graphical Console' --id=graphical {
     linux /bzImage-rt ${COMMON_ARGS_LOW_LATENCY} traits=controller,worker,lowlatency ${CLOUDINIT_BOOT_ARG} console=tty0
+    initrd /initrd
+  }
+}
+
+submenu 'Prestage cloud-init Controller Install' --id=cloud-init-controller {
+  menuentry 'Serial Console' --id=serial {
+    linux /bzImage-std ${COMMON_ARGS_DEFAULT} traits=controller ${CLOUDINIT_BOOT_ARG} console=ttyS0,115200 serial
+    initrd /initrd
+  }
+  menuentry 'Graphical Console' --id=graphical {
+    linux /bzImage-std ${COMMON_ARGS_DEFAULT} traits=controller ${CLOUDINIT_BOOT_ARG} console=tty0
     initrd /initrd
   }
 }
@@ -534,6 +561,14 @@ while :; do
                 5)
                     DEFAULT_SYSLINUX_ENTRY=5
                     DEFAULT_GRUB_ENTRY="cloud-init-aio-lowlat>graphical"
+                    ;;
+                6)
+                    DEFAULT_SYSLINUX_ENTRY=6
+                    DEFAULT_GRUB_ENTRY="cloud-init-controller>serial"
+                    ;;
+                7)
+                    DEFAULT_SYSLINUX_ENTRY=7
+                    DEFAULT_GRUB_ENTRY="cloud-init-controller>graphical"
                     ;;
                 *)
                     usage
