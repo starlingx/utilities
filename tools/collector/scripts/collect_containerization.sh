@@ -152,7 +152,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     delimiter ${LOGFILE} "${CMD}"
     ${CMD} 2>>${COLLECT_ERROR_LOG}
 
-    export $(grep '^ETCD_LISTEN_CLIENT_URLS=' /etc/etcd/etcd.conf | tr -d '"')
+    export $(grep '^ETCD_LISTEN_CLIENT_URLS=' /etc/default/etcd | tr -d '"')
 
     CMD="sudo ETCDCTL_API=3  etcdctl \
     --endpoints=$ETCD_LISTEN_CLIENT_URLS get / --prefix"
