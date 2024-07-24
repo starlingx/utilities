@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019-2021 Wind River Systems, Inc.
+# Copyright (c) 2019-2021,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -114,10 +114,10 @@ class CephClient(object):
             raise exception.CephMgrMissingRestfulService(
                 status.get('services', ''))
 
-    def _get_service_hostname(self):
+    def _get_service_active_mgr(self):
         try:
             output = subprocess.check_output(
-                'ceph mgr metadata',
+                'ceph mgr dump',
                 timeout=CEPH_CLI_TIMEOUT_SEC,
                 shell=True)
         except subprocess.CalledProcessError as e:
@@ -125,19 +125,19 @@ class CephClient(object):
         except subprocess.TimeoutExpired as e:
             raise exception.CephCliTimeoutExpired(str(e))
         try:
-            status = json.loads(output)
+            dump = json.loads(output)
         except (KeyError, ValueError):
             raise exception.CephMgrJsonError(output)
-        return status[0]["hostname"]
+        return dump["active_name"]
 
     def _get_certificate(self):
         self._cleanup_certificate()
-        hostname = self._get_service_hostname()
+        active_mgr = self._get_service_active_mgr()
         try:
             certificate = subprocess.check_output(
                 ('ceph config-key get '
                  'mgr/restful/{}/crt').format(
-                     hostname),
+                     active_mgr),
                 timeout=CEPH_CLI_TIMEOUT_SEC,
                 shell=True)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
