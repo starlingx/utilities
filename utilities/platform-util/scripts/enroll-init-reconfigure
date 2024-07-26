@@ -246,4 +246,6 @@ check_services_status
 reconfigure_OAM
 reconfigure_password
 
+touch /var/lib/factory-install/state/enroll-init
+
 log_info "Successfully reconfigured OAM network and system password."

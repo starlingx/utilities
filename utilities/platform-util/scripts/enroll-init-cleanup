@@ -7,8 +7,10 @@
 # script to cleanup the cloud-init services
 #
 
-touch /etc/cloud/cloud-init.disabled
-rm -f /etc/systemd/system-preset/20-cloud-init.preset
+if [ -f "/var/lib/factory-install/state/enroll-init" ]; then
+    touch /etc/cloud/cloud-init.disabled
+    rm -f /etc/systemd/system-preset/20-cloud-init.preset
 
-systemctl daemon-reload
-systemctl preset-all
+    systemctl daemon-reload
+    systemctl preset-all
+fi
