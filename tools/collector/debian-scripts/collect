@@ -1891,60 +1891,6 @@ EOF
     return ${rc}
 }
 
-###########################################################################
-#
-# Name       : create_collect_dir_local
-#
-# Purpose    : Create the local dated collect dir where all
-#              the tarballs for this collect will get put.
-#              Then change the owner from root to the current username.
-#
-# Assumptions: Permissions are set to make it easy to copy
-#              tarballs from remote host into
-#
-# Parameters: $1 - the fill dir
-#
-###########################################################################
-
-function create_collect_dir_local()
-{
-    local dir=${1}
-
-/usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
-    trap exit {SIGINT SIGTERM}
-    if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_${FUNCNAME[0]} }
-    log_user ${USER_LOG_MODE}
-    spawn bash -i
-    set timeout ${SUDO_TIMEOUT}
-    expect -re $
-    send "sudo mkdir -m 775 -p ${dir} ; cat ${cmd_done_file}\n"
-    expect {
-        "assword:" {
-            send "${pw}\r"
-            expect {
-                "${cmd_done_sig}" { exit ${PASS}           }
-                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
-                "${ac_error}"     { exit ${FAIL_PERMISSION}}
-                timeout           { exit ${FAIL_TIMEOUT_OPERATION}  }
-            }
-        }
-        "${cmd_done_sig}" { exit ${PASS} }
-        "${ac_error}"     { exit ${FAIL_PERMISSION}}
-        timeout           { exit ${FAIL_TIMEOUT_PW} }
-    }
-EOF
-    local rc=${?}
-    if [ ${rc} -ne ${PASS} ] ; then
-        report_error "failed to create_collect_dir_local for ${dir}" ${rc}
-        collect_exit ${rc}
-    fi
-
-    chown_file_or_dir_local $(whoami) ${dir}
-
-    return ${rc}
-}
-
-
 ##########################################################################
 #
 # Name      : remove_file_local
@@ -2529,12 +2475,12 @@ function collect_host_complete_local()
     # create the dir again just to handle the case where we are
     # collecting on ourself and have removed the collect_dir
     # directory in collect_host above.
-    create_collect_dir_local "${COLLECT_DIR}"
+    [ ! -d "${COLLECT_DIR}" ] && mkdir -p "${COLLECT_DIR}"
 
     # move the tarball into the collect dir
     # only applies to the local collect since the remote
     # collect scp's it directly into the collect dir.
-    move_file_local "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
+    mv "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
     rc=${?}
     if [ ${rc} -eq ${PASS} ] ; then
         log "collect ${COLLECT_BASE_DIR}/${tarname}.tgz succeeded"
@@ -3008,7 +2954,7 @@ fi
 #
 ############################################################################
 
-create_collect_dir_local "${COLLECT_DIR}"
+mkdir -p "${COLLECT_DIR}"
 
 declare COLLECT_START_TIME=${SECONDS}
 
@@ -3672,26 +3618,7 @@ fi
 create_collect_log
 
 echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
-/usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
-    if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_create_tarball }
-    log_user ${USER_LOG_MODE}
-    spawn bash -i
-    expect -re $
-    set timeout ${CREATE_TARBALL_TIMEOUT}
-    send "(cd ${COLLECT_BASE_DIR} ; sudo ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* 2>>${COLLECT_ERROR_LOG} ; cat ${cmd_done_file})\n"
-    expect {
-        "assword:" {
-            send "${pw}\r"
-            expect {
-                "${cmd_done_sig}" { exit ${PASS}            }
-                "${pw_error}"     { exit ${FAIL_PASSWORD}   }
-                "${ac_error}"     { exit ${FAIL_PERMISSION} }
-                timeout           { exit ${FAIL_TIMEOUT1}   }
-            }
-        }
-        timeout { exit ${FAIL_TIMEOUT_PW}}
-    }
-EOF
+(cd ${COLLECT_BASE_DIR} ; ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* 2>>${COLLECT_ERROR_LOG} 1>/dev/null)
 rc=${?}
 if [ ${rc} -ne ${PASS} ] ; then
     collect_errors ${HOSTNAME}
