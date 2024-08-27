@@ -136,8 +136,6 @@ Mandatory parameters for setup:
         1 - Standard Controller, Graphical Console
         2 - AIO, Serial Console
         3 - AIO, Graphical Console
-        4 - AIO Low-latency, Serial Console
-        5 - AIO Low-latency, Graphical Console
 
 Optional parameters for setup:
     --addon <file>:          Specify custom kickstart %post addon, for
@@ -251,13 +249,9 @@ function parse_arguments {
                 #1 - Standard Controller, Graphical Console
                 #2 - AIO, Serial Console
                 #3 - AIO, Graphical Console
-                #4 - AIO Low-latency, Serial Console
-                #5 - AIO Low-latency, Graphical Console
                 local default_kernel='vmlinuz-*[!t]-amd64'
-                local default_kernel_rt='vmlinuz-*-rt-amd64'
                 local traits_standard="controller"
                 local traits_aio="controller,worker"
-                local traits_aio_rt="controller,worker,lowlatency"
                 case ${INSTALL_TYPE} in
                     0)
                         DEFAULT_SYSLINUX_ENTRY=0
@@ -278,16 +272,6 @@ function parse_arguments {
                         DEFAULT_SYSLINUX_ENTRY=1
                         DEFAULT_GRUB_ENTRY=graphical
                         BOOT_ARGS_SPECIFIC="traits=$traits_aio defaultkernel=$default_kernel"
-                        ;;
-                    4)
-                        DEFAULT_SYSLINUX_ENTRY=0
-                        DEFAULT_GRUB_ENTRY=serial
-                        BOOT_ARGS_SPECIFIC="traits=$traits_aio_rt defaultkernel=$default_kernel_rt"
-                        ;;
-                    5)
-                        DEFAULT_SYSLINUX_ENTRY=1
-                        DEFAULT_GRUB_ENTRY=graphical
-                        BOOT_ARGS_SPECIFIC="traits=$traits_aio_rt defaultkernel=$default_kernel_rt"
                         ;;
                     *)
                         log_error "Invalid default boot menu option: ${INSTALL_TYPE}"
