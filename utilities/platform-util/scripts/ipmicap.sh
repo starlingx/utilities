@@ -24,6 +24,7 @@ readonly SCRIPTDIR=$(readlink -m "$(dirname "$0")")
 
 BMC_USER=${BMC_USER:-}
 BMC_ADDRESS=${BMC_ADDRESS:-}
+BMC_CIPHERSUITE=${BMC_CIPHERSUITE:-}
 BMC_PASSWORD=${BMC_PASSWORD:-}
 
 LOG_FILE=${LOG_FILE:-$(pwd)/${SCRIPTNAME%.*}-$(date '+%Y%m%d-%H%M').log}
@@ -63,18 +64,20 @@ USAGE:
   $SCRIPTNAME [ [-H <bmc-address] [-U <bmc-user>] [ -P <bmc-password> ] || --rvmc-config <rvmc-config.yaml> ] [--force-deactivate]
 
 ARGUMENTS:
-  IPMI connection arguments: If these are not given you will be prompted.
+  IPMI connection arguments: You will be prompted for required parameters.
   You can also provide any of these as environment variables if preferred.
-
-    -H|--host <bmc-address>     : BMC host address [env: BMC_ADDRESS]
-    -U|--user <bmc-user>        : BMC user         [env: BMC_USER]
-    -P|--password <bmc-address> : BMC password     [env: BMC_PASSWORD]
-
+    Required:
+      -H|--host <bmc-address>     : BMC host address [env: BMC_ADDRESS]
+      -U|--user <bmc-user>        : BMC user         [env: BMC_USER]
+      -P|--password <bmc-address> : BMC password     [env: BMC_PASSWORD]
+    Optional:
+      -C|--ciphersuite <bmc-ciphersuite>: BMC ciphersuite  [env: BMC_CIPHERSUITE]
   OR
   --rvmc-config <rvmc-config.yaml> : A yaml file specifying the above parameters, in form:
       bmc_address: <ip address>
       bmc_username: <username>
       bmc_password: <base64-encoded password>
+      bmc_ciphersuite: <ciphersuite number>
 
   -l|--log <file path> : Path to the console capture log file (directory must exist)
                          Default: ./${SCRIPTNAME%.*}-YYYY-MM-DD-HHMM.log
@@ -169,8 +172,9 @@ ipmitool_deactivate() {
     # Forcefully deactivate via sol deactivate
     # Use -E to supply password via IPMI_PASSWORD (security)
     export IPMI_PASSWORD=${BMC_PASSWORD}
-    log_info "Disconnecting: ipmitool -I lanplus -H ${BMC_ADDRESS} -U ${BMC_USER} -E sol deactivate"
-    ipmitool -I lanplus -H "${BMC_ADDRESS}" -U "${BMC_USER}" -E sol deactivate
+    log_info "Disconnecting: ipmitool  ${CIPHERSUITE_OPTS} -I lanplus -H ${BMC_ADDRESS} -U ${BMC_USER} -E sol deactivate"
+    # shellcheck disable=SC2086
+    ipmitool ${CIPHERSUITE_OPTS} -I lanplus -H "${BMC_ADDRESS}" -U "${BMC_USER}" -E sol deactivate
     rc=$?
     log_info "Exit code from sol deactivate: ${rc}"
     export SOL_ACTIVE=false
@@ -181,9 +185,9 @@ ipmitool_activate() {
     # Use -E to supply password via IPMI_PASSWORD
     export IPMI_PASSWORD=${BMC_PASSWORD}
     export SOL_ACTIVE=true
-    log_info "Connecting: ipmitool -I lanplus ${IPMITOOL_OPTS} -H ${BMC_ADDRESS} -U ${BMC_USER} -E sol activate"
+    log_info "Connecting: ipmitool ${CIPHERSUITE_OPTS} -I lanplus ${IPMITOOL_OPTS} -H ${BMC_ADDRESS} -U ${BMC_USER} -E sol activate"
     # shellcheck disable=SC2086
-    ipmitool -I lanplus ${IPMITOOL_OPTS} -H "${BMC_ADDRESS}" -U "${BMC_USER}" -E sol activate
+    ipmitool  ${CIPHERSUITE_OPTS} -I lanplus ${IPMITOOL_OPTS} -H "${BMC_ADDRESS}" -U "${BMC_USER}" -E sol activate
     local -i rc=$?
     export SOL_ACTIVE=false
     # We see exit code of 143 when killed
@@ -310,6 +314,10 @@ main() {
                 shift
                 BMC_PASSWORD=$1
                 ;;
+            -C|--ciphersuite)
+                shift
+                BMC_CIPHERSUITE=$1
+                ;;
             -l|--log*)
                 shift
                 LOG_FILE=$1
@@ -332,11 +340,12 @@ main() {
         if [ ! -r "${arg_rvmc_config}" ]; then
             die "RVMC config file does not exist or is not accessible: ${arg_rvmc_config}"
         fi
-        BMC_ADDRESS=$(awk '/bmc_address:/ { print $2; }' "${arg_rvmc_config}")
+        BMC_ADDRESS=$(awk '/bmc_address:/ { print $2; }' "${arg_rvmc_config}" | sed 's/\"//g')
         [ -n "${BMC_ADDRESS}" ] || die "Could not set BMC_ADDRESS from ${arg_rvmc_config}"
-        BMC_USER=$(awk '/bmc_username:/ { print $2; }' "${arg_rvmc_config}")
+        BMC_CIPHERSUITE=$(awk '/bmc_ciphersuite:/ { print $2; }' "${arg_rvmc_config}" | sed 's/\"//g')
+        BMC_USER=$(awk '/bmc_username:/ { print $2; }' "${arg_rvmc_config}" | sed 's/\"//g')
         [ -n "${BMC_USER}" ] || die "Could not set BMC_USER from ${arg_rvmc_config}"
-        BMC_PASSWORD=$(awk '/bmc_password:/ { print $2; }' "${arg_rvmc_config}" | base64 -d)
+        BMC_PASSWORD=$(awk '/bmc_password:/ { print $2; }' "${arg_rvmc_config}" | sed 's/\"//g' | base64 -d)
         [ -n "${BMC_PASSWORD}" ] || die "Could not set BMC_PASSWORD from ${arg_rvmc_config}"
     else
         # Interactive. Prompt for BMC info:
@@ -349,6 +358,12 @@ main() {
     [ -n "${BMC_USER}" ] || die "BMC_USER is empty"
     [ -n "${BMC_PASSWORD}" ] || die "BMC_PASSWORD is empty"
     export BMC_ADDRESS BMC_USER BMC_PASSWORD
+
+    CIPHERSUITE_OPTS=""
+    if [ -n "${BMC_CIPHERSUITE}" ]; then
+        CIPHERSUITE_OPTS="-C ${BMC_CIPHERSUITE}"
+    fi
+    export CIPHERSUITE_OPTS
 
     interactive_shell=1
     if [[ $- == *i* ]] || [ -n "${arg_redirect_to_file}" ] || [ -n "${arg_kill}" ]; then
