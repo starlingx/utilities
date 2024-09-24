@@ -94,6 +94,7 @@ override_dh_auto_install:
 	install -m 755 -p collect_sysadmin.sh $(SYSCONFDIR)/collect.d/collect_sysadmin
 	install -m 755 -p collect_systemd.sh $(SYSCONFDIR)/collect.d/collect_systemd
 	install -m 755 -p collect_usm.sh $(SYSCONFDIR)/collect.d/collect_usm
+	install -m 755 -p collect_ipsec.sh $(SYSCONFDIR)/collect.d/collect_ipsec
 
 	install -m 755 -p etc.exclude $(SYSCONFDIR)/collect/etc.exclude
 	install -m 755 -p run.exclude $(SYSCONFDIR)/collect/run.exclude
