@@ -108,6 +108,71 @@ function load_credentials {
     log_fatal "Failed to load credentials."
 }
 
+# Ensure OAM reconfiguration is required by comparing the current system
+# OAM configuration values to the input reconfiguration values. This helps
+# avoid unnecessary calls to system oam-modify, which could cause issues
+# in later enrollment steps. For example, a timing issue has been observed
+# because the OAM IP is already available, service endpoint IPs are configured,
+# but rerunning the Puppet manifest interferes with enrollment.
+function check_reconfigure_OAM {
+    system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+
+    log_info "Checking if OAM reconfiguration is necessary..."
+
+    # Note "system oam-show" doesn't require retry
+    # as system oam-modify does in reconfigure_OAM
+    oam_show_output=$(system oam-show)
+
+    check_rc_die $? "system oam-show failed"
+
+    reconfig_required=false
+
+    if [ "$system_mode" = "duplex" ]; then
+        # DX: Current system oam values
+        oam_c0_ip=$(echo "$oam_show_output" | awk '/oam_c0_ip/ {print $4}')
+        oam_c1_ip=$(echo "$oam_show_output" | awk '/oam_c1_ip/ {print $4}')
+        oam_floating_ip=$(echo "$oam_show_output" | awk '/oam_floating_ip/ {print $4}')
+        oam_gateway_ip=$(echo "$oam_show_output" | awk '/oam_gateway_ip/ {print $4}')
+        oam_subnet=$(echo "$oam_show_output" | awk '/oam_subnet/ {print $4}')
+
+        log_info "C0 IP: current - $oam_c0_ip, reconfig - $OAM_C0_IP
+                  C1 IP: current - $oam_c1_ip, reconfig - $OAM_C1_IP
+                  Floating IP: current - $oam_floating_ip, reconfig - $OAM_IP
+                  Gateway IP: current - $oam_gateway_ip, reconfig - $OAM_GATEWAY_IP
+                  Subnet: current - $oam_subnet, reconfig - $OAM_SUBNET"
+
+        # Compare the current settings with the input values
+        if [ "$oam_c0_ip" != "$OAM_C0_IP" ] || [ "$oam_c1_ip" != "$OAM_C1_IP" ] || \
+           [ "$oam_floating_ip" != "$OAM_IP" ] || [ "$oam_gateway_ip" != "$OAM_GATEWAY_IP" ] || \
+           [ "$oam_subnet" != "$OAM_SUBNET" ]; then
+            reconfig_required=true
+        fi
+    else
+        # SX: Current system oam values
+        oam_ip=$(echo "$oam_show_output" | awk '/oam_ip/ {print $4}')
+        oam_gateway_ip=$(echo "$oam_show_output" | awk '/oam_gateway_ip/ {print $4}')
+        oam_subnet=$(echo "$oam_show_output" | awk '/oam_subnet/ {print $4}')
+
+        log_info "IP: current - $oam_ip, reconfig - $OAM_IP
+                  Gateway IP: current - $oam_gateway_ip, reconfig - $OAM_GATEWAY_IP
+                  Subnet: current - $oam_subnet, reconfig - $OAM_SUBNET"
+
+        # Compare the current settings with the input values
+        if [ "$oam_ip" != "$OAM_IP" ] || [ "$oam_gateway_ip" != "$OAM_GATEWAY_IP" ] || \
+           [ "$oam_subnet" != "$OAM_SUBNET" ]; then
+            reconfig_required=true
+        fi
+    fi
+
+    if [ "$reconfig_required" = true ]; then
+        log_info "OAM reconfiguration is required."
+        return 0
+    else
+        log_info "OAM reconfiguration is not required."
+        return 1
+    fi
+}
+
 function reconfigure_OAM {
     system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
 
@@ -243,9 +308,13 @@ fi
 verify_factory_install
 load_credentials
 check_services_status
-reconfigure_OAM
+
+if check_reconfigure_OAM; then
+    reconfigure_OAM
+fi
+
 reconfigure_password
 
 touch /var/lib/factory-install/state/enroll-init
 
-log_info "Successfully reconfigured OAM network and system password."
+log_info "Successfully completed reconfiguration for enrollment."
