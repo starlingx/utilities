@@ -41,6 +41,7 @@ LOCK_TMOUT=600  # Wait up to 10 minutes, by default
 LOG_TAG=$SCRIPTNAME
 NODE_ID=
 OUTPUT_ISO=
+RELEASE=
 REPACK=yes  # Repack/trim the initrd and kernel images by default
 SCRATCH_DIR=${SCRATCH_DIR:-/scratch}
 TIMEOUT=100
@@ -136,6 +137,8 @@ Mandatory parameters for setup:
         1 - Standard Controller, Graphical Console
         2 - AIO, Serial Console
         3 - AIO, Graphical Console
+        4 - AIO Low-latency, Serial Console (Only for stx 8)
+        5 - AIO Low-latency, Graphical Console (Only for stx 8)
 
 Optional parameters for setup:
     --addon <file>:          Specify custom kickstart %post addon, for
@@ -153,6 +156,7 @@ Optional parameters for setup:
 
         --param rootfs_device=/dev/disk/by-path/pci-0000:00:0d.0-ata-1.0
         --param boot_device=/dev/disk/by-path/pci-0000:00:0d.0-ata-1.0
+    --release <version>:     Specify the software release version
 
 Generated ISO will be: <www-root>/nodes/<node-id>/bootimage.iso
 
@@ -196,6 +200,7 @@ function parse_arguments {
     longopts="${longopts},base-url:,www-root:,id:,delete"
     longopts="${longopts},repack,initrd:,no-cache"
     longopts="${longopts},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
+    longopts="${longopts},release:"
     longopts="${longopts},help,verbose"
 
     opts=$(getopt -o h --long "${longopts}" --name "$0" -- "$@")
@@ -252,6 +257,11 @@ function parse_arguments {
                 local default_kernel='vmlinuz-*[!t]-amd64'
                 local traits_standard="controller"
                 local traits_aio="controller,worker"
+
+                # backward compatibility
+                local default_kernel_rt='vmlinuz-*-rt-amd64'
+                local traits_aio_rt="controller,worker,lowlatency"
+
                 case ${INSTALL_TYPE} in
                     0)
                         DEFAULT_SYSLINUX_ENTRY=0
@@ -273,12 +283,26 @@ function parse_arguments {
                         DEFAULT_GRUB_ENTRY=graphical
                         BOOT_ARGS_SPECIFIC="traits=$traits_aio defaultkernel=$default_kernel"
                         ;;
+                    4)
+                        DEFAULT_SYSLINUX_ENTRY=0
+                        DEFAULT_GRUB_ENTRY=serial
+                        BOOT_ARGS_SPECIFIC="traits=$traits_aio_rt defaultkernel=$default_kernel_rt"
+                        ;;
+                    5)
+                        DEFAULT_SYSLINUX_ENTRY=1
+                        DEFAULT_GRUB_ENTRY=graphical
+                        BOOT_ARGS_SPECIFIC="traits=$traits_aio_rt defaultkernel=$default_kernel_rt"
+                        ;;
                     *)
                         log_error "Invalid default boot menu option: ${INSTALL_TYPE}"
                         usage
                         exit 1
                         ;;
                 esac
+                ;;
+            --release)
+                RELEASE=$2
+                shift 2
                 ;;
             --timeout)
                 local -i timeout_arg=$2
@@ -715,6 +739,15 @@ function create_miniboot_iso {
     log_info "Size of ${OUTPUT_ISO}: $(get_path_size "${OUTPUT_ISO}")"
 }
 
+validate_arguments() {
+    if [[ "$INSTALL_TYPE" == 4 || "$INSTALL_TYPE" == 5 ]]; then
+        if [[ ! "$RELEASE" =~ '22.12' ]]; then
+            log_error "Invalid default boot menu option: ${INSTALL_TYPE}. Option 4 and 5 are only supported for release 22.12"
+            exit 1
+        fi
+    fi
+}
+
 #
 # Main
 #
@@ -726,6 +759,7 @@ function main {
     fi
     log_info "Executing: $0 $*"
     parse_arguments "$@"
+    validate_arguments
     initialize_and_lock
     mount_iso "${INPUT_ISO}" "${SCRATCH_DIR}"
     create_miniboot_iso
