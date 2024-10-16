@@ -14,9 +14,10 @@ SERVICE="usm"
 LOGFILE="${extradir}/${SERVICE}.info"
 USM_DIR="/opt/software"
 
+###############################################################################
+# gather USM releases and deployments in-progress
+###############################################################################
 function collect_usm {
-    echo    "${hostname}: Unified Software Management ..: ${LOGFILE}"
-
     RELEASES=$(software list | tail -n +4 | awk '{ print $2; }')
 
     delimiter ${LOGFILE} "software deploy show"
@@ -35,14 +36,32 @@ function collect_usm {
 }
 
 ###############################################################################
+# list feed content (files, directories, permissions)
+###############################################################################
+function collect_feed {
+    for feed in /var/www/pages/feed/*; do
+        delimiter ${LOGFILE} "ls -lhR --ignore __pycache__ --ignore ostree_repo ${feed}"
+        ls -lhR --ignore __pycache__ --ignore ostree_repo ${feed} >> ${LOGFILE}
+    done
+}
+
+###############################################################################
 # Only Controller
 ###############################################################################
 if [ "$nodetype" = "controller" ] ; then
+    echo    "${hostname}: Unified Software Management ..: ${LOGFILE}"
+
     # collect usm info
     collect_usm
 
+    # collect feed info
+    collect_feed
+
     # copy /opt/software to extra dir
     rsync -a /opt/software ${extradir}
+
+    # copy /var/www/pages/feed to extra dir, excluding large and temp directories
+    rsync -a --exclude __pycache__ --exclude ostree_repo --exclude pxeboot /var/www/pages/feed ${extradir}
 fi
 
 
