@@ -59,6 +59,29 @@ function verify_factory_install {
     log_info "factory-install check successfull."
 }
 
+# The enroll-init reconfigure script runs during startup via cloud-init while
+# system services may not be settled. This timing can lead to intermittent errors
+# for early system commands. This function is used to mitigate these problems by
+# retrying commands as needed.
+function execute_with_retries {
+    local command="$1"
+    local retries=0
+    local max_retries=10
+
+    # TODO(srana): Consider checking a flag/service for
+    # some of the commands executed using this function
+    while [ $retries -lt $max_retries ]; do
+        if $command; then
+            return 0
+        fi
+        log_warn "Failed $command. Retrying in 30s ..."
+        retries=$((retries + 1))
+        sleep 30
+    done
+
+    return 1
+}
+
 function check_services_status {
     log_info "Checking services status..."
     max_retries=10
@@ -86,26 +109,16 @@ function check_services_status {
 
 function load_credentials {
     log_info "Loading credentials..."
-    max_retries=10
-    retries=0
 
     if [ ! -f /etc/platform/openrc ]; then
         log_fatal "/etc/platform/openrc does not exist."
     fi
 
-    while [ $retries -lt $max_retries ]; do
-        if source /etc/platform/openrc; then
-            log_info "Credentials loaded successfully."
-            return 0
-        else
-            log_warn "Failed to load credentials (waiting for the host to become active). Retrying..."
-        fi
+    if ! execute_with_retries "source /etc/platform/openrc"; then
+        log_fatal "Failed to load credentials after multiple attempts."
+    fi
 
-        retries=$((retries + 1))
-        sleep 30
-    done
-
-    log_fatal "Failed to load credentials."
+    log_info "Credentials loaded successfully."
 }
 
 # Ensure OAM reconfiguration is required by comparing the current system
@@ -119,8 +132,10 @@ function check_reconfigure_OAM {
 
     log_info "Checking if OAM reconfiguration is necessary..."
 
-    # Note "system oam-show" doesn't require retry
-    # as system oam-modify does in reconfigure_OAM
+    if ! execute_with_retries "system oam-show"; then
+        log_fatal "system oam-show failed after multiple attempts."
+    fi
+
     oam_show_output=$(system oam-show)
 
     check_rc_die $? "system oam-show failed"
@@ -190,22 +205,9 @@ function reconfigure_OAM {
 
     log_info "Reconfiguring OAM: $args ..."
 
-    max_retries=10
-    retries=0
-
-    # May fail if the system command is issued too early,
-    # before the endpoint is reachable to modify oam.
-    # TODO(srana): Consider checking a flag/service
-    while [ $retries -lt $max_retries ]; do
-        if system oam-modify $args; then
-            break
-        fi
-        log_warn "Failed to modify oam. Retrying in 30s ..."
-        retries=$((retries + 1))
-        sleep 30
-    done
-
-    check_rc_die $? "system oam-modify failed"
+    if ! execute_with_retries "system oam-modify $args"; then
+        log_fatal "system oam-modify failed after mutiple attempts."
+    fi
 
     # Apply manifest for duplex systems
     if [ "$system_mode" = "duplex" ]; then
