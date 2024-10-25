@@ -22,7 +22,7 @@ source /etc/platform/openrc
 fm --timeout 10 alarm-list --nowrap|grep -e "major\|minor\|warning\|critical"
 if [ $? == 0 ]; then
     # Log the health check failure and exit 0 to allow factory-install to finish up.
-    # Modify to exit 1 if factory-install should retry check until success.
+    # Modify to exit 1 if factory-install should fail the test stage and halt.
     log_failure "service impacting alarms present" 0
 fi
 

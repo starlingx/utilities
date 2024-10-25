@@ -30,6 +30,7 @@ while true; do
     if [ "$SYSTEM_RECONCILED" = true ] && [ "$HOST_RECONCILED" = true ]; then
         break
     fi
+    echo "Not ready - rechecking in 10s..."
     sleep 10
 done
 echo "Ready - system deployment reconciled"

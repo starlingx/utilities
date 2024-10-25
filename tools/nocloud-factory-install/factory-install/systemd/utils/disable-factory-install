@@ -7,6 +7,8 @@
 # script to disable the factory install services after the installation is complete
 #
 
+echo "Disabling factory install services"
+
 rm -f /var/lib/factory-install/enabled
 rm -f /etc/systemd/system-preset/20-factory-install.preset
 

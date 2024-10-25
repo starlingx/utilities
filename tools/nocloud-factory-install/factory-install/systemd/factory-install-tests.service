@@ -11,6 +11,7 @@ User=sysadmin
 ExecStart=/usr/bin/run-parts --verbose --exit-on-error /var/lib/factory-install/tests
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/tests
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/final
+ExecStartPost=+/usr/bin/touch /var/lib/factory-install/complete
 ExecStartPost=+/var/lib/factory-install/utils/disable-factory-install
 
 StandardOutput=append:/var/log/factory-install.log

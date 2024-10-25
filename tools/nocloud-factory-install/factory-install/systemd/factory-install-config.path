@@ -4,7 +4,7 @@ ConditionPathExists=/var/lib/factory-install/enabled
 ConditionPathExists=!/var/lib/factory-install/state/config
 
 [Path]
-PathExists=/var/lib/factory-install/stage/config
+PathModified=/var/lib/factory-install/stage/config
 
 [Install]
 WantedBy=factory-install.target
