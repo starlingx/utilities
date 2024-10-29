@@ -27,7 +27,7 @@ else
            "    return 1" \
            "fi" \
            "export OS_USERNAME=$USER" \
-           "export OS_PASSWORD=$password" \
+           "export OS_PASSWORD='${password//\'/\'\\\'\'}'" \
            "export PS1='[\u@\h \W(keystone_\$OS_USERNAME)]\$ '" \
            "return 0" >> $HOME/$USER-openrc
     echo "Created file $HOME/$USER-openrc"
