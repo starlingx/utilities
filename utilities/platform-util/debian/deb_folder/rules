@@ -46,6 +46,7 @@ override_dh_auto_install:
 	install -m 750 scripts/set_keystone_user_option.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/enroll-init-cleanup $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/enroll-init-reconfigure $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/host-cis-benchmark-apparmor-setup.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/apiserver_cis_compliance.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 
 	install -d $(DEBIAN_BUILDDIR)/usr/local/sbin/
