@@ -438,6 +438,15 @@ for i in /var/lib/ceph/data/rook-ceph/log/*; do
     fi
 done
 
+# Add kubelet config state files
+for i in /var/lib/kubelet/*; do
+    if [ -e "$i" ]; then
+        kube_config_dir="var/lib/kubelet"
+        mkdir -p ${COLLECT_NAME_DIR}/$kube_config_dir
+        cp $i ${COLLECT_NAME_DIR}/$kube_config_dir
+    fi
+done
+
 sleep ${COLLECT_RUNEXTRA_DELAY}
 
 echo "$(date +'%H:%M:%S.%3N'): Running host tars" >> ${COLLECT_CMD_TIMING_LOG}

@@ -97,6 +97,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     CMDS+=("kubectl describe helmrepositories.source.toolkit.fluxcd.io -A")
     CMDS+=("kubectl describe helmcharts.source.toolkit.fluxcd.io -A")
     CMDS+=("kubectl describe helmreleases.helm.toolkit.fluxcd.io -A")
+    CMDS+=("kubectl get poddisruptionbudgets -A")
 
     DELAY_THROTTLE=4
     delay_count=0
