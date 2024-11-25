@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2023 Wind River Systems, Inc.
+# Copyright (c) 2023,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -10,12 +10,12 @@
 declare -i SCP_TIMEOUT_DEFAULT=600
 declare -i SSH_TIMEOUT_DEFAULT=60
 declare -i SUDO_TIMEOUT_DEFAULT=60
-declare -i COLLECT_HOST_TIMEOUT_DEFAULT=600
+declare -i COLLECT_HOST_TIMEOUT_DEFAULT=900
 declare -i CREATE_TARBALL_TIMEOUT_DEFAULT=200
 
 declare -i TIMEOUT_MIN_MINS=10
 declare -i TIMEOUT_MAX_MINS=120
-declare -i TIMEOUT_DEF_MINS=20
+declare -i TIMEOUT_DEF_MINS=30
 # shellcheck disable=SC2034
 declare -i TIMEOUT_MIN_SECS=$((TIMEOUT_MAX_MINS*60))
 # shellcheck disable=SC2034
@@ -25,3 +25,29 @@ declare -i TIMEOUT_DEF_SECS=$((TIMEOUT_DEF_MINS*60)) # 20 minutes
 # overall collect timeout
 declare -i TIMEOUT=${TIMEOUT_DEF_SECS}
 
+# sleep delay for specific operations outside of the run_command
+# do not remove labels. Set to 0 for no delay.
+COLLECT_RUNPARTS_DELAY=0.25    # delay time after running each collect plugin
+COLLECT_RUNEXTRA_DELAY=0.20    # inline delay time for collect host extra commands
+COLLECT_RUNCMD_DELAY=0.20      # inline delay for commands not using run_command
+
+# collect run_command adaptive delay controls
+COLLECT_RUN_COMMAND_ADAPTIVE_DELAY=true
+
+# collect adaptive collect handling delays and time
+# thresholds for collect commands that use run_command
+# when COLLECT_RUN_COMMAND_ADAPTIVE_DELAY is true
+
+# sleep <tsize>_DELAY if run_command took
+# greater than or equal to <tsize>_THRESHOLD
+COLLECT_RUNCMD_XLARGE_THRESHOLD=2    # secs command took to run
+COLLECT_RUNCMD_XLARGE_DELAY=0.75     # sleep value
+
+COLLECT_RUNCMD_LARGE_THRESHOLD=1     # secs command took to run
+COLLECT_RUNCMD_LARGE_DELAY=0.5       # sleep value
+
+COLLECT_RUNCMD_MEDIUM_THRESHOLD=100  # milliseconds command took to run
+COLLECT_RUNCMD_MEDIUM_DELAY=0.2      # sleep value
+
+COLLECT_RUNCMD_SMALL_THRESHOLD=50    # milliseconds command took to run
+COLLECT_RUNCMD_SMALL_DELAY=0.1       # sleep value

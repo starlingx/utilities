@@ -7,6 +7,10 @@
 
 ##########################################################################################
 
+source /etc/collect/collect_timeouts
+
+hostname="${HOSTNAME}"
+
 DEBUG=false
 redirect="/dev/null"
 
@@ -142,7 +146,8 @@ declare -i COLLECT_BASE_DIR_FULL_THRESHOLD=2147484 # 2Gib in K blocks rounded up
 COLLECT_LOG=collect.log
 COLLECT_ERROR_LOG=/tmp/$(whoami)_collect_error.log
 HOST_COLLECT_ERROR_LOG="/tmp/$(whoami)_host_collect_error.log"
-
+COLLECT_CMD_TIMING_LOG="/tmp/$(whoami)_collect_cmd_timing.log"
+HOST_COLLECT_CMD_TIMING_LOG="collect_cmd_timing.log"
 DCROLE_SYSTEMCONTROLLER="systemcontroller"
 DCROLE_SUBCLOUD="subcloud"
 
@@ -194,21 +199,28 @@ cmd_done_file="/usr/local/sbin/expect_done"
 EXPECT_LOG_FILE="/tmp/collect_expect"
 
 # Compression Commands
-TAR_ZIP_CMD="tar -cvzf"
-TAR_UZIP_CMD="tar -xvzf"
-TAR_CMD="tar -cvhf"
-TAR_CMD_APPEND="tar -rvhf"
-UNTAR_CMD="tar -xvf"
+TAR_ZIP_CMD="tar -czf"
+TAR_UZIP_CMD="tar -xzf"
+TAR_CMD="tar -chf"
+TAR_CMD_APPEND="tar -rhf"
+UNTAR_CMD="tar -xf"
 ZIP_CMD="gzip"
 NICE_CMD="/usr/bin/nice -n19"
 IONICE_CMD="/usr/bin/ionice -c2 -n7"
 COLLECT_TAG="COLLECT"
 
+# Checkpoint definitions
+# Default is 512 bytes per block
+# Example 10000*512 = 5MBytes
+CHECKPOINT_BLOCKS=10000
+CHECKPOINT_CMD="--checkpoint=${CHECKPOINT_BLOCKS} --checkpoint-action=exec=/usr/local/sbin/collect_checkpoint"
+
 STARTDATE_OPTION="--start-date"
 ENDDATE_OPTION="--end-date"
 
+DATE_FORMAT="+%H:%M:%S.%3N"
 
-PROCESS_DETAIL_CMD="ps -e -H -o ruser,tid,pid,ppid,flags,stat,policy,rtprio,nice,priority,rss:10,vsz:10,sz:10,psr,stime,tty,cputime,wchan:14,cmd"
+PROCESS_DETAIL_CMD="ps -e -H --forest -o ruser,tid,pid,ppid,flags,stat,policy,rtprio,nice,priority,rss:10,vsz:10,sz:10,psr,stime,etime,cputime,wchan:14,tty,cmd"
 BUILD_INFO_CMD="cat /etc/build.info"
 
 ################################################################################
@@ -254,14 +266,103 @@ function dlog()
 function delimiter()
 {
     echo "--------------------------------------------------------------------" >> ${1} 2>>${COLLECT_ERROR_LOG}
-    echo "`date` : ${myhostname} : ${2}" >> ${1} 2>>${COLLECT_ERROR_LOG}
+    echo "`date` : ${hostname} : ${2}" >> ${1} 2>>${COLLECT_ERROR_LOG}
     echo "--------------------------------------------------------------------" >> ${1} 2>>${COLLECT_ERROR_LOG}
+}
+
+
+
+function get_time_delta () {
+    start_epoch=$(date -d "1970-01-01 $1" +%s%3N)
+    stop_epoch=$(date -d "1970-01-01 $2" +%s%3N)
+    delta=$((${stop_epoch}-${start_epoch}))
+    secs=$((delta / 1000))
+    msecs=$((delta % 1000))
+    echo "${secs}.${msecs}"
+}
+
+###############################################################################
+#
+# Name:        run_command
+#
+# Purpose:     Run the specified command and direct the output of
+#              that command to the specified log.
+#
+# Assumptions: Requires 2 and only 2 arguments
+#
+# Arguments:   $1 - string command to execute
+#              $2 - string path/name of file to direct command output to
+#
+# Warning:     Command is not executed unless there are only 2 arguments
+#              supplied. This check helps identify code errors in command
+#              execution and output redirection. Error is logged to the error
+#              log as well as the execution timing summary log.
+#
+###############################################################################
+
+function run_command () {
+    if [ "$#" -ne 2 ]; then
+        echo "Error: run_command requires 2 arguments only ; saw $# Argument(s): '$@'" >> ${COLLECT_CMD_TIMING_LOG}
+        return 1
+    fi
+
+    local cmd="${1}"
+    local log="${2}"
+    local start=$(date ${DATE_FORMAT})
+    delimiter "${log}" "${cmd}"
+    ${cmd} >> ${log} 2>>${COLLECT_ERROR_LOG}
+    rc=$?
+    local stop=$(date ${DATE_FORMAT})
+    duration=$(get_time_delta "${start}" "${stop}")
+    # echo "$(date ${DATE_FORMAT}): ${duration} - ${log} - ${cmd}" >> ${COLLECT_CMD_TIMING_LOG}
+    # return ${rc}
+
+    # perform a short sleep based on how long this command took
+    # if COLLECT_RUN_COMMAND_ADAPTIVE_DELAY handling is true
+    # Example:
+    # sleep 0.75 if command took 3 seconds or longer
+    # sleep 0.50 if command took 1 second or longer
+    # sleep 0.2  if command took 100 milliseconds or longer
+    # sleep 0.1  if command took 50 milliseconds or longer
+    sleep_time=0
+    sleep_time_str="0"
+    if [ "${COLLECT_RUN_COMMAND_ADAPTIVE_DELAY}" = true ] ; then
+
+        secs=${duration%%.*}
+
+        if [ ${secs} -ge ${COLLECT_RUNCMD_XLARGE_THRESHOLD} ] ; then
+            sleep_time ${COLLECT_RUNCMD_XLARGE_DELAY}
+            sleep_time_str="${COLLECT_RUNCMD_XLARGE_DELAY}"
+
+        elif [ ${secs} -gt ${COLLECT_RUNCMD_LARGE_THRESHOLD} ] ; then
+            sleep_time ${COLLECT_RUNCMD_LARGE_DELAY}
+            sleep_time_str="${COLLECT_RUNCMD_LARGE_DELAY}"
+
+        else
+            msec=${duration#*.}
+
+            if [ ${msec} -gt ${COLLECT_RUNCMD_MEDIUM_THRESHOLD} ] ; then
+                sleep_time ${COLLECT_RUNCMD_MEDIUM_DELAY}
+                sleep_time_str="${COLLECT_RUNCMD_MEDIUM_DELAY}"
+
+            elif [ ${msec} -gt ${COLLECT_RUNCMD_SMALL_THRESHOLD} ] ; then
+                sleep_time ${COLLECT_RUNCMD_SMALL_DELAY}
+                sleep_time_str="${COLLECT_RUNCMD_SMALL_DELAY}"
+            fi
+        fi
+    fi
+
+    if [ "${sleep_time}" != "0" ] ; then
+        sleep ${sleep_time}
+    fi
+    echo "$(date ${DATE_FORMAT}): ${duration}->${sleep_time_str} - ${log} - ${cmd}" >> ${COLLECT_CMD_TIMING_LOG}
+    return ${rc}
 }
 
 function log_slabinfo()
 {
     PAGE_SIZE=$(getconf PAGE_SIZE)
-    cat /proc/slabinfo | awk -v page_size_B=${PAGE_SIZE} '
+    ${IONICE_CMD} ${NICE_CMD} cat /proc/slabinfo | awk -v page_size_B=${PAGE_SIZE} '
     BEGIN {page_KiB = page_size_B/1024; TOT_KiB = 0;}
     (NF == 17) {
         gsub(/[<>]/, "");

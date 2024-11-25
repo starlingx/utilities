@@ -19,7 +19,6 @@ PLOTFILE="${extradir}/${SERVICE}-startup-plot.svg"
 ###############################################################################
 echo    "${hostname}: Systemd analyze .........: ${LOGFILE}"
 
-delimiter ${LOGFILE} "systemd-analyze plot > ${PLOTFILE}"
-timeout 30 systemd-analyze plot > ${PLOTFILE} 2>>${COLLECT_ERROR_LOG}
+run_command "timeout 10 systemd-analyze plot > ${PLOTFILE}" "${LOGFILE}"
 
 exit 0

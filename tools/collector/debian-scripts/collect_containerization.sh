@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2019-2022 Wind River Systems, Inc.
+# Copyright (c) 2019-2022,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -34,36 +34,32 @@ mkdir -p ${HELM_DIR}
 source_openrc_if_needed
 
 CMD="docker system df"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
 
 CMD="du -h --max-depth 1 /var/lib/docker"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
 
 CMD="docker image ls -a"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
 
 CMD="crictl images"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
+
+sleep ${COLLECT_RUNCMD_DELAY}
 
 CMD="ctr -n k8s.io images list"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
 
 CMD="docker container ps -a"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
 
 CMD="crictl ps -a"
-delimiter ${LOGFILE_IMG} "${CMD}"
-${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_IMG}
+run_command "${CMD}" "${LOGFILE_IMG}"
 
 CMD="cat /var/lib/kubelet/cpu_manager_state | python -m json.tool"
-delimiter ${LOGFILE_HOST} "${CMD}"
-eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HOST}
+run_command "eval ${CMD}" "${LOGFILE_HOST}"
+
+sleep ${COLLECT_RUNCMD_DELAY}
 
 ###############################################################################
 # Active Controller
@@ -102,38 +98,31 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     CMDS+=("kubectl describe helmcharts.source.toolkit.fluxcd.io -A")
     CMDS+=("kubectl describe helmreleases.helm.toolkit.fluxcd.io -A")
 
+    DELAY_THROTTLE=4
+    delay_count=0
     for CMD in "${CMDS[@]}" ; do
         delimiter ${LOGFILE_KUBE} "${CMD}"
-        eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_KUBE}
-        echo >>${LOGFILE_KUBE}
+        run_command "eval ${CMD}" "${LOGFILE_KUBE}"
+
+        if [ ! -z ${COLLECT_RUNCMD_DELAY} ] ; then
+            ((delay_count = delay_count + 1))
+            if [ ${delay_count} -ge ${DELAY_THROTTLE} ] ; then
+                sleep ${COLLECT_RUNCMD_DELAY}
+                delay_count=0
+            fi
+        fi
     done
 
-    # api-resources; verbose, place in separate file
-    CMDS=()
-    CMDS+=("kubectl api-resources --verbs=list --namespaced -o name | xargs -n 1 kubectl get --show-kind --ignore-not-found --all-namespaces")
-    CMDS+=("kubectl api-resources --verbs=list --namespaced -o name | xargs -n 1 kubectl get --show-kind --ignore-not-found --all-namespaces -o yaml")
-    for CMD in "${CMDS[@]}" ; do
-        delimiter ${LOGFILE_API} "${CMD}"
-        eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_API}
-        echo >>${LOGFILE_API}
-    done
-
-    # describe pods; verbose, place in separate file
-    CMDS=()
-    CMDS+=("kubectl describe pods --all-namespaces")
-    for CMD in "${CMDS[@]}" ; do
-        delimiter ${LOGFILE_PODS} "${CMD}"
-        eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_PODS}
-        echo >>${LOGFILE_API}
-    done
+    run_command "eval kubectl api-resources --verbs=list --namespaced -o name | xargs -I {} kubectl get {} --chunk-size=50 --show-kind --ignore-not-found --all-namespaces -o yaml" "${LOGFILE_API}"
+    run_command "kubectl describe pods --all-namespaces" "${LOGFILE_PODS}"
 
     # events; verbose, place in separate file
     CMDS=()
     CMDS+=("kubectl get events --all-namespaces --sort-by='.metadata.creationTimestamp'  -o go-template='{{range .items}}{{printf \"%s %s\t%s\t%s\t%s\t%s\n\" .firstTimestamp .involvedObject.name .involvedObject.kind .message .reason .type}}{{end}}'")
     for CMD in "${CMDS[@]}" ; do
-        delimiter ${LOGFILE_EVENT} "${CMD}"
-        eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_EVENT}
+        run_command "eval ${CMD}" "${LOGFILE_EVENT}"
         echo >>${LOGFILE_EVENT}
+        sleep ${COLLECT_RUNCMD_DELAY}
     done
 
     # Helm related
@@ -144,8 +133,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
 
     # NOTE: helm environment not configured for root user
     CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm list --all --all-namespaces"
-    delimiter ${LOGFILE_HELM} "${CMD}"
-    ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+    run_command "${CMD}" "${LOGFILE_HELM}"
 
     # Save history for each helm release
     mapfile -t RELEASES < <( ${CMD} 2>>${COLLECT_ERROR_LOG} )
@@ -157,17 +145,16 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
         ${CMD} >> ${HELM_DIR}/helm-history.info 2>>${COLLECT_ERROR_LOG}
     done
 
+    sleep ${COLLECT_RUNCMD_DELAY}
+
     CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm search repo"
-    delimiter ${LOGFILE_HELM} "${CMD}"
-    ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+    run_command "${CMD}" "${LOGFILE_HELM}"
 
     CMD="sudo -u $(whoami) KUBECONFIG=${KUBECONFIG} helm repo list"
-    delimiter ${LOGFILE_HELM} "${CMD}"
-    ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE_HELM}
+    run_command "${CMD}" "${LOGFILE_HELM}"
 
     CMD="cp -r /opt/platform/helm_charts ${HELM_DIR}/"
-    delimiter ${LOGFILE} "${CMD}"
-    ${CMD} 2>>${COLLECT_ERROR_LOG}
+    run_command "${CMD}" "${LOGFILE}"
 
     export $(grep '^ETCD_LISTEN_CLIENT_URLS=' /etc/etcd/etcd.conf | tr -d '"')
 
@@ -181,8 +168,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
         --key=/etc/etcd/etcd-server.key --cacert=/etc/etcd/ca.crt"
     fi
 
-    delimiter ${LOGFILE} "${CMD}"
-    ${CMD} 2>>${COLLECT_ERROR_LOG} >> ${ETCD_DB_FILE}
+    run_command "${CMD}" "${ETCD_DB_FILE}"
 fi
 
 exit 0

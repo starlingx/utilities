@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+TAG="COLLECT:"
+
+# Parse /proc/loadavg and get the number of running processes
+get_running_processes() {
+    awk '{split($4, arr, "/"); print arr[1]}' /proc/loadavg
+}
+
+# Parse /proc/stat and get the number of blocked processes
+get_procs_blocked() {
+    awk '/^procs_blocked/ {print $2}' /proc/stat
+}
+
+# Parse writeback data size
+get_writeback() {
+    awk '/^Writeback:/ {print $2}' /proc/meminfo
+}
+
+# Note: tar exports TAR_ARCHIVE
+fsync ${TAR_ARCHIVE}
+
+running_processes=$(get_running_processes)
+procs_blocked=$(get_procs_blocked)
+writeback_size=$(get_writeback)
+
+if [ ${writeback_size} -gt 0 -o ${procs_blocked} -gt 0 ] ; then
+    sleep 1
+    logger -t ${TAG} -p user.warning "tar '${TAR_ARCHIVE}' : \
+checkpoint handler overload stats -> \
+running:${running_processes} blocked=${procs_blocked} writeback=${writeback_size}"
+fi

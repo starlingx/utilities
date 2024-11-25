@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2020 Wind River Systems, Inc.
+# Copyright (c) 2020,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -52,10 +52,14 @@ SELECT
 FROM information_schema.TABLES
 ORDER BY table_schema, TABLE_NAME' >> ${LOGFILE}
 
+    sleep ${COLLECT_RUNCMD_DELAY}
+
     # MariaDB dump all databases
     delimiter ${LOGFILE} "Dumping MariaDB databases: ${DB_DIR}"
     mkdir -p ${DB_DIR}
     (cd ${DB_DIR}; mariadb-cli --dump --exclude keystone,ceilometer)
+
+    sleep ${COLLECT_RUNCMD_DELAY}
 fi
 
 exit 0

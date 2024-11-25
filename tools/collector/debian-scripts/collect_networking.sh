@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2014 Wind River Systems, Inc.
+# Copyright (c) 2013-2014,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -42,17 +42,24 @@ CMD="ip6tables-save"
 delimiter ${LOGFILE} "${CMD}"
 ${CMD} > ${extradir}/ip6tables.dump 2>>${COLLECT_ERROR_LOG}
 
+sleep ${COLLECT_RUNCMD_DELAY}
+
 ###############################################################################
 # Only Worker
 ###############################################################################
 if [[ "$nodetype" = "worker" || "$subfunction" == *"worker"* ]] ; then
-    NAMESPACES=($(ip netns))
+    # Create a list of network namespaces; exclude the (id: #) part
+    # Example: cni-56e3136b-2503-fe5f-652f-0998248c1405 (id: 0)
+    NAMESPACES=()
+    for ns in $(ip netns list | awk '{print $1}'); do
+        NAMESPACES+=("$ns")
+    done
     for NS in ${NAMESPACES[@]}; do
-        delimiter ${LOGFILE} "${NS}"
+        delimiter "${LOGFILE}" "Network Namespace: ${NS}"
         for CMD in "${CMDS[@]}" ; do
-            ip netns exec ${NS} ${CMD}
+            run_command "ip netns exec ${NS} ${CMD}" "${LOGFILE}"
         done
-    done >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+        sleep ${COLLECT_RUNCMD_DELAY}
+    done
 fi
-
 exit 0

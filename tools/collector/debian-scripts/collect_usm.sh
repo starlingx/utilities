@@ -20,18 +20,15 @@ USM_DIR="/opt/software"
 function collect_usm {
     RELEASES=$(software list | tail -n +4 | awk '{ print $2; }')
 
-    delimiter ${LOGFILE} "software deploy show"
-    software deploy show 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    run_command "software deploy show" "${LOGFILE}"
 
-    delimiter ${LOGFILE} "software deploy host-list"
-    software deploy host-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    run_command "software deploy host-list" "${LOGFILE}"
 
-    delimiter ${LOGFILE} "software list"
-    software list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    run_command "software list" "${LOGFILE}"
 
     for release in ${RELEASES}; do
-        delimiter ${LOGFILE} "software show --packages ${release}"
-        software show --packages ${release} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+        run_command "software show --packages ${release}" "${LOGFILE}"
+        sleep ${COLLECT_RUNCMD_DELAY}
     done
 }
 
@@ -40,8 +37,8 @@ function collect_usm {
 ###############################################################################
 function collect_feed {
     for feed in /var/www/pages/feed/*; do
-        delimiter ${LOGFILE} "ls -lhR --ignore __pycache__ --ignore ostree_repo ${feed}"
-        ls -lhR --ignore __pycache__ --ignore ostree_repo ${feed} >> ${LOGFILE}
+        run_command "ls -lhR --ignore __pycache__ --ignore ostree_repo ${feed}" "${LOGFILE}"
+        sleep ${COLLECT_RUNCMD_DELAY}
     done
 }
 
@@ -58,10 +55,12 @@ if [ "$nodetype" = "controller" ] ; then
     collect_feed
 
     # copy /opt/software to extra dir
-    rsync -a /opt/software ${extradir}
+    run_command "rsync -a /opt/software ${extradir}" "${LOGFILE}"
+    sleep ${COLLECT_RUNCMD_DELAY}
 
     # copy /var/www/pages/feed to extra dir, excluding large and temp directories
-    rsync -a --exclude __pycache__ --exclude ostree_repo --exclude pxeboot /var/www/pages/feed ${extradir}
+    run_command "rsync -a --exclude __pycache__ --exclude ostree_repo --exclude pxeboot /var/www/pages/feed ${extradir}" "${LOGFILE}"
+    sleep ${COLLECT_RUNCMD_DELAY}
 fi
 
 

@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2014 Wind River Systems, Inc.
+# Copyright (c) 2013-2014,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -20,7 +20,7 @@ echo    "${hostname}: Service Management : ${LOGFILE}"
 
 if [ "$nodetype" = "controller" ] ; then
     kill -SIGUSR1 $(</var/run/sm.pid)
-    sm-troubleshoot 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    run_command "sm-troubleshoot" "${LOGFILE}"
 fi
 
 exit 0

@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -38,6 +38,7 @@ ostree log ${OSTREE_REF} --repo=${SYSROOT_REPO} >> ${LOGFILE}  2>>${COLLECT_ERRO
 
 for feed_dir in ${FEED_OSTREE_BASE_DIR}/*/ostree_repo
 do
+    sleep ${COLLECT_RUNCMD_DELAY}
     delimiter ${LOGFILE} "ostree log ${OSTREE_REF} --repo=${feed_dir}"
     ostree log ${OSTREE_REF} --repo=${feed_dir} >> ${LOGFILE}  2>>${COLLECT_ERROR_LOG}
 done
@@ -48,6 +49,7 @@ done
 
 for feed_dir in ${FEED_OSTREE_BASE_DIR}/*/ostree_repo
 do
+    sleep ${COLLECT_RUNCMD_DELAY}
     delimiter ${LOGFILE} "ostree summary -v --repo=${feed_dir}"
     ostree summary -v --repo=${feed_dir} >> ${LOGFILE}  2>>${COLLECT_ERROR_LOG}
 done

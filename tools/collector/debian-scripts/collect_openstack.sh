@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2019 Wind River Systems, Inc.
+# Copyright (c) 2013-2019,2024 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -90,10 +90,20 @@ function openstack_commands {
     # nova commands
     CMDS+=("nova service-list")
 
+    DELAY_THROTTLE=4
+    delay_count=0
     for CMD in "${CMDS[@]}" ; do
         delimiter ${LOGFILE} "${CMD}"
         eval ${CMD} 2>>${COLLECT_ERROR_LOG} >>${LOGFILE}
         echo >>${LOGFILE}
+
+        if [ ! -z ${COLLECT_RUNCMD_DELAY} ] ; then
+            ((delay_count = delay_count + 1))
+            if [ ${delay_count} -ge ${DELAY_THROTTLE} ] ; then
+                sleep ${COLLECT_RUNCMD_DELAY}
+                delay_count=0
+            fi
+        fi
     done
 }
 
@@ -130,6 +140,8 @@ if [ "$nodetype" = "controller" ] ; then
     # host rabbitmq usage
     rabbitmq_usage_stats
 
+    sleep ${COLLECT_RUNCMD_DELAY}
+
     # Check for openstack label on this node
     if ! is_openstack_node; then
         exit 0
@@ -137,6 +149,8 @@ if [ "$nodetype" = "controller" ] ; then
 
     # Run as subshell so we don't contaminate environment
     (openstack_credentials; openstack_commands)
+
+    sleep ${COLLECT_RUNCMD_DELAY}
 
     # TODO(jgauld): Should also get containerized rabbitmq usage,
     # need wrapper script rabbitmq-cli

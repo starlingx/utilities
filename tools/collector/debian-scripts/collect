@@ -200,7 +200,7 @@
 
 TOOL_NAME="collect"
 TOOL_VER=3
-TOOL_REV=0
+TOOL_REV=1
 
 # only supported username
 UN=$(whoami)
@@ -208,7 +208,6 @@ pw=""
 
 # pull in common utils and environment
 source /usr/local/sbin/collect_utils
-source /etc/collect/collect_timeouts
 
 declare -i RETVAL=${FAIL}
 function collect_exit()
@@ -3618,7 +3617,7 @@ fi
 create_collect_log
 
 echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
-(cd ${COLLECT_BASE_DIR} ; ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* 2>>${COLLECT_ERROR_LOG} 1>/dev/null)
+(cd ${COLLECT_BASE_DIR} ; ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* ${CHECKPOINT_CMD} 2>>${COLLECT_ERROR_LOG} 1>/dev/null)
 rc=${?}
 if [ ${rc} -ne ${PASS} ] ; then
     collect_errors ${HOSTNAME}

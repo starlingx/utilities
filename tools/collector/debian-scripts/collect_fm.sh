@@ -1,5 +1,7 @@
 #! /bin/bash
 #
+# Copyright (c) 2024 Wind River Systems, Inc.
+#
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -27,8 +29,11 @@ if [ "$nodetype" = "controller" ] ; then
     # These go into the SERVICE.info file
     delimiter ${LOGFILE} "fm alarm-list"
     fm alarm-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    sleep ${COLLECT_RUNCMD_DELAY}
+
     delimiter ${LOGFILE} "fm event-list --nopaging"
     fm event-list --nopaging 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+    sleep ${COLLECT_RUNCMD_DELAY}
 fi
 
 exit 0
