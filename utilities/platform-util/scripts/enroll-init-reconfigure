@@ -127,7 +127,6 @@ function load_credentials {
 # in later enrollment steps. For example, a timing issue has been observed
 # because the OAM IP is already available, service endpoint IPs are configured,
 # but rerunning the Puppet manifest interferes with enrollment.
-CURRENT_OAM_IP=""
 function check_reconfigure_OAM {
     system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
 
@@ -146,7 +145,6 @@ function check_reconfigure_OAM {
     if [ "$system_mode" = "duplex" ]; then
         # DX: Current system oam values
         oam_c0_ip=$(echo "$oam_show_output" | awk '/oam_c0_ip/ {print $4}')
-        CURRENT_OAM_IP=$oam_c0_ip
         oam_c1_ip=$(echo "$oam_show_output" | awk '/oam_c1_ip/ {print $4}')
         oam_floating_ip=$(echo "$oam_show_output" | awk '/oam_floating_ip/ {print $4}')
         oam_gateway_ip=$(echo "$oam_show_output" | awk '/oam_gateway_ip/ {print $4}')
@@ -167,7 +165,6 @@ function check_reconfigure_OAM {
     else
         # SX: Current system oam values
         oam_ip=$(echo "$oam_show_output" | awk '/oam_ip/ {print $4}')
-        CURRENT_OAM_IP=$oam_ip
         oam_gateway_ip=$(echo "$oam_show_output" | awk '/oam_gateway_ip/ {print $4}')
         oam_subnet=$(echo "$oam_show_output" | awk '/oam_subnet/ {print $4}')
 
@@ -236,6 +233,7 @@ function do_network_cleanup {
     # We need new OAM connection to complete oam-modify, so should not loose OAM connection
     # established by cloud-init. "if_name" interface has new OAM IP configured by cloud-init.
     #
+    # Scenario A: OAM reconfiguration with same vlan/interface cloud-init vs OAM
     # oam-modify triggers puppet runtime 1) ifdown OAM-label, this deletes old OAM IP and default OAM route
     # 2) changes ifcfg file and 3) ifup OAM-label, this fails as it has
     # conflict to cloud-init provisioned OAM IP, and the default OAM route
@@ -248,12 +246,15 @@ function do_network_cleanup {
     # already down, and won't delete exisiting OAM default route.
     # As end result, after oam-modify, we will still have new IP and default OAM route.
     #
+    # Scenario B: OAM reconfiguration with same/different vlan/interface cloud-init vs OAM
+    # There could be default route with old configuration. We always expect default route from cloud-init.
+    #
     log_info "Forcing current OAM label interface:$oam_if_label down"
     ifdown_results=$(ifdown ${oam_if_label} --force 2>&1)
     log_info "ifdown errors: ${ifdown_results}"
 
-    # Add the default route back
-    ip_route_results=$(${ip_command} route add default via ${OAM_GATEWAY_IP} dev ${if_name} 2>&1)
+    # Add/Replace the cloud-init's default route back
+    ip_route_results=$(${ip_command} route replace default via ${OAM_GATEWAY_IP} dev ${if_name} 2>&1)
     log_info "ip route add errors: ${ip_route_results}"
 
     display_network_info
@@ -274,6 +275,7 @@ function check_oam_reconfiguration_on_same_interface {
     if [ -f ${cfg} ]; then
         iface_line=$( cat ${cfg} |grep ^iface | grep -v 'iface lo' )
         if_name=$( echo "${iface_line}" | awk '{print $2}' )
+        CLOUD_INIT_OAM_IF_NAME=${if_name}
         regex="(vlan[0-9]+)|(.*\..*)"
         if [[ ${if_name} =~ ${regex} ]]; then
            vlan_raw_device_line=$( grep vlan-raw-device ${cfg} )
@@ -310,7 +312,6 @@ function check_oam_reconfiguration_on_same_interface {
        oam_if_port=$( echo "${oam_if_details}" | awk '{print $3}' | sed -E "s/^\['([^']+)'.*$/\1/" )
        log_info "OAM is of ethernet type, port:${oam_if_port}"
        if [[ ${oam_if_port} == ${if_name} ]] && [[ ${vlan_raw_device} == '' ]] && [[ ${vlan_id} == '' ]]; then
-           CLOUD_INIT_OAM_IF_NAME=${if_name}
            return 0
        fi
     # In case of existing OAM interface of vlan type, check if OAM reconfiguration is on same physical interface and vlan-id
@@ -322,7 +323,6 @@ function check_oam_reconfiguration_on_same_interface {
        check_rc_die $? "OAM vlan raw device parsing failed"
        log_info "OAM is of VLAN type, vlan_raw_device:${oam_vlan_raw_device} vlan_id:${oam_vlan_id}"
        if [[ ${oam_vlan_raw_device} == ${vlan_raw_device} ]] && [[ ${oam_vlan_id} == ${vlan_id} ]]; then
-           CLOUD_INIT_OAM_IF_NAME=${if_name}
            return 0
        fi
     fi
@@ -452,15 +452,19 @@ verify_factory_install
 load_credentials
 check_services_status
 
+# Creating non-persistent flag, which will not survive on reboot.
+# This flag will be used by apply_network_config.sh, to restate cloud-init configured route over
+# puppet generated OAM route. This is necessary in case of vlan/interface reconfigured, as this is
+# done only by cloud-init, and puppet generated ifcfg file does not know about this until reboot.
+touch /var/run/.enroll-init-reconfigure
+
 if check_reconfigure_OAM; then
+    # Check directly on ifcfg file, to figure out the label/alias, which works for both IPv4 and IPv6 addresses:
+    current_oam_if_name_with_label=$(grep net:oam /etc/network/interfaces.d/ifcfg-* | grep -oP '(?<=interfaces.d/ifcfg-).*?(?=:stx-description )')
+    log_info "Current OAM IF label (alias):$current_oam_if_name_with_label."
+
     if check_oam_reconfiguration_on_same_interface; then
         # OAM reconfiguration requested on same interface/vlan as factory-installed OAM interface
-        #
-        # ip addr show command doesn't display IPv6 addresses with alias label, so this would work only on IPv4 address:
-        # current_oam_if_name_with_label=$(ip addr show $CLOUD_INIT_OAM_IF_NAME|grep $CURRENT_OAM_IP |grep -oP '\b'$CLOUD_INIT_OAM_IF_NAME'[^\s]*')
-        # Check directly on ifcfg file, to figure out the label/alias, which works for both IPv4 and IPv6 addresses:
-        current_oam_if_name_with_label=$(grep $CURRENT_OAM_IP /etc/network/interfaces.d/ifcfg-* | grep -oP '\b'$CLOUD_INIT_OAM_IF_NAME':[^:]*')
-        log_info "Current OAM IF label (alias):$current_oam_if_name_with_label."
 
         # Here, reconfiguration is only for address change, which is supported by oam-modify itself.
         # We still need new OAM connection to complete oam-modify, so should not loose OAM connection
@@ -468,6 +472,12 @@ if check_reconfigure_OAM; then
         # This new IP provisioned by cloud-init collides with oam-modify triggered puppet oam network
         # reconfiguration, causing default OAM route missing. To avoid this, we do some cleanup.
         do_network_cleanup ${CLOUD_INIT_OAM_IF_NAME} ${current_oam_if_name_with_label}
+    else
+        if [[ ${CLOUD_INIT_OAM_IF_NAME} != "" ]]; then
+            # OAM reconfiguration requested on different interface/vlan than factory-installed OAM interface
+            # Here, we are forcing new cloud-init route to be default.
+            do_network_cleanup ${CLOUD_INIT_OAM_IF_NAME} ${current_oam_if_name_with_label}
+        fi
     fi
 
     reconfigure_OAM
