@@ -18,8 +18,9 @@ echo    "${hostname}: IPSec Info ........: ${LOGFILE}"
 ###############################################################################
 # All nodes
 ###############################################################################
-declare -a CMDS=("swanctl --list-conn"
-"swanctl --list-sa"
+declare -a CMDS=("swanctl --list-certs"
+"swanctl --list-conns"
+"swanctl --list-sas"
 "ip -s xfrm policy"
 "ip -s xfrm state"
 )

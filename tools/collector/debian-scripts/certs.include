@@ -40,3 +40,7 @@
 /opt/platform/config/%%RELEASE%%/kubernetes/pki/
 /opt/platform/config/%%RELEASE%%/registry.central/registry-cert.crt
 /opt/platform/config/%%RELEASE%%/ca-cert.pem
+
+# 9. IPSec certificates
+/etc/swanctl/x509/
+/etc/swanctl/x509ca/
