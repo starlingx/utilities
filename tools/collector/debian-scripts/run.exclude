@@ -1,6 +1,5 @@
 /var/run/.vswitch
 /var/run/acpid.socket
-/var/run/avahi-daemon
 /var/run/containerd
 /var/run/dbus/system_bus_socket
 /var/run/libvirt/libvirt-sock
