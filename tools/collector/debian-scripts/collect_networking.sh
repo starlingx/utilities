@@ -42,6 +42,20 @@ CMD="ip6tables-save"
 delimiter ${LOGFILE} "${CMD}"
 ${CMD} > ${extradir}/ip6tables.dump 2>>${COLLECT_ERROR_LOG}
 
+bond_status () {
+    if [ -d /proc/net/bonding/ ]; then
+        for f in /proc/net/bonding/*; do
+            echo "===> interface: $f";
+            cat "$f";
+        done;
+    else
+        echo "no bonding interfaces found"
+    fi
+}
+CMD="bond_status"
+delimiter ${LOGFILE} "cat /proc/net/bonding/*"
+${CMD} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
 sleep ${COLLECT_RUNCMD_DELAY}
 
 ###############################################################################
