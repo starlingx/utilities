@@ -156,7 +156,7 @@ if [ "$nodetype" = "controller" -a "${ACTIVE}" = true ] ; then
     CMD="cp -r /opt/platform/helm_charts ${HELM_DIR}/"
     run_command "${CMD}" "${LOGFILE}"
 
-    export $(grep '^ETCD_LISTEN_CLIENT_URLS=' /etc/etcd/etcd.conf | tr -d '"')
+    export $(grep '^ETCD_LISTEN_CLIENT_URLS=' /etc/default/etcd | tr -d '"')
 
     CMD="sudo ETCDCTL_API=3  etcdctl \
     --endpoints=$ETCD_LISTEN_CLIENT_URLS get / --prefix"
