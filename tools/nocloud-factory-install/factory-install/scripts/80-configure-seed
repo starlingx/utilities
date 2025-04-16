@@ -1,0 +1,35 @@
+#!/bin/bash
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# cloud-init script to configure udev rule and service
+# for seed iso
+#
+
+NOCLOUD=/opt/nocloud
+
+echo "Configure the system to start cloud-init from a seed iso - start"
+
+# Copy the udev rule and service to the appropriate locations.
+# The udev rule will trigger the cloud-init-seed service
+# when a block device with the label CIDATA or cidata is detected
+# The cloud-init-seed service will run the script
+# /var/lib/factory-install/run-cloud-init-from-seed.sh which internally
+# runs cloud-init init and cloud-init modules.
+# We are creating a custom cloud.cfg to prevent network validations
+# during cloud-init init.
+
+cp -f ${NOCLOUD}/seed-config/99-seediso.rules /etc/udev/rules.d/.
+cp -f ${NOCLOUD}/seed-config/run-cloud-init-from-seed.sh /var/lib/factory-install/.
+cp -f ${NOCLOUD}/seed-config/cloud-init-seed.service /etc/systemd/system/.
+cp -f ${NOCLOUD}/seed-config/cloud.cfg /var/lib/factory-install/.
+
+echo "Reloading udev rules"
+udevadm control --reload-rules
+udevadm trigger --subsystem-match=block
+
+echo "Configure the system to start cloud-init from a seed iso - end"
+
+exit 0
