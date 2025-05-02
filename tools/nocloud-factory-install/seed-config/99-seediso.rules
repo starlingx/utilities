@@ -1,0 +1,24 @@
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# This udev rule triggers when a block device representing a
+# CD/DVD drive (e.g., /dev/sr0, /dev/sr1, etc.) detects a
+# media change (like a disc or an ISO being detected).
+# Specifically, it applies under the following conditions:
+#
+# The device is part of the block subsystem.
+# The kernel name matches sr*, which means it's a SCSI CD-ROM
+# device.
+# The ID_CDROM_MEDIA environment variable is set to "1",
+# indicating that media (a disc) is present in the drive.
+# The udev ACTION is "change", which typically happens when
+# media is inserted or removed.
+#
+# When all of these conditions are met, the rule:
+#  Adds the systemd tag to the udev event (allowing systemd
+#  to process it).
+#  Instructs systemd to start the cloud-init-seed.service
+#  as a result of this event.
+SUBSYSTEM=="block", KERNEL=="sr*", ENV{ID_CDROM_MEDIA}=="1", ACTION=="change", TAG+="systemd", ENV{SYSTEMD_WANTS}="cloud-init-seed.service"
