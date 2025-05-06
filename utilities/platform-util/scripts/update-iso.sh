@@ -27,6 +27,17 @@
 # 4. Clear the default USB install type with -d|--default NULL.
 #    Note: This will clear the default timeout ; set to no timeout.
 #
+# 5. Replace the main kickstart file.
+#    WARNING: Use this with extreme caution, any changes to the kickstart.cfg could
+#             cause the installation to fail.
+#    This is intended for minor tweaks/bug fixes of the existing kickstart.cfg file.
+#    Note: The kickstart.cfg file is replaced before the following password operations
+#          (which operate on the kickstart).
+#
+# 6. Set the initial password. This changes the default password for the node after install.
+#
+# 7. Disable the forced password change on initial login.
+#
 #############################################################################
 
 export GUESTMOUNT_POINT="/dev/sda1"
@@ -54,6 +65,7 @@ function usage {
         -m|--mount <guestmount point>
         --initial-password <password>
         --no-force-password
+        --replace-kickstart '/path/to/replacement/kickstart.cfg'
         -v|--verbose
         -h|--help
 
@@ -64,6 +76,7 @@ function usage {
         -a <path/file>: Specify ks-addon.cfg file
         --initial-password <password>: Specify the initial login password for sysadmin user
         --no-force-password: Do not force password change on initial login (insecure)
+        --replace-kickstart '/path/to/replacement/kickstart.cfg': Replacement kickstart file.
         -p <p=v>:  Specify boot parameter
 
             Example:
@@ -71,12 +84,15 @@ function usage {
 
         -d <default menu option>:
             Specify default boot menu option:
-            0 - Standard Controller, Serial Console
-            1 - Standard Controller, Graphical Console
-            2 - AIO, Serial Console
-            3 - AIO, Graphical Console
-            4 - AIO Low-latency, Serial Console
-            5 - AIO Low-latency, Graphical Console
+
+            Standard ISO                               | Prestage ISO
+            -------------------------------------------|-----------------------------------------
+            0 - Standard Controller, Serial Console    | 0 - Prestage Install, Serial Console
+            1 - Standard Controller, Graphical Console | 1 - Prestage Install, Graphical Console
+            2 - AIO, Serial Console                    | 2 - Cloud-init AIO, Serial Console
+            3 - AIO, Graphical Console                 | 3 - Cloud-init AIO, Graphical Console
+                                                       | 4 - Cloud-init Standard, Serial Console
+                                                       | 5 - Cloud-init Standard, Graphical Console
             NULL - Clear default selection (default:0 ; no timeout)
 
         -m <guestmount point>
@@ -159,58 +175,156 @@ function check_requirements {
     common_check_requirements
 }
 
+function check_mounted_iso_prestage {
+    # Check if this is a prestage ISO.
+    # Note: requires the ISO to be mounted - we are looking at the boot config
+    # for the ' prestage ' argument.
+    #
+    # Returns:
+    # 0 (true): is prestage ISO
+    # 1 (false): is not prestage ISO
+    local grub_or_isolinux_file=$1
+    # Will match if prestage is in the boot args:
+    if grep -q ' prestage ' "${grub_or_isolinux_file}"; then
+        printf "true"
+    else
+        printf "false"
+    fi
+}
+
+function validate_label {
+    # Validate the given boot label, based on whether the current mounted ISO
+    # is prestage or standard.
+    local is_prestage=$1
+    local default_label=$2
+    # Standard ISO options are numbered 0-3, prestage options are 0-5
+    if [ "${is_prestage}" = "true" ]; then
+        case "${default_label}" in
+            'NULL'|0|1|2|3|4|5)
+                ;;
+            *)
+                msg_info="Invalid default boot menu option (Prestage ISO)"
+                msg_help="needs to be value from 0..5; see --help screen"
+                elog "${msg_info}: ${default_label} ; ${msg_help}" >&2
+                ;;
+        esac
+    else
+        case "${default_label}" in
+            'NULL'|0|1|2|3)
+                ;;
+            *)
+                msg_info="Invalid default boot menu option (Standard ISO)"
+                msg_help="needs to be value from 0..3; see --help screen"
+                elog "${msg_info}: ${default_label} ; ${msg_help}" >&2
+                ;;
+        esac
+    fi
+}
+
+function translate_boot_grub_entry {
+    # Translate the given boot label to grub menu entry
+    local is_prestage=$1
+    local default_label=$2
+
+    validate_label "${is_prestage}" "${default_label}"
+
+    local default_grub_entry=
+    if [ "${is_prestage}" = "true" ]; then
+        # Prestage ISO
+        case "${default_label}" in
+            0|'NULL') default_grub_entry="prestage-install>serial" ;;
+            1) default_grub_entry="prestage-install>graphical" ;;
+            2) default_grub_entry="cloud-init-aio>serial" ;;
+            3) default_grub_entry="cloud-init-aio>graphical" ;;
+            4) default_grub_entry="cloud-init-controller>serial" ;;
+            5) default_grub_entry="cloud-init-controller>graphical" ;;
+        esac
+    else
+        # Standard ISO
+        case "${default_label}" in
+            0|'NULL') default_grub_entry="standard>serial" ;;
+            1) default_grub_entry="standard>graphical" ;;
+            2) default_grub_entry="aio>serial" ;;
+            3) default_grub_entry="aio>graphical" ;;
+        esac
+    fi
+    ilog "translating boot entry, is_prestage: ${is_prestage}, ${default_label} -> ${default_grub_entry}"
+    echo "${default_grub_entry}"
+}
+
 function set_default_label {
     local isodir="$1"
 
-    ilog "updating default menu selection to ${DEFAULT_GRUB_ENTRY}"
+    ilog "updating default menu selection from label: ${DEFAULT_LABEL}"
 
     if [ -z "${EFI_MOUNT}" ]; then
         mount_efiboot_img "${isodir}"
     fi
+
+    local is_prestage=false
+    is_prestage=$(check_mounted_iso_prestage "${isodir}/isolinux/isolinux.cfg")
+
+    validate_label "${is_prestage}" "${DEFAULT_LABEL}"
+
+    local default_grub_entry=
 
     # Note: This 'for' loop is not necessary but is intentionally maintained
     #       after the port from centos to debian where the second file was
     #       removed. Keeping the 'for' loop to minimize change and make it
     #       easy to add another file in the future if needed.
     for f in "${isodir}"/isolinux/isolinux.cfg; do
+
+        # Note: prestage iso uses 'DEFAULT <num>'; normal ISO uses 'default <num>'
+
         if [ "${DEFAULT_LABEL}" = "NULL" ]; then
-            # Remove default, if set
-            grep -q '^default' "${f}"
-            if [ $? -eq 0 ]; then
-                sed -i '/^default/d' "${f}"
+            # Remove default or DEFAULT, if set
+            if grep -q --ignore-case "^default" "${f}"; then
+                sed -i -E "/^(default|DEFAULT)/d" "${f}"
             fi
         else
             # Need to increment this value by 1 for the isolinux (BIOS) case.
             # This is because LAT starts the isolinux grub menu at 1 rather than 0.
             # Doing this avoids a customer visable menu selection numbering change.
-            DEFAULT_LABEL=$((DEFAULT_LABEL+1))
-            grep -q '^default' "${f}"
-            if [ $? -ne 0 ]; then
+            # NOTE: prestage ISO starts from 0
+            local isolinux_default_label=${DEFAULT_LABEL}
+            if [ "${is_prestage}" != "true" ]; then
+                isolinux_default_label=$((DEFAULT_LABEL+1))
+            fi
+            if grep -q --ignore-case "^default" "${f}"; then
+                # any prestage ISO will be converted to use lowercase 'default' from here on
+                sed -i -E "s/^(default|DEFAULT).*/default ${isolinux_default_label}/" "${f}"
+            else
+                # add the default
                 cat <<EOF >> "${f}"
 
-default ${DEFAULT_LABEL}
+default ${isolinux_default_label}
 EOF
-            else
-                sed -i "s/^default.*/default ${DEFAULT_LABEL}/" "${f}"
             fi
 
-            # The Debian isolinux grub menus from LAT have a 'ontimoeout
+            # The Debian isolinux grub menus from LAT have a 'ontimeout'
             # setting that gets defaulted to 1=Controller Install. This
             # setting needs to be update as well.
             grep -q '^ontimeout' "${f}"
             if [ $? -eq 0 ]; then
-                ilog "updating ontimeout label to ${DEFAULT_GRUB_ENTRY}"
-                sed -i "s/^ontimeout.*/ontimeout ${DEFAULT_LABEL}/" "${f}"
+                ilog "updating ontimeout label to ${isolinux_default_label}"
+                sed -i "s/^ontimeout.*/ontimeout ${isolinux_default_label}/" "${f}"
             fi
         fi
     done
 
+    default_grub_entry=$(translate_boot_grub_entry "${is_prestage}" "${DEFAULT_LABEL}")
+
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        sed -i "s/^set default=.*/set default=\"${DEFAULT_GRUB_ENTRY}\"/" "${f}"
-        # Now update the other cases that LAT adds to the grub file that
-        # will override the above case if not dealt with similarly
-        sed -i "s/^    set default=.*/    set default=\"${DEFAULT_GRUB_ENTRY}\"/" "${f}"
-        sed -i "s/^      set default=.*/      set default=\"${DEFAULT_GRUB_ENTRY}\"/" "${f}"
+        if [ "${is_prestage}" = "true" ]; then
+            # Prestage ISO has different way of setting 'default' (doesn't use set)
+            sed -i "s/^default=.*/default=\"${default_grub_entry}\"/" "${f}"
+        else
+            sed -i "s/^set default=.*/set default=\"${default_grub_entry}\"/" "${f}"
+            # Now update the other cases that LAT adds to the grub file that
+            # will override the above case if not dealt with similarly
+            sed -i "s/^    set default=.*/    set default=\"${default_grub_entry}\"/" "${f}"
+            sed -i "s/^      set default=.*/      set default=\"${default_grub_entry}\"/" "${f}"
+        fi
 
     done
 }
@@ -224,25 +338,33 @@ function set_timeout {
         mount_efiboot_img "${isodir}"
     fi
 
+    local is_prestage=false
+    is_prestage=$(check_mounted_iso_prestage "${isodir}/isolinux/isolinux.cfg")
+
     for f in "${isodir}"/isolinux/isolinux.cfg; do
-        sed -i "s/^TIMEOUT.*/TIMEOUT ${TIMEOUT}/" "${f}"
+        sed -i -E "s/^(timeout|TIMEOUT).*/timeout ${TIMEOUT}/" "${f}"
     done
 
     for f in ${isodir}/EFI/BOOT/grub.cfg ${EFI_MOUNT}/EFI/BOOT/grub.cfg; do
-        sed -i "s/^set timeout=.*/set timeout=${GRUB_TIMEOUT}/" "${f}"
-
-        grep -q "^  set timeout=" "${f}"
-        if [ $? -eq 0 ]; then
-            # Submenu timeout is already added. Update the value
-            sed -i -e "s#^  set timeout=.*#  set timeout=${GRUB_TIMEOUT}#" "${f}"
-            if [ $? -ne 0 ]; then
-                elog "Failed to update grub timeout"
-            fi
+        if [ "${is_prestage}" = "true" ]; then
+            # prestage ISO has different way of setting 'timeout' (doesn't use set)
+            sed -i -E "s/^(timeout|TIMEOUT)=.*/timeout=${GRUB_TIMEOUT}/" "${f}"
         else
-            # Parameter doesn't exist. Add it to the cmdline
-            sed -i -e "/^submenu/a \ \ set timeout=${GRUB_TIMEOUT}" "${f}"
-            if [ $? -ne 0 ]; then
-                elog "Failed to add grub timeout"
+            sed -i "s/^set timeout=.*/set timeout=${GRUB_TIMEOUT}/" "${f}"
+
+            grep -q "^  set timeout=" "${f}"
+            if [ $? -eq 0 ]; then
+                # Submenu timeout is already added. Update the value
+                sed -i -e "s#^  set timeout=.*#  set timeout=${GRUB_TIMEOUT}#" "${f}"
+                if [ $? -ne 0 ]; then
+                    elog "Failed to update grub timeout"
+                fi
+            else
+                # Parameter doesn't exist. Add it to the cmdline
+                sed -i -e "/^submenu/a \ \ set timeout=${GRUB_TIMEOUT}" "${f}"
+                if [ $? -ne 0 ]; then
+                    elog "Failed to add grub timeout"
+                fi
             fi
         fi
     done
@@ -258,7 +380,6 @@ declare INITIAL_PASSWORD=
 declare NO_FORCE_PASSWORD=
 declare -a PARAMS
 declare DEFAULT_LABEL=
-declare DEFAULT_GRUB_ENTRY=
 declare UPDATE_TIMEOUT="no"
 declare -i TIMEOUT=0
 declare GRUB_TIMEOUT=-1
@@ -266,7 +387,7 @@ declare VERBOSE=false
 
 script=$(basename "$0")
 OPTS=$(getopt -o a:d:hi:m:o:p:t:v \
-                --long addon:,initial-password:,no-force-password,default:,help,input:,mount:,output:,param:,timeout:,verbose \
+                --long addon:,initial-password:,no-force-password,replace-kickstart:,default:,help,input:,mount:,output:,param:,timeout:,verbose \
                 -n "${script}" -- "$@")
 if [ $? != 0 ]; then
     echo "Failed parsing options." >&2
@@ -306,6 +427,20 @@ while true; do
             NO_FORCE_PASSWORD=1
             shift 1
             ;;
+        --replace-kickstart)
+            REPLACE_KICKSTART="${2}"
+            shift 2
+            if [ ! -f "${REPLACE_KICKSTART}" ]; then
+                elog "--replace-kickstart: file does not exist: ${REPLACE_KICKSTART}"
+            fi
+            if grep -q 'xxxPLATFORM_RELEASExxx' "${REPLACE_KICKSTART}" ; then
+                # File must be updated for software release, for example:
+                # sed -i.orig 's/xxxPLATFORM_RELEASExxx/25.09/g' ./kickstart.cfg
+                elog "--replace-kickstart: invalid replacement file - contains xxxPLATFORM_RELEASExxx"
+            fi
+            ilog "!!! WARNING: replacing kickstart with ${REPLACE_KICKSTART} !!!"
+            ilog "!!! This could adversely affect installations. Proceed with caution. !!!"
+            ;;
         -a|--addon)
             ADDON="${2}"
             shift 2
@@ -316,34 +451,10 @@ while true; do
             ;;
         -d|--default)
             DEFAULT_LABEL=${2}
-            case ${DEFAULT_LABEL} in
-                0)
-                    DEFAULT_GRUB_ENTRY="standard>serial"
-                    ;;
-                1)
-                    DEFAULT_GRUB_ENTRY="standard>graphical"
-                    ;;
-                2)
-                    DEFAULT_GRUB_ENTRY="aio>serial"
-                    ;;
-                3)
-                    DEFAULT_GRUB_ENTRY="aio>graphical"
-                    ;;
-                4)
-                    DEFAULT_GRUB_ENTRY="aio-lowlat>serial"
-                    ;;
-                5)
-                    DEFAULT_GRUB_ENTRY="aio-lowlat>graphical"
-                    ;;
-                'NULL')
-                    DEFAULT_GRUB_ENTRY="standard>serial"
-                    ;;
-                *)
-                    msg_info="Invalid default boot menu option"
-                    msg_help="needs to be value from 0..5 ; see --help screen"
-                    elog "${msg_info}: ${DEFAULT_LABEL} ; ${msg_help}" >&2
-                    ;;
-            esac
+            # This may be too permissive if using a Standard ISO but it will be
+            # narrowed down after we know for sure if it's a prestage ISO or
+            # not.
+            validate_label "true" "${DEFAULT_LABEL}"
             shift 2
             ;;
         -t|--timeout)
@@ -426,6 +537,24 @@ if [ -n "${ADDON}" ]; then
     if [ $? -ne 0 ]; then
         elog "Failed to copy ${ADDON}"
     fi
+fi
+
+if [ -n "${REPLACE_KICKSTART}" ]; then
+    # shellcheck disable=SC1091
+    source "${BUILDDIR}/upgrades/version"  # sourcing this file sets the VERSION variable
+
+    ilog "validating replacement kickstart version, ISO version='${VERSION}'"
+    if [ -n "${VERSION}" ]; then
+        if ! grep -E '^sw_release' "${REPLACE_KICKSTART}" | grep -q "${VERSION}"; then
+            elog "Software release inside replacement kickstart does not match version=${VERSION} from ISO"
+        fi
+    else
+        ilog "WARNING: could not determine software version from ISO"
+    fi
+
+    ilog "replacing ${BUILDDIR}/kickstart/kickstart.cfg with: ${REPLACE_KICKSTART}"
+    cp "${BUILDDIR}/kickstart/kickstart.cfg" "${BUILDDIR}/kickstart/kickstart.cfg.orig"
+    cp "${REPLACE_KICKSTART}" "${BUILDDIR}/kickstart/kickstart.cfg"
 fi
 
 # From testing: We need to insert a chpasswd at a very specific spot inside

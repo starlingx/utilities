@@ -76,7 +76,9 @@ function common_check_requirements {
         )
     fi
 
-    required_utils+=( "$@" )
+    if [ ${#@} -gt 0 ]; then
+        required_utils+=( "$@" )
+    fi
 
     local -i missing=0
 
