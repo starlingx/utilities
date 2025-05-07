@@ -14,6 +14,9 @@ CUSTOM_CLOUD_CFG="/var/lib/factory-install/cloud.cfg"
 FACTORY_INSTALL_COMPLETE_FILE="/var/lib/factory-install/complete"
 SEED_UDEV_RULES="/etc/udev/rules.d/99-seediso.rules"
 SEED_SERVICE="/etc/systemd/system/cloud-init-seed.service"
+SEED_NETWORK_CFG="network-config"
+NETWORK_CFG_FILE="/run/.$SEED_NETWORK_CFG"
+CLOUD_INIT_IF_FILE="/etc/network/interfaces.d/50-cloud-init"
 
 function check_rc_die {
     local -i rc=${1}
@@ -92,6 +95,18 @@ if ! isoinfo -i "$DEVICE" -l 2>/dev/null | grep -qE "user-data|meta-data"; then
     log_fatal "ISO $DEVICE is not cloud-init compatible: missing user-data or meta-data."
 fi
 
+# Extracts the network-config file from the seed ISO.
+# The network-config file is used to configure the network
+# settings for the cloud-init instance.
+isoinfo -i $DEVICE -R -x "/$SEED_NETWORK_CFG" > $NETWORK_CFG_FILE
+check_rc_die $? "Unable to retrieve network-config from seed ISO. Exiting."
+
+# Checks if the network-config file is empty.
+# If it is empty, exit the script.
+if [ ! -s $NETWORK_CFG_FILE ]; then
+    log_fatal "Invalid network-config file. Exiting."
+fi
+
 # Check if the custom cloud.cfg file exists.
 # If it does not exist, exit the script.
 if [[ ! -f "$CUSTOM_CLOUD_CFG" ]]; then
@@ -114,19 +129,34 @@ check_rc_die $? "Unable to backup the cloud.cfg file"
 cp -f "$CUSTOM_CLOUD_CFG" "$ORIGIN_CLOUD_CFG"
 check_rc_die $? "Unable to copy factory-install cloud.cfg file"
 
-# Runs cloud-init commands to apply seed iso configuration.
-# The commands are run in the following order:
-# 1. cloud-init clean: Cleans up cloud-init state.
-# 2. cloud-init init: Initializes cloud-init.
-# 3. cloud-init modules --mode=config: Runs the config modules.
-# 4. cloud-init modules --mode=final: Runs the final modules.
+# We separate the cloud-init sequence into two parts:
+# First, we run cloud-init initialization mode to set up the network
+# configuration using the network-config file extracted from the seed
+# ISO.
 cloud-init clean &&
 cloud-init init &&
+cloud-init devel net-convert \
+    --network-data $NETWORK_CFG_FILE \
+    --kind yaml \
+    --output-kind eni \
+    -d / \
+    -D debian &&
+ifup -i $CLOUD_INIT_IF_FILE -a
+CLOUD_INIT_RC=$?
+if [ $CLOUD_INIT_RC -ne 0 ]; then
+    restore_cloud_init_config
+    check_rc_die $CLOUD_INIT_RC "cloud-init initialization failed from seed ISO."
+fi
+
+# After the network is set up, we run cloud-init config and final
+# modes to apply the configuration and finalize the instance.
+# This includes running any user-data scripts and applying any
+# additional configuration specified in the user-data file.
 cloud-init modules --mode=config &&
 cloud-init modules --mode=final
 CLOUD_INIT_RC=$?
 restore_cloud_init_config
-check_rc_die $CLOUD_INIT_RC "cloud-init failed to run from seed ISO."
+check_rc_die $CLOUD_INIT_RC "cloud-init failed to run modules from seed ISO."
 
 log_info "cloud-init from seed ISO completed successfully."
 exit 0
