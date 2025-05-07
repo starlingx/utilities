@@ -54,7 +54,6 @@
     vars:
       bindep_profile: pylint
       tox_envlist: pylint
-    voting: false  # Temporary workaround
 
 - job:
     name: stx-utilities-upload-git-mirror
