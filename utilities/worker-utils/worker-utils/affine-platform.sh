@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# Copyright (c) 2013 Wind River Systems, Inc.
+# Copyright (c) 2013-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -112,6 +112,11 @@ function affine_tasks {
         PIDLIST=$( ps -e -p 2 |grep ktimersoftd | awk '{ print $1; }')
         for PID in ${PIDLIST[@]}; do
             chrt -p -f 3 ${PID} 2>/dev/null
+        done
+
+        PIDLIST=$( ps -e -p 2 |grep irq_work | awk '{ print $1; }')
+        for PID in ${PIDLIST[@]}; do
+            chrt -p -f ${irq_work_priority:-22} ${PID} 2>/dev/null
         done
 
         # Ensure that ice-gnss threads are SCHED_OTHER and nice -10
