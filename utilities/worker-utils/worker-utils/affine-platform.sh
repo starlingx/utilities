@@ -104,9 +104,10 @@ function affine_tasks {
             chrt -p -f 4 ${PID}  2>/dev/null
         done
 
+        # If ksoftirqd priority was set on service-parameter use it, otherwise use standard
         PIDLIST=$( ps -e -p 2 |grep ksoftirq | awk '{ print $1; }')
         for PID in ${PIDLIST[@]}; do
-            chrt -p -f 2 ${PID} 2>/dev/null
+            chrt -p -f ${ksoftirqd_priority:-22} ${PID} 2>/dev/null
         done
 
         PIDLIST=$( ps -e -p 2 |grep ktimersoftd | awk '{ print $1; }')
