@@ -140,12 +140,29 @@ cloud-init devel net-convert \
     --kind yaml \
     --output-kind eni \
     -d / \
-    -D debian &&
-ifup -i $CLOUD_INIT_IF_FILE -a
+    -D debian
 CLOUD_INIT_RC=$?
 if [ $CLOUD_INIT_RC -ne 0 ]; then
     restore_cloud_init_config
     check_rc_die $CLOUD_INIT_RC "cloud-init initialization failed from seed ISO."
+fi
+
+# The network configuration is applied using the ifup command.
+#
+# Background: During enroll init process, if the OAM address is on the same device,
+# but assigned a different address, the ifup command is paused silently before
+# creating the new address (the return code is still 0). This behavior can cause
+# a subsequent new route with the new address creation failure.
+#
+# The --force option is used here to prevent ifup from pausing in case the new
+# OAM address is configured with a different address, but in the same VLAN and
+# interface.
+IFUP_OUTPUT=$(ifup -i $CLOUD_INIT_IF_FILE -a --force 2>&1)
+CLOUD_INIT_RC=$?
+log_info "ifup output: $IFUP_OUTPUT"
+if [ $CLOUD_INIT_RC -ne 0 ]; then
+    restore_cloud_init_config
+    check_rc_die $CLOUD_INIT_RC "ifup failed during cloud-init initialization."
 fi
 
 # After the network is set up, we run cloud-init config and final
