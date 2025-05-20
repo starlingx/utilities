@@ -1,10 +1,9 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2019, 2024 Wind River Systems, Inc.
+# Copyright (c) 2013-2019, 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-
 ##########################################################################################
 
 source /etc/collect/collect_timeouts
@@ -331,22 +330,22 @@ function run_command () {
         secs=${duration%%.*}
 
         if [ ${secs} -ge ${COLLECT_RUNCMD_XLARGE_THRESHOLD} ] ; then
-            sleep_time ${COLLECT_RUNCMD_XLARGE_DELAY}
+            sleep_time=${COLLECT_RUNCMD_XLARGE_DELAY}
             sleep_time_str="${COLLECT_RUNCMD_XLARGE_DELAY}"
 
         elif [ ${secs} -gt ${COLLECT_RUNCMD_LARGE_THRESHOLD} ] ; then
-            sleep_time ${COLLECT_RUNCMD_LARGE_DELAY}
+            sleep_time=${COLLECT_RUNCMD_LARGE_DELAY}
             sleep_time_str="${COLLECT_RUNCMD_LARGE_DELAY}"
 
         else
             msec=${duration#*.}
 
             if [ ${msec} -gt ${COLLECT_RUNCMD_MEDIUM_THRESHOLD} ] ; then
-                sleep_time ${COLLECT_RUNCMD_MEDIUM_DELAY}
+                sleep_time=${COLLECT_RUNCMD_MEDIUM_DELAY}
                 sleep_time_str="${COLLECT_RUNCMD_MEDIUM_DELAY}"
 
             elif [ ${msec} -gt ${COLLECT_RUNCMD_SMALL_THRESHOLD} ] ; then
-                sleep_time ${COLLECT_RUNCMD_SMALL_DELAY}
+                sleep_time=${COLLECT_RUNCMD_SMALL_DELAY}
                 sleep_time_str="${COLLECT_RUNCMD_SMALL_DELAY}"
             fi
         fi
