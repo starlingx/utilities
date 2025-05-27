@@ -239,8 +239,8 @@ do
       "dcorch-sysinv-api-proxy")
          process_list=(${process_list[@]} "sm:dcorch-sysinv-api-proxy:dcorch-sysinv-api-proxy:controller:/var/run/resource-agents/dcorch-sysinv-api-proxy.pid:0")
          ;;
-      "dcorch-patch-api-proxy")
-         process_list=(${process_list[@]} "sm:dcorch-patch-api-proxy:dcorch-patch-api-proxy:controller:/var/run/resource-agents/dcorch-patch-api-proxy.pid:0")
+      "dcorch-usm-api-proxy")
+         process_list=(${process_list[@]} "sm:dcorch-usm-api-proxy:dcorch-usm-api-proxy:controller:/var/run/resource-agents/dcorch-usm-api-proxy.pid:0")
          ;;
       "dcorch-identity-api-proxy")
          process_list=(${process_list[@]} "sm:dcorch-identity-api-proxy:dcorch-identity-api-proxy:controller:/var/run/resource-agents/dcorch-identity-api-proxy.pid:0")
