@@ -3629,6 +3629,7 @@ else
         secs=$((SECONDS-COLLECT_START_TIME))
         echo -n "done"
         echo_stats $secs "stats-only" "${TARBALL_NAME}"
+        chmod o-r ${TARBALL_NAME}
         chown_file_or_dir_local ${UN} ${TARBALL_NAME}
         log "created ${COLLECT_TYPE} tarball ${TARBALL_NAME}"
 
