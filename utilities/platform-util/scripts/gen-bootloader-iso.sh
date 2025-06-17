@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim: filetype=sh shiftwidth=4 expandtab
 #
-# Copyright (c) 2020-2023 Wind River Systems, Inc.
+# Copyright (c) 2020-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,8 +13,10 @@
 # under an http/https served directory
 #
 #
-readonly SCRIPTDIR=$(readlink -m "$(dirname "$0")")
-readonly SCRIPTNAME=$(basename "$0")
+SCRIPTDIR=$(readlink -m "$(dirname "$0")")
+readonly SCRIPTDIR
+SCRIPTNAME=$(basename "$0")
+readonly SCRIPTNAME
 
 # Source shared utility functions
 # shellcheck disable=SC1090 # ignore source warning
@@ -33,6 +35,7 @@ DEFAULT_GRUB_ENTRY=
 DEFAULT_SYSLINUX_ENTRY=
 DELETE="no"
 GRUB_TIMEOUT=-1
+INCLUDE_PATHS=()  # extra content to be included in ISO
 INITRD_FILE=
 INPUT_ISO=
 INSTALL_TYPE=
@@ -141,7 +144,8 @@ Mandatory parameters for setup:
         5 - AIO Low-latency, Graphical Console (Only for stx 8)
 
 Optional parameters for setup:
-    --addon <file>:          Specify custom kickstart %post addon, for
+    --addon <file>:          DEPRECATED: this option is now ignored.
+                             Specify custom kickstart %post addon, for
                              post-install interface config
     --boot-hostname <host>:  Specify temporary hostname for target node
     --boot-netmask <mask>:   Specify netmask for boot interface
@@ -153,10 +157,14 @@ Optional parameters for setup:
     --param <p=v>:           Specify boot parameter customization
         Examples:
         --param rootfs_device=nvme0n1 --param boot_device=nvme0n1
-
         --param rootfs_device=/dev/disk/by-path/pci-0000:00:0d.0-ata-1.0
         --param boot_device=/dev/disk/by-path/pci-0000:00:0d.0-ata-1.0
     --release <version>:     Specify the software release version
+    --include-path <path>:   Include the given path (file or directory)
+                             within the generated bootimage.iso.
+                             Transfer is done via rsync with the --delete option.
+                             This option can be specified more than once,
+                             to include multiple paths.
 
 Generated ISO will be: <www-root>/nodes/<node-id>/bootimage.iso
 
@@ -200,7 +208,7 @@ function parse_arguments {
     longopts="${longopts},base-url:,www-root:,id:,delete"
     longopts="${longopts},repack,initrd:,no-cache"
     longopts="${longopts},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
-    longopts="${longopts},release:"
+    longopts="${longopts},release:,include-path:"
     longopts="${longopts},help,verbose"
 
     opts=$(getopt -o h --long "${longopts}" --name "$0" -- "$@")
@@ -219,7 +227,9 @@ function parse_arguments {
                 shift 2
                 ;;
             --addon)
+                # shellcheck disable=SC2034
                 ADDON=$2
+                log_error "--addon option is no longer supported (option is ignored)"
                 shift 2
                 ;;
             --boot-gateway)
@@ -240,6 +250,21 @@ function parse_arguments {
                 ;;
             --boot-netmask)
                 BOOT_NETMASK=$2
+                shift 2
+                ;;
+            --include-path)
+                local path=$2
+                if [ -e "${path}" ]; then
+                    if [[ "${path}" == */ ]]; then
+                        # We use rsync - the trailing slash will break things
+                        # when we translate this to a CSV string in boot
+                        # arguments
+                        fatal_error "--include-path must not end in '/': ${path}"
+                    fi
+                    INCLUDE_PATHS+=("${path}")
+                else
+                    fatal_error "--include-path does not exist: ${path}"
+                fi
                 shift 2
                 ;;
             --param)
@@ -495,6 +520,18 @@ function generate_boot_cfg {
         log_info "Found gpg-verify=false, including instgpg=0"
         BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instgpg=0"
     fi
+    if [ ${#INCLUDE_PATHS} -gt 0 ]; then
+        local include_path include_paths_csv
+        for include_path in "${INCLUDE_PATHS[@]}"; do
+            include_path=$(basename "${include_path}")
+            if [ -z "${include_paths_csv}" ]; then
+                include_paths_csv="${include_path}"
+            else
+                include_paths_csv="${include_paths_csv},${include_path}"
+            fi
+        done
+        BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} include_paths=${include_paths_csv}"
+    fi
     if [ -n "$VERBOSE" ]; then
         # pass this through to the miniboot.cfg kickstart to turn on debug:
         BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} debug_kickstart"
@@ -611,6 +648,7 @@ function cleanup_on_exit {
 }
 
 function check_requirements {
+    #shellcheck disable=SC2119
     common_check_requirements
 }
 
@@ -647,6 +685,18 @@ function create_miniboot_iso {
           --exclude pxeboot \
         "${MNTDIR}/" "${BUILDDIR}"
     check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
+
+    if [ ${#INCLUDE_PATHS} -gt 0 ]; then
+        local path
+        for path in "${INCLUDE_PATHS[@]}"; do
+            if [ ! -f "${path}" ] && [ ! -d "${path}" ]; then
+                fatal_error "Included path is not a file or directory: ${path}"
+            fi
+            log_info "Copying included '${path}' into ${BUILDDIR}/"
+            rsync ${VERBOSE_RSYNC} -a --delete "${path}" "${BUILDDIR}"
+            check_rc_exit $? "Failed to copy ${path} to ${BUILDDIR}/"
+        done
+    fi
 
     if [ "${REPACK}" = yes ]; then
         # Use default initrd-mini location if none specified
@@ -741,7 +791,7 @@ function create_miniboot_iso {
 
 validate_arguments() {
     if [[ "$INSTALL_TYPE" == 4 || "$INSTALL_TYPE" == 5 ]]; then
-        if [[ ! "$RELEASE" =~ '22.12' ]]; then
+        if [[ "$RELEASE" != '22.12' ]]; then
             log_error "Invalid default boot menu option: ${INSTALL_TYPE}. Option 4 and 5 are only supported for release 22.12"
             exit 1
         fi
