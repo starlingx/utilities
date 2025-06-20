@@ -66,6 +66,8 @@ WORKDIR=
 # Initialized by stx-iso-utils.sh:mount_efiboot_img
 EFI_MOUNT=
 
+DEFAULT_KICKSTART_URI="file:///kickstart/miniboot.cfg"
+KICKSTART_URI="${DEFAULT_KICKSTART_URI}"
 # Set this to a directory path containing kickstart *.cfg script(s) for testing:
 KICKSTART_OVERRIDE_DIR=${KICKSTART_OVERRIDE_DIR:-/var/miniboot/kickstart-override}
 
@@ -160,6 +162,11 @@ Optional parameters for setup:
         --param rootfs_device=/dev/disk/by-path/pci-0000:00:0d.0-ata-1.0
         --param boot_device=/dev/disk/by-path/pci-0000:00:0d.0-ata-1.0
     --release <version>:     Specify the software release version
+    --kickstart-uri <uri>:   Specify the custom kickstart URI
+                             Default: ${DEFAULT_KICKSTART_URI}
+                             Local kickstarts are supported using the form:
+                                 partition://<partition-name>:<kickstart-path>
+                             e.g.: partition://platform_backup:backups/25.09/miniboot.cfg
     --include-path <path>:   Include the given path (file or directory)
                              within the generated bootimage.iso.
                              Transfer is done via rsync with the --delete option.
@@ -208,7 +215,7 @@ function parse_arguments {
     longopts="${longopts},base-url:,www-root:,id:,delete"
     longopts="${longopts},repack,initrd:,no-cache"
     longopts="${longopts},boot-gateway:,boot-hostname:,boot-interface:,boot-ip:,boot-netmask:"
-    longopts="${longopts},release:,include-path:"
+    longopts="${longopts},release:,kickstart-uri:,include-path:"
     longopts="${longopts},help,verbose"
 
     opts=$(getopt -o h --long "${longopts}" --name "$0" -- "$@")
@@ -250,6 +257,10 @@ function parse_arguments {
                 ;;
             --boot-netmask)
                 BOOT_NETMASK=$2
+                shift 2
+                ;;
+            --kickstart-uri)
+                KICKSTART_URI=$2
                 shift 2
                 ;;
             --include-path)
@@ -510,7 +521,8 @@ function generate_boot_cfg {
     log_verbose "Parameters: ${PARAM_LIST}"
     BOOT_ARGS_COMMON="initrd=/initrd instdate=@$(date +%s) instw=60 instiso=instboot"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} biosplusefi=1 instnet=0"
-    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ks=file:///kickstart/miniboot.cfg"
+    log_verbose "Using ks=${KICKSTART_URI}"
+    BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ks=${KICKSTART_URI}"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} rdinit=/install instname=debian instbr=starlingx instab=0"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} insturl=${BASE_URL}/ostree_repo ip=${BOOT_IP_ARG}"
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} BLM=2506 FSZ=32 BSZ=512 RSZ=20480 VSZ=20480 instdev=${instdev}"
