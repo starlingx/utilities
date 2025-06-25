@@ -30,7 +30,6 @@ override_dh_auto_install:
 
 	install -d $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/update-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
-	install -m 555 scripts/update-dm.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/gen-bootloader-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/gen-bootloader-iso-centos.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 555 scripts/ipmicap.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
