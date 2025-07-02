@@ -3,4 +3,4 @@ etc/init.d/*
 usr/lib/systemd/system/ceph-manager.service
 etc/logrotate.d/*
 usr/lib/python3/dist-packages/ceph_manager/*
-usr/lib/python3/dist-packages/ceph_manager-1.0.0.egg-info/*
+usr/lib/python3/dist-packages/ceph_manager-1.0.1.egg-info/*

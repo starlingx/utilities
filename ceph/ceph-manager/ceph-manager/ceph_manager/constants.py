@@ -1,14 +1,19 @@
 #
-# Copyright (c) 2016-2018 Wind River Systems, Inc.
+# Copyright (c) 2016-2018, 2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
 # noinspection PyUnresolvedReferences
+from os import path
+
 from sysinv.common import constants as sysinv_constants
 
 from ceph_manager.i18n import _
 
+CEPH_MANAGER_CONFIG_FILE = 'ceph-manager-config.yaml'
+CEPH_MANAGER_CONFIG_PATH = path.join(sysinv_constants.PLATFORM_PATH, 'ceph',
+                                     CEPH_MANAGER_CONFIG_FILE)
 
 CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL = \
     sysinv_constants.CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL
@@ -55,6 +60,8 @@ ALARM_REASON_OSDS_DOWN = _('OSDs are down')
 ALARM_REASON_OSDS_OUT = _('OSDs are out')
 ALARM_REASON_OSDS_DOWN_OUT = _('OSDs are down/out')
 ALARM_REASON_PEER_HOST_DOWN = _('peer host down')
+
+OSD_DOWN_FILTER = "OSD_DOWN"
 
 REPAIR_ACTION_MAJOR_CRITICAL_ALARM = _(
     'Ensure storage hosts from replication group are unlocked and available.'
