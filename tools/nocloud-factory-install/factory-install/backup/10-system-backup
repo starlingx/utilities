@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Factory install backup triggered during the backup stage
+#
+
+# Get software version from build info
+SW_VERSION=$(awk -F= '/^SW_VERSION/ {print $2}' /etc/build.info | tr -d '"')
+BACKUP_DIR="/opt/platform-backup/factory/${SW_VERSION}"
+
+# Source locations
+OSTREE_REPO_SRC="/var/www/pages/feed/rel-${SW_VERSION}/ostree_repo"
+MINIBOOT_CFG_SRC="/var/www/pages/feed/rel-${SW_VERSION}/kickstart/miniboot.cfg"
+
+# Target locations
+OSTREE_REPO_DEST="${BACKUP_DIR}/ostree_repo"
+MINIBOOT_CFG_DEST="${BACKUP_DIR}/miniboot.cfg"
+
+function check_rc_die {
+    local -i rc=${1}
+    local msg="${2}"
+    if [ ${rc} -ne 0 ]; then
+        log_fatal "${msg} [rc=${rc}]"
+    fi
+}
+
+function log_fatal {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - factory-backup -") FATAL: ${*}"
+    exit 1
+}
+
+function log_warn {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - factory-backup -") WARN: ${*}"
+}
+
+function log_info {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - factory-backup -") INFO: $*"
+}
+
+# TODO(ecandotti): Remove when https://bugs.launchpad.net/starlingx/+bug/2116270
+# is resolved
+if systemctl is-failed --quiet fm-api.service; then
+    # Restart fm-api if it is in failed state,
+    # otherwise the backup health-query will fail
+    log_info "fm-api.service is in failed state, restarting..."
+    systemctl restart fm-api.service
+fi
+
+log_info "Creating backup directory: $BACKUP_DIR"
+mkdir -p "$BACKUP_DIR"
+check_rc_die $? "Failed to create backup directory $BACKUP_DIR"
+
+# Run StarlingX platform backup playbook
+log_info "Running platform backup playbook..."
+ansible-playbook /usr/share/ansible/stx-ansible/playbooks/backup.yml \
+    -e "platform_backup_filename_prefix=factory" \
+    -e "backup_dir=$BACKUP_DIR" \
+    -e "backup_registry_filesystem=true"
+check_rc_die $? "Failed to run backup playbook"
+
+# Rename the generated backup tarball
+log_info "Looking for backup tarball in $BACKUP_DIR"
+BACKUP_TAR=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'factory_*.tgz' | head -n1)
+if [ -n "$BACKUP_TAR" ]; then
+    log_info "Renaming $BACKUP_TAR to ${BACKUP_DIR}/factory_backup.tgz"
+    mv "$BACKUP_TAR" "${BACKUP_DIR}/factory_backup.tgz"
+    check_rc_die $? "Failed to rename $BACKUP_TAR file"
+else
+    log_fatal "No backup tarball found in $BACKUP_DIR"
+fi
+
+# Copy ostree_repo directory to factory backup dir
+log_info "Copying $OSTREE_REPO_SRC to $OSTREE_REPO_DEST"
+cp -r "$OSTREE_REPO_SRC" "$OSTREE_REPO_DEST"
+check_rc_die $? "Unable to backup $OSTREE_REPO_SRC"
+
+# Copy miniboot.cfg to factory backup dir
+log_info "Copying $MINIBOOT_CFG_SRC to $MINIBOOT_CFG_DEST"
+cp "$MINIBOOT_CFG_SRC" "$MINIBOOT_CFG_DEST"
+check_rc_die $? "Unable to backup $MINIBOOT_CFG_SRC"
+
+
+log_info "Factory backup completed at $BACKUP_DIR"
