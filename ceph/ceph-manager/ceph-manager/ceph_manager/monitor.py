@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2013-2018 Wind River Systems, Inc.
+# Copyright (c) 2013-2018, 2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -60,7 +60,7 @@ class HandleUpgradesMixin(object):
         try:
             response, body = self.service.ceph_api.osd_set_key(
                 constants.CEPH_FLAG_REQUIRE_JEWEL_OSDS,
-                body='json')
+                body='json', timeout=30)
             LOG.info(_LI("Set require_jewel_osds flag"))
         except IOError as e:
             raise exception.CephApiFailure(
@@ -75,82 +75,6 @@ class HandleUpgradesMixin(object):
                     response_reason=response.reason,
                     status=body.get('status'),
                     output=body.get('output'))
-
-    def filter_health_status(self, health):
-        health = self.auto_heal(health)
-        # filter out require_jewel_osds warning
-        #
-        if not self.wait_for_upgrade_complete:
-            return health
-        if health['health'] != constants.CEPH_HEALTH_WARN:
-            return health
-        if (constants.CEPH_HEALTH_WARN_REQUIRE_JEWEL_OSDS_NOT_SET
-                not in health['detail']):
-            return health
-        return self._remove_require_jewel_osds_warning(health)
-
-    def _remove_require_jewel_osds_warning(self, health):
-        reasons_list = []
-        for reason in health['detail'].split(';'):
-            reason = reason.strip()
-            if len(reason) == 0:
-                continue
-            if constants.CEPH_HEALTH_WARN_REQUIRE_JEWEL_OSDS_NOT_SET \
-                    in reason:
-                continue
-            reasons_list.append(reason)
-        if len(reasons_list) == 0:
-            health = {
-                'health': constants.CEPH_HEALTH_OK,
-                'detail': ''}
-        else:
-            health['detail'] = '; '.join(reasons_list)
-        return health
-
-    def auto_heal(self, health):
-        if (health['health'] == constants.CEPH_HEALTH_WARN
-                and (constants.CEPH_HEALTH_WARN_REQUIRE_JEWEL_OSDS_NOT_SET
-                     in health['detail'])):
-            try:
-                upgrade = self.sysinv_upgrade_api.get_software_upgrade_status()
-            except Exception as ex:
-                LOG.warn(_LW(
-                    "Getting software upgrade status failed "
-                    "with: %s. Skip auto-heal attempt "
-                    "(will retry on next ceph status poll).") % str(ex))
-                return health
-            state = upgrade.get('state')
-            # surpress require_jewel_osds in case upgrade is
-            # in progress but not completed or aborting
-            if (not self.wait_for_upgrade_complete
-                    and (upgrade.get('from_version')
-                         == constants.TITANIUM_SERVER_VERSION_18_03)
-                    and state not in [
-                        None,
-                        constants.UPGRADE_COMPLETED,
-                        constants.UPGRADE_ABORTING,
-                        constants.UPGRADE_ABORT_COMPLETING,
-                        constants.UPGRADE_ABORTING_ROLLBACK]):
-                self.wait_for_upgrade_complete = True
-            # set require_jewel_osds in case upgrade is
-            # not in progress or completed
-            if (state in [None, constants.UPGRADE_COMPLETED]):
-                LOG.warn(_LW(
-                    "No upgrade in progress or update completed "
-                    "and require_jewel_osds health warning raised. "
-                    "Set require_jewel_osds flag."))
-                self.set_flag_require_jewel_osds()
-                health = self._remove_require_jewel_osds_warning(health)
-                LOG.info(_LI("Unsurpress require_jewel_osds health warning"))
-                self.wait_for_upgrade_complete = False
-            # unsurpress require_jewel_osds in case upgrade
-            # is aborting
-            if (state in [
-                    constants.UPGRADE_ABORTING,
-                    constants.UPGRADE_ABORT_COMPLETING,
-                    constants.UPGRADE_ABORTING_ROLLBACK]):
-                self.wait_for_upgrade_complete = False
-        return health
 
 
 class Monitor(HandleUpgradesMixin):
@@ -224,7 +148,6 @@ class Monitor(HandleUpgradesMixin):
         LOG.info(_LI("Current Ceph health: "
                      "%(health)s detail: %(detail)s") % health)
 
-        health = self.filter_health_status(health)
         if health['health'] != constants.CEPH_HEALTH_OK:
             self._report_fault(health, fm_constants.FM_ALARM_ID_STORAGE_CEPH)
         else:
@@ -232,9 +155,6 @@ class Monitor(HandleUpgradesMixin):
 
         # Report OSD down/out even if ceph health is OK
         self._report_alarm_osds_health()
-
-    def filter_health_status(self, health):
-        return super(Monitor, self).filter_health_status(health)
 
     # CEPH HELPERS
 
@@ -284,30 +204,6 @@ class Monitor(HandleUpgradesMixin):
         return {'health': health.strip(),
                 'detail': detail.strip()}
 
-    def _get_object_pool_name(self):
-        if self.known_object_pool_name is None:
-            response, body = self.service.ceph_api.osd_pool_get(
-                constants.CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL,
-                "pg_num",
-                body='json')
-
-            if response.ok:
-                self.known_object_pool_name = \
-                    constants.CEPH_POOL_OBJECT_GATEWAY_NAME_JEWEL
-                return self.known_object_pool_name
-
-            response, body = self.service.ceph_api.osd_pool_get(
-                constants.CEPH_POOL_OBJECT_GATEWAY_NAME_HAMMER,
-                "pg_num",
-                body='json')
-
-            if response.ok:
-                self.known_object_pool_name = \
-                    constants.CEPH_POOL_OBJECT_GATEWAY_NAME_HAMMER
-                return self.known_object_pool_name
-
-        return self.known_object_pool_name
-
     # we have two root nodes 'cache-tier' and 'storage-tier'
     # to calculate the space that is used by the pools, we must only
     # use 'storage-tier'
@@ -322,80 +218,6 @@ class Monitor(HandleUpgradesMixin):
         return self.host_is_in_root(search_tree,
                                     search_tree[node['parent']],
                                     root_name)
-
-    # The information received from ceph is not properly
-    # structured for efficient parsing and searching, so
-    # it must be processed and transformed into a more
-    # structured form.
-    #
-    # Input received from ceph is an array of nodes with the
-    # following structure:
-    #    [{'id':<node_id>, 'children':<array_of_children_ids>, ....},
-    #     ...]
-    #
-    # We process this array and transform it into a dictionary
-    # (for efficient access) The transformed "search tree" is a
-    # dictionary with the following structure:
-    #   {<node_id> : {'children':<array_of_children_ids>}
-    def _get_tiers_size(self):
-        try:
-            resp, body = self.service.ceph_api.osd_df(
-                body='json',
-                output_method='tree')
-        except IOError:
-            return 0
-        if not resp.ok:
-            LOG.error(_LE("Getting the cluster usage "
-                          "information failed: %(reason)s - "
-                          "%(body)s") % {"reason": resp.reason,
-                                         "body": body})
-            return {}
-
-        # A node is a crushmap element: root, chassis, host, osd. Create a
-        # dictionary for the nodes with the key as the id used for efficient
-        # searching through nodes.
-        #
-        # For example: storage-0's node has one child node => OSD 0
-        # {
-        #     "id": -4,
-        #     "name": "storage-0",
-        #     "type": "host",
-        #     "type_id": 1,
-        #     "reweight": -1.000000,
-        #     "kb": 51354096,
-        #     "kb_used": 1510348,
-        #     "kb_avail": 49843748,
-        #     "utilization": 2.941047,
-        #     "var": 1.480470,
-        #     "pgs": 0,
-        #     "children": [
-        #         0
-        #     ]
-        # },
-        search_tree = {}
-        for node in body['output']['nodes']:
-            search_tree[node['id']] = node
-
-        # Extract the tiers as we will return a dict for the size of each tier
-        tiers = {k: v for k, v in search_tree.items() if v['type'] == 'root'}
-
-        # For each tier, traverse the heirarchy from the root->chassis->host.
-        # Sum the host sizes to determine the overall size of the tier
-        tier_sizes = {}
-        for tier in tiers.values():
-            tier_size = 0
-            for chassis_id in tier['children']:
-                chassis_size = 0
-                chassis = search_tree[chassis_id]
-                for host_id in chassis['children']:
-                    host = search_tree[host_id]
-                    if (chassis_size == 0 or
-                            chassis_size > host['kb']):
-                        chassis_size = host['kb']
-                tier_size += chassis_size // (1024**2)
-            tier_sizes[tier['name']] = tier_size
-
-        return tier_sizes
 
     # ALARM HELPERS
 
@@ -499,7 +321,7 @@ class Monitor(HandleUpgradesMixin):
         return True
 
     def _report_alarm_osds_health(self):
-        response, osd_tree = self.service.ceph_api.osd_tree(body='json')
+        response, osd_tree = self.service.ceph_api.osd_tree(body='json', timeout=30)
         if not response.ok:
             LOG.error(_LE("Failed to retrieve Ceph OSD tree: "
                           "status_code: %(status_code)s, reason: %(reason)s") %
