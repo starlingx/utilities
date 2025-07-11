@@ -680,6 +680,8 @@ function is_valid_host()
 
     if [ "${check_hostname}" == "None" ] ; then
         return ${FAIL_HOSTNAME}
+    elif [ "${check_hostname}" == " " ] || [ "${check_hostname}" == "" ] ; then
+        return ${FAIL_HOSTNAME}
     elif [ "${check_hostname}" == "${HOSTNAME}" ] ; then
         return ${PASS}
     elif [ "${ACTIVE}" = true ] ; then
@@ -1537,12 +1539,6 @@ function check_runnable_hosts()
 {
     local to_remove=()
     for host in "${HOSTLIST[@]}" ; do
-        # Validate if host var is an non valid name. In this case, mark the
-        # item to be removed at the end of the function, avoiding problems.
-        if [ "${host}" == " " ] || [ "${host}" == "None" ] || [ "${host}" == "" ] ; then
-            to_remove+=(${host})
-            continue
-        fi
 
         if [ "${host}" == "${HOSTNAME}" ]; then
             continue
@@ -3166,9 +3162,6 @@ function collect_hosts()
     check_runnable_hosts
 
     for host in "${HOSTLIST[@]}" ; do
-        if [ "${host}" == " " ] || [ "${host}" == "" ] ; then
-            continue
-        fi
 
         HOST_START_TIME=${SECONDS}
         TARNAME="${host}_${NOWDATE}"
