@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2023 Wind River Systems, Inc.
+# Copyright (c) 2023,2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -125,7 +125,7 @@ class BaseTestCase(TestCase):
 
         # Values that would come from the invokation of k8s-coredump-handler
         self.input_kwargs = {
-            'pid': "999999",  # %P
+            'host_pid': "999999",  # %P
             'uid': "8",  # %u
             'gid': "7",  # %g
             'signal': "6",  # %s
@@ -133,4 +133,5 @@ class BaseTestCase(TestCase):
             'comm': "process_name_for_systemd_handler",  # %e
             'hostname': "test_host",  # %h
             'comm2': "process_name_for_k8s_handler",  # %e
+            'container_pid': "123456",  # %p
         }

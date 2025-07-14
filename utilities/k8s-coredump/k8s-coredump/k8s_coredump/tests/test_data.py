@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2023 Wind River Systems, Inc.
+# Copyright (c) 2023,2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -17,12 +17,12 @@ DISK_USAGE = {'total_space': 536870912000, 'used_space': 268435456000, 'free_spa
 # Dictionary with test input values and expected values for individual test cases.
 ANNOTATIONS_EXAMPLES = [
     {
-        "starlingx.io/core_pattern": "test.core.%P.%U.%G.%S.%T.%E.%H",  # All Upper Case
+        "starlingx.io/core_pattern": "test.core.%P.%p.%u.%g.%s.%t.%e.%h",
         "starlingx.io/core_max_size": "200K",  # Test Kilobytes and Upper case
         "starlingx.io/core_compression": "lz4",  # Test compression.
         "starlingx.io/core_max_used": "20%",  # Test maximum used space
         "starlingx.io/core_min_free": "20%",
-        "expected_core_pattern": "test.core.999999.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
+        "expected_core_pattern": "test.core.999999.123456.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
         "expected_core_max_size": (200.0, config_functions.file_size_properties['k']),
         "expected_truncate_value": 0,
         # The value here is 0 because the core_max_used is 20% and the test
@@ -33,14 +33,14 @@ ANNOTATIONS_EXAMPLES = [
     {
         "starlingx.io/core_pattern": "test.core.%p.%u.%g.%s.%t.%e.%h",  # All Lower Case
         "starlingx.io/core_max_size": "20m",  # Test Megabytes and Lower case
-        "expected_core_pattern": "test.core.999999.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
+        "expected_core_pattern": "test.core.123456.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
         "expected_core_max_size": (20.0, config_functions.file_size_properties['m']),
         "expected_truncate_value": 20971520,  # 20mb in Bytes
         "coredump_file_content": "0123456789012345678901234567890123456789",
         "expected_write_content": "0123456789012345678901234567890123456789",
     },
     {
-        "starlingx.io/core_pattern": "test.core.%P.%u.%G.%s.%t.%E.%h",  # Mixed Case
+        "starlingx.io/core_pattern": "test.core.%P.%u.%g.%s.%t.%e.%h",  # Mixed Case
         "starlingx.io/core_max_size": "2G",  # Test Gigabytes
         "starlingx.io/core_min_free": "249G",
         # The test is setup to have 250gb free space, configuring 249gb as
@@ -64,14 +64,14 @@ ANNOTATIONS_EXAMPLES = [
     {
         "starlingx.io/core_pattern": "test.core.%p.%u.%g.%s.%t.%e.%h",  # All Lower Case
         "starlingx.io/core_max_size": "10b",  # Test bytes and Lower case
-        "expected_core_pattern": "test.core.999999.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
+        "expected_core_pattern": "test.core.123456.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
         "expected_core_max_size": (10.0, config_functions.file_size_properties['b']),
         "expected_truncate_value": 10,  # 10 Bytes
         "coredump_file_content": "012345678901234567890123456789",
         "expected_write_content": "0123456789",
     },
     {
-        "starlingx.io/core_pattern": "/var/log/coredump/test.core.%P.%u.%G.%s.%t.%E.%h",  # With path
+        "starlingx.io/core_pattern": "/var/log/coredump/test.core.%P.%u.%g.%s.%t.%e.%h",  # With path
         "expected_core_pattern":
             "/var/log/coredump/test.core.999999.8.7.6.1671181200.process_name_for_k8s_handler.test_host",
         "expected_truncate_value": 0,  # No size limit
@@ -112,7 +112,7 @@ MOCKED_POD_INFO = f"""
         "uid": "{MOCKED_UID}",
         "annotations":
             {{
-                "starlingx.io/core_pattern": "test.core.%P.%U.%G.%S.%T.%E.%H",
+                "starlingx.io/core_pattern": "test.core.%P.%u.%g.%s.%t.%e.%h.%p",
                 "starlingx.io/core_max_size": "200K",
                 "starlingx.io/core_compression": "lz4",
                 "starlingx.io/core_max_used": "20%",

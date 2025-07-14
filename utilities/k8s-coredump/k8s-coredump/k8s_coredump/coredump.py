@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022,2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -98,11 +98,14 @@ def _podCoreFile(pid, corefile, annotations_config):
 
 
 def CoreDumpHandler(**kwargs):
-    pid = kwargs['pid']
+    pid = kwargs['host_pid']
     uid = kwargs['uid']
     exe = kwargs['comm']
-
-    LOG.critical("Process %s (%s) of user %s dumped core." % (pid, exe, uid))
+    container_pid = kwargs['container_pid']
+    LOG.critical(
+        "Process of External PID %s / Internal PID %s (command:%s) of user %s dumped core" %
+        (pid, container_pid, exe, uid)
+    )
 
     pod = _lookupPod(pid)
     if pod:

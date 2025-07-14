@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2014-2024 Wind River Systems, Inc.
+# Copyright (c) 2014-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -619,6 +619,10 @@ function report_error()
     elif [ ${code} -eq ${FAIL_TIMEOUT_ARG} ] ; then
         cause="${FAIL_TIMEOUT_ARG_STR}"
 
+    elif [ ${code} -eq ${FAIL_ALREADY_RUNNING} ] ; then
+        cause="${FAIL_ALREADY_RUNNING_WAIT_STR}"
+        error_log=true
+
     else
         cause="${FAIL_UNSPECIFIED_CAUSE_STR}"
         error_log=true
@@ -633,6 +637,27 @@ function report_error()
     fi
     [ "${want_exit}" = true ] && collect_exit ${code}
 }
+
+function check_if_collect_is_running()
+{
+    # Looks for collect and collect_* processes. If more than one PID is avail-
+    # able, the actual instance will exit, given the application is already
+    # running on the system.
+    local filtered_pids=()
+    read -a collect_pids <<< "$(ps -eo pid,comm | grep -E 'collect$|collect_' | awk '{print $1}' | tr '\n' ' ')"
+    for pid in "${collect_pids[@]}"; do
+        if [ "$pid" != "$$" ]; then
+            filtered_pids+=("$pid")
+        fi
+    done
+
+    if [ "${#filtered_pids[@]}" -gt 1 ]; then
+        report_error "Collect is already running on this host" ${FAIL_ALREADY_RUNNING}
+        collect_exit ${FAIL_ALREADY_RUNNING}
+    fi
+}
+
+check_if_collect_is_running
 
 ###########################################################################
 #
@@ -1428,6 +1453,136 @@ EOF
         report_error "cannot collect from ${hostname} (${cause})" ${rc}
     fi
     return ${rc}
+}
+
+###########################################################################
+#
+# Name       : check_host_reachable_and_collect
+#
+# Purpose    : Verify if a host is reachable and if collect is running on it
+#
+# Parameters : $1 - remote hostname
+#
+###########################################################################
+
+function check_host_reachable_and_collect()
+{
+    local hostname=${1}
+    local ps_command="ps -eo comm | grep -F collect | grep -v collectd"
+
+    if [ "${hostname}" == "${HOSTNAME}" ] ; then
+        return ${PASS}
+    fi
+
+/usr/bin/expect << EOF
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    expect -re $
+    set timeout 60
+    send "${SSH_CMD} ${UN}@${hostname} \n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${hostname}:" {
+                    set timeout 5
+                    expect -re $
+                    send "${ps_command} > /dev/null 2>&1 && cat ${cmd_done_file}\r"
+                    expect {
+                        "${cmd_done_sig}"   { exit ${FAIL_ALREADY_RUNNING} }
+                        timeout             { exit ${PASS} }
+                    }
+                }
+                "${pw_error}"   { exit ${FAIL_PASSWORD}  }
+                timeout         { exit ${FAIL_TIMEOUT3}  }
+            }
+        }
+        "(yes/no)?" {
+            send "yes\r"
+            exp_continue
+        }
+        "No route to host" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Could not resolve hostname" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Network is unreachable" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Connection refused" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        "Connection timed out" {
+            exit ${FAIL_UNREACHABLE}
+        }
+        timeout { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+
+    return ${?}
+}
+
+###########################################################################
+#
+# Name       : check_runnable_hosts
+#
+# Purpose    : Filter HOSTLIST variable to only consider reachable hosts.
+#              In cases of reachable hosts with collect already running,
+#              warns the user and force exiting.
+#
+###########################################################################
+
+function check_runnable_hosts()
+{
+    local to_remove=()
+    for host in "${HOSTLIST[@]}" ; do
+        # Validate if host var is an non valid name. In this case, mark the
+        # item to be removed at the end of the function, avoiding problems.
+        if [ "${host}" == " " ] || [ "${host}" == "None" ] || [ "${host}" == "" ] ; then
+            to_remove+=(${host})
+            continue
+        fi
+
+        if [ "${host}" == "${HOSTNAME}" ]; then
+            continue
+        fi
+
+        # Call host validation
+        check_host_reachable_and_collect "${host}"
+        local exit_code=${?}
+        if [ ${exit_code} -eq ${PASS} ] ; then
+            continue
+        fi
+
+        # When the host has an already running collect instance, force exit
+        if [ ${exit_code} -eq ${FAIL_ALREADY_RUNNING} ] ; then
+            report_error "collect is already running on ${host}" ${FAIL_ALREADY_RUNNING}
+            collect_exit ${FAIL_ALREADY_RUNNING}
+        else
+            if [ ${exit_code} -eq ${FAIL_PERMISSION_REMOTE} ] ; then
+                cause="permissions"
+            elif [ ${exit_code} -eq ${FAIL_TIMEOUT_SSH} ] ; then
+                cause="ssh timeout"
+            elif [ ${exit_code} -eq ${FAIL_PASSWORD} ] ; then
+                cause="password error"
+            elif [ ${exit_code} -eq ${FAIL_FILE_NOT_FOUND} ] ; then
+                cause="file not found"
+            elif [ ${exit_code} -eq ${FAIL_TIMEOUT_PW} ] ; then
+                cause="password timeout"
+            else
+                cause="access"
+            fi
+
+            report_error "cannot collect from ${host} (${cause})" ${exit_code}
+            to_remove+=(${host})
+        fi
+    done
+
+    # Remove from HOSTLIST unreachable and invalid hosts
+    for host in "${to_remove[@]}" ; do
+        HOSTLIST=("${HOSTLIST[@]/$host}")
+    done
 }
 
 ###########################################################################
@@ -2422,6 +2577,10 @@ function collect_subcloud_run()
                    send "exit\r"
                    exit ${FAIL_TIMEOUT_SUBCLOUD}
                 }
+                "${COLLECT_ERROR} ${FAIL_ALREADY_RUNNING_WAIT_STR}" {
+                   send "exit\r"
+                   exit ${FAIL_ALREADY_RUNNING}
+                }
                 "${COLLECT_ERROR}" {
                    send "exit\r"
                    exit ${FAIL}
@@ -3000,77 +3159,73 @@ function collect_hosts()
     dlog "collect_hosts: [${HOSTS}] ${HOSTLIST[@]}"
     let NEXT_PROGRESS_TIME=${SECONDS}+${PROGRESS_INTERVAL}
     local report_collected_hosts=false
+
+    # Validate if host is unreachable and if the host have collect running.
+    # Unreachable hosts are removed from HOSTLIST array
+    # If any host have collect running, force exiting
+    check_runnable_hosts
+
     for host in "${HOSTLIST[@]}" ; do
-        if [ "${host}" != " " ] ; then
+        if [ "${host}" == " " ] || [ "${host}" == "" ] ; then
+            continue
+        fi
 
-            if [ "${host}" == "None" ] ; then
-                continue
-            elif [ "${host}" == "" ] ; then
-                continue
-            fi
+        HOST_START_TIME=${SECONDS}
+        TARNAME="${host}_${NOWDATE}"
 
-            check_host_reachable "${host}"
-            if [ ${?} -ne ${PASS} ] ; then
-                continue
-            fi
+        if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
 
-            HOST_START_TIME=${SECONDS}
-            TARNAME="${host}_${NOWDATE}"
+            # run collect_host in the background
+            (collect_host_run "${host}" "${TARNAME}")&
 
-            if [ "${PARALLEL_COLLECT_MODE}" = true ] ; then
+            # save the child process's pid
+            CHILD_PID=${!}
 
-                # run collect_host in the background
-                (collect_host_run "${host}" "${TARNAME}")&
+            #################################################################
+            #
+            # Add this collect_host's background child process info
+            # to the collect_host_ctrl_list
+            #
+            # collect_host_ctrl_list[index].hostname = host
+            # collect_host_ctrl_list[index].stage    = RUN
+            # collect_host_ctrl_list[index].pid      = invalid pid (-1)
+            # collect_host_ctrl_list[index].seconds  = script time in secs
+            # collect_host_ctrl_list[index].status   = default to FAIL
+            # collect_host_ctrl_list[index].tarball  = host's tarball name
+            #
+            #################################################################
+            collect_host_ctrl_list[${index}]="${host}:\
+                                                ${STAGE_RUN}:\
+                                                ${CHILD_PID}:\
+                                                ${SECONDS}:\
+                                                ${FAIL}:\
+                                                ${TARNAME}"
+            collect_host_ctrl_list_index_print ${index}
+            index=$((index+1))
 
-                # save the child process's pid
-                CHILD_PID=${!}
+        else
 
-                #################################################################
-                #
-                # Add this collect_host's background child process info
-                # to the collect_host_ctrl_list
-                #
-                # collect_host_ctrl_list[index].hostname = host
-                # collect_host_ctrl_list[index].stage    = RUN
-                # collect_host_ctrl_list[index].pid      = invalid pid (-1)
-                # collect_host_ctrl_list[index].seconds  = script time in secs
-                # collect_host_ctrl_list[index].status   = default to FAIL
-                # collect_host_ctrl_list[index].tarball  = host's tarball name
-                #
-                #################################################################
-                collect_host_ctrl_list[${index}]="${host}:\
-                                                    ${STAGE_RUN}:\
-                                                    ${CHILD_PID}:\
-                                                    ${SECONDS}:\
-                                                    ${FAIL}:\
-                                                    ${TARNAME}"
-                collect_host_ctrl_list_index_print ${index}
-                index=$((index+1))
+            collect_host_run "${host}" "${TARNAME}"
+            rc=${?}
+            if [ ${rc} -eq ${PASS} ] ; then
 
-            else
-
-                collect_host_run "${host}" "${TARNAME}"
-                rc=${?}
-                if [ ${rc} -eq ${PASS} ] ; then
-
-                    if [ "${host}" == "${HOSTNAME}" ] ; then
-                        collect_host_complete_local "${TARNAME}"
-                    else
-                        collect_host_complete_remote "${host}" "${TARNAME}"
-                    fi
-                    rc=${?}
-                    if [ ${rc} -ne ${PASS} ] ; then
-                        # handle copy error here
-                        wlog "failed to collect from ${host} (reason:${rc}:host file get)"
-                    else
-                        secs=$((SECONDS-HOST_START_TIME))
-                        echo -n "done"
-                        echo_stats $secs "${TARNAME}" "${COLLECT_DIR}/${TARNAME}.tgz"
-                        COLLECTED_COUNT=$((COLLECTED_COUNT+1))
-                    fi
+                if [ "${host}" == "${HOSTNAME}" ] ; then
+                    collect_host_complete_local "${TARNAME}"
                 else
-                    report_error "failed to collect from ${host}" ${rc}
+                    collect_host_complete_remote "${host}" "${TARNAME}"
                 fi
+                rc=${?}
+                if [ ${rc} -ne ${PASS} ] ; then
+                    # handle copy error here
+                    wlog "failed to collect from ${host} (reason:${rc}:host file get)"
+                else
+                    secs=$((SECONDS-HOST_START_TIME))
+                    echo -n "done"
+                    echo_stats $secs "${TARNAME}" "${COLLECT_DIR}/${TARNAME}.tgz"
+                    COLLECTED_COUNT=$((COLLECTED_COUNT+1))
+                fi
+            else
+                report_error "failed to collect from ${host}" ${rc}
             fi
         fi
     done
@@ -3629,6 +3784,7 @@ else
         secs=$((SECONDS-COLLECT_START_TIME))
         echo -n "done"
         echo_stats $secs "stats-only" "${TARBALL_NAME}"
+        chmod o-r ${TARBALL_NAME}
         chown_file_or_dir_local ${UN} ${TARBALL_NAME}
         log "created ${COLLECT_TYPE} tarball ${TARBALL_NAME}"
 

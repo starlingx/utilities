@@ -83,7 +83,6 @@ override_dh_auto_install:
 	install -m 755 -p collect_nfv_vim.sh $(SYSCONFDIR)/collect.d/collect_nfv_vim
 	install -m 755 -p collect_ostree.sh $(SYSCONFDIR)/collect.d/collect_ostree
 	install -m 755 -p collect_ovs.sh $(SYSCONFDIR)/collect.d/collect_ovs
-	install -m 755 -p collect_patching.sh $(SYSCONFDIR)/collect.d/collect_patching
 	install -m 755 -p collect_coredump.sh $(SYSCONFDIR)/collect.d/collect_coredump
 	install -m 755 -p collect_crash.sh $(SYSCONFDIR)/collect.d/collect_crash
 	install -m 755 -p collect_ima.sh $(SYSCONFDIR)/collect.d/collect_ima
