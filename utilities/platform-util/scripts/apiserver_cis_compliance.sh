@@ -46,8 +46,8 @@ get_current_plugins() {
 
 update_plugins_if_needed() {
     current_plugins=$(get_current_plugins)
-
-    if [[ -z "$current_plugins" ]]; then
+    param_exists=$(system service-parameter-list | grep enable-admission-plugins)
+    if [[ -z "$param_exists" ]]; then
         echo "No enable-admission-plugins set. Setting to: $EXPECTED_PLUGINS"
         system service-parameter-add kubernetes kube_apiserver enable-admission-plugins="$EXPECTED_PLUGINS"
         if [[ $? -eq 0 ]]; then
