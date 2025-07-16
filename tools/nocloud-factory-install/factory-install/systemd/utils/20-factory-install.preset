@@ -8,3 +8,5 @@ enable factory-install-setup.path
 enable factory-install-setup.service
 enable factory-install-tests.path
 enable factory-install-tests.service
+enable factory-install-backup.path
+enable factory-install-backup.service
