@@ -1622,8 +1622,30 @@ EOF
 
         # compare the log timestamp with the timestamp we got at the beginning of collect
         if [[ "${log_timestamp}" > "${LOGDATE}" ]]; then
-            echo "${line}" >> ${COLLECT_DIR}/${COLLECT_LOG}
+
+/usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
+              trap exit {SIGINT SIGTERM}
+              if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_${FUNCNAME[0]} }
+              log_user ${USER_LOG_MODE}
+              spawn bash -i
+              set timeout ${SUDO_TIMEOUT}
+              expect -re $
+              send -- "echo \"${line}\" | sudo tee -a \"${COLLECT_DIR}/${COLLECT_LOG}\" > /dev/null ; cat ${cmd_done_file}\n"
+               expect {
+                 "assword:"        { send "${pw}\r" ; exp_continue }
+                 "${cmd_done_sig}" { exit ${PASS} }
+                 "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+                 "${ac_error}"     { exit ${FAIL_PERMISSION} }
+                 timeout           { exit ${FAIL_TIMEOUT_OPERATION}    }
+              }
+EOF
+            local rc=${?}
+            if [ ${rc} -ne ${PASS} ] ; then
+               report_error "create_collect_log ${HOSTNAME} failed" ${rc}
+            fi
         fi
+
+
     done < "${temp_file}"
     rm -f "${temp_file}"
     return ${rc}
@@ -2006,9 +2028,6 @@ function chown_file_or_dir_local()
     local user=${1}
     local object=${2}
 
-    # sysadmin is an invalid group for chown
-    [ "${user}" == "sysadmin" ] && return
-
     # change the ownership to the current user
 /usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
     trap exit {SIGINT SIGTERM}
@@ -2159,6 +2178,188 @@ EOF
     if [ ${rc} -ne ${PASS} ] ; then
         report_error "failed to move_file_local ${src} to ${dst}" ${rc}
     fi
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name      : chmod_file_local
+#
+# Purpose   : Change file permissions using sudo
+#
+# Parameters: $1 - options permissions/options
+#             $2 - file file/path
+#
+###########################################################################
+
+function chmod_file_local()
+{
+    local options=${1}
+    local file=${2}
+
+/usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
+    trap exit {SIGINT SIGTERM}
+    if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_${FUNCNAME[0]} }
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout ${SUDO_TIMEOUT}
+    expect -re $
+    send -- "sudo chmod ${options} ${file} ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send -- "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT_OPERATION} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to chmod_file_local ${src} to ${dst}" ${rc}
+    fi
+    return ${rc}
+}
+
+
+###########################################################################
+#
+# Name      : copy_file_local
+#
+# Purpose   : Copy a file using sudo and then change
+#             the owner from root to the current username.
+#
+# Parameters: $1 - options
+#             $2 - src path/file
+#             $3 - dst path/file
+#
+###########################################################################
+
+function copy_file_local()
+{
+    local options=${1}
+    local src=${2}
+    local dst=${3}
+
+/usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
+    trap exit {SIGINT SIGTERM}
+    if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_${FUNCNAME[0]} }
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout ${SUDO_TIMEOUT}
+    expect -re $
+    send -- "sudo cp ${options} ${src} ${dst} ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send -- "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT_OPERATION} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to copy_file_local ${src} to ${dst}" ${rc}
+    fi
+    chown_file_or_dir_local $(whoami) ${dst}
+
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name      : create_tar_file_local
+#
+# Purpose   : Create a local tar file using sudo and then change
+#             the owner from root to the current username.
+#
+# Parameters: $1 - options
+#             $2 - dst path/file
+#             $3 - src path/file
+#
+###########################################################################
+
+function create_tar_file_local()
+{
+    local options=${1}
+    local dst=${2}
+    local src=${3}
+
+
+/usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
+    trap exit {SIGINT SIGTERM}
+    if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_${FUNCNAME[0]} }
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout ${SUDO_TIMEOUT}
+    expect -re $
+    send -- "sudo tar ${options} ${dst} ${src}  ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:"        { send -- "${pw}\r" ; exp_continue }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "annot remove"    { exit ${FAIL_CLEANUP}    }
+        "${pw_error}"     { exit ${FAIL_PASSWORD}   }
+        "${ac_error}"     { exit ${FAIL_PERMISSION} }
+        timeout           { exit ${FAIL_TIMEOUT_OPERATION} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "failed to create_tar_file_local ${src} to ${dst}" ${rc}
+    fi
+    chown_file_or_dir_local "$(whoami)" "${dst}"
+
+    return ${rc}
+}
+
+###########################################################################
+#
+# Name       : append_tar_local
+#
+# Purpose    : append to a local tarball using sudo
+#
+# Parameters: $1 - the tarball to append
+#             $2 - the files being added to the tarball
+#
+###########################################################################
+
+function append_tar_local()
+{
+    local tarball_name=${1}
+    local tarball_input_files=${2}
+
+    /usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
+    trap exit {SIGINT SIGTERM}
+    if { "${expect_debug}" != "" } { log_file ${EXPECT_LOG_FILE}_${UN}_${HOSTNAME}_${FUNCNAME[0]} }
+    log_user ${USER_LOG_MODE}
+    spawn bash -i
+    set timeout ${SUDO_TIMEOUT}
+    expect -re $
+    send "sudo ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${tarball_name} \
+        --remove-files ${tarball_input_files} ${CHECKPOINT_CMD} \
+        2>>${COLLECT_ERROR_LOG} 1>/dev/null ; cat ${cmd_done_file}\n"
+    expect {
+        "assword:" {
+            send "${pw}\r"
+            expect {
+                "${cmd_done_sig}" { exit ${PASS}           }
+                "${pw_error}"     { exit ${FAIL_PASSWORD}  }
+                "${ac_error}"     { exit ${FAIL_PERMISSION}}
+                timeout           { exit ${FAIL_TIMEOUT1}  }
+            }
+        }
+        "${cmd_done_sig}" { exit ${PASS} }
+        "${ac_error}"     { exit ${FAIL_PERMISSION}}
+        timeout           { exit ${FAIL_TIMEOUT} }
+    }
+EOF
+    local rc=${?}
+    if [ ${rc} -ne ${PASS} ] ; then
+        report_error "append_tar_local failed for {$tarball_name}" ${rc}
+        collect_exit ${rc}
+    fi
+
     return ${rc}
 }
 
@@ -2629,12 +2830,13 @@ function collect_host_complete_local()
     # create the dir again just to handle the case where we are
     # collecting on ourself and have removed the collect_dir
     # directory in collect_host above.
-    [ ! -d "${COLLECT_DIR}" ] && mkdir -p "${COLLECT_DIR}"
+    [ ! -d "${COLLECT_DIR}" ] && create_dir_local "${COLLECT_DIR}"
+    chown_file_or_dir_local "$(whoami)" "${COLLECT_DIR}"
 
     # move the tarball into the collect dir
     # only applies to the local collect since the remote
     # collect scp's it directly into the collect dir.
-    mv "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
+    move_file_local "${COLLECT_BASE_DIR}/${tarname}.tgz" "${COLLECT_DIR}"
     rc=${?}
     if [ ${rc} -eq ${PASS} ] ; then
         log "collect ${COLLECT_BASE_DIR}/${tarname}.tgz succeeded"
@@ -3108,7 +3310,8 @@ fi
 #
 ############################################################################
 
-mkdir -p "${COLLECT_DIR}"
+create_dir_local "${COLLECT_DIR}"
+chown_file_or_dir_local "$(whoami)" "${COLLECT_DIR}"
 
 declare COLLECT_START_TIME=${SECONDS}
 
@@ -3601,8 +3804,7 @@ function get_report_tool()
 
     create_dir_local "${local_dest}"
     chown_file_or_dir_local $(whoami) "${local_dest}"
-    cp -a "${local_path}" "${local_dest}"
-
+    copy_file_local  "-a" "${local_path}" "${local_dest}"
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
         wlog "failed to get report tool from ${local_path} (reason:${rc})"
@@ -3626,8 +3828,8 @@ function get_report_plugins()
 
     create_dir_local "${local_dest}"
     chown_file_or_dir_local $(whoami) "${local_dest}"
-    cp -a "${local_path}" "${local_dest}"
-
+    copy_file_local "-a" "${local_path}" "${local_dest}"
+ 
     local rc=${?}
     if [ ${rc} -ne ${PASS} ] ; then
         wlog "failed to get report tool plugins from ${local_path} (reason:${rc})"
@@ -3676,7 +3878,7 @@ else
     if [ ${HOSTS} -gt ${TIMEOUT_THRESHOLD_FACTOR} -a "${PARALLEL_COLLECT_MODE}" = true ] ; then
         # adjust overall timeout to account for the large number of hosts
         let UNTIL=$(((HOSTS*HOSTS_TIMEOUT_BOOST)+TIMEOUT))
-        ilog "adjusted hosts collect timout from ${TIMEOUT} to ${UNTIL} secs to account for ${HOSTS} hosts"
+        ilog "adjusted hosts collect timeout from ${TIMEOUT} to ${UNTIL} secs to account for ${HOSTS} hosts"
     fi
     if [ "${ALLHOSTS}" = true ] ; then
         plural=$( [ ${HOSTS} -gt 1 ] && echo 's')
@@ -3754,7 +3956,7 @@ if [ "${SUBCLOUD_COLLECT}" = false ] ; then
     fi
 
     # include the report tool in the bundle.
-    tar -czf report_tool.tgz report
+    create_tar_file_local "-czf" "report_tool.tgz" "report"
 
     # cleanup after the report tool so that the extracted collect
     # tarballs are not included in the bundling below.
@@ -3765,7 +3967,7 @@ fi
 create_collect_log
 
 echo -n "creating ${COLLECT_TYPE} tarball ${TARBALL_NAME} ... "
-(cd ${COLLECT_BASE_DIR} ; ${IONICE_CMD} ${NICE_CMD} ${TAR_CMD_APPEND} ${TARBALL_NAME} --remove-files ${COLLECT_NAME}/* ${CHECKPOINT_CMD} 2>>${COLLECT_ERROR_LOG} 1>/dev/null)
+(cd ${COLLECT_BASE_DIR} ;  append_tar_local "${TARBALL_NAME}" "${COLLECT_NAME}/*")
 rc=${?}
 if [ ${rc} -ne ${PASS} ] ; then
     collect_errors ${HOSTNAME}
@@ -3777,7 +3979,7 @@ else
         secs=$((SECONDS-COLLECT_START_TIME))
         echo -n "done"
         echo_stats $secs "stats-only" "${TARBALL_NAME}"
-        chmod o-r ${TARBALL_NAME}
+        chmod_file_local "o-r" "${TARBALL_NAME}"
         chown_file_or_dir_local ${UN} ${TARBALL_NAME}
         log "created ${COLLECT_TYPE} tarball ${TARBALL_NAME}"
 
