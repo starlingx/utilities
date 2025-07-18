@@ -40,6 +40,13 @@ function log_info {
     echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - factory-backup -") INFO: $*"
 }
 
+# Skip the execution of the system-backup script if system_mode is duplex
+system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+if [ "$system_mode" != "simplex" ]; then
+    log_info "Skipping factory backup for non-simplex system mode"
+    exit 0
+fi
+
 # TODO(ecandotti): Remove when https://bugs.launchpad.net/starlingx/+bug/2116270
 # is resolved
 if systemctl is-failed --quiet fm-api.service; then
