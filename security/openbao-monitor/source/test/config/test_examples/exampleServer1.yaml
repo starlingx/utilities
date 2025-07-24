@@ -1,0 +1,16 @@
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+OpenbaoAddresses:
+  controller-0:
+    host: controller-0
+    port: 4203
+  controller-1:
+    host: 10.13.14.4
+    port: 4203
+  worker-0:
+    host: at.node.example.com
+    port: 4203

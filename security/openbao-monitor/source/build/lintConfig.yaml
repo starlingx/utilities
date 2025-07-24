@@ -1,0 +1,15 @@
+linters-settings:
+  gocyclo:
+    min-complexity: 7
+  goconst:
+    min-occurrences: 2
+  gomoddirectives:
+    replace-local: true
+
+linters:
+  enable-all: true
+  disable:
+    - interfacer
+    - dupl
+    - depguard
+    - prealloc

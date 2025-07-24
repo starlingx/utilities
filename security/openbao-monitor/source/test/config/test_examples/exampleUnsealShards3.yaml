@@ -1,0 +1,39 @@
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+# One key has incorrect base64 encoding
+
+UnsealKeyShards:
+  sample_key_1:
+    key: "df15d06a52ce99c5eb298315d7a8f7e88c68d4be43f0f539176ac7e055ef395344"
+    key_base64: "3xXQalLOmcXrKYMV16j36Ixo1L5D8PU5F2rH4FXvOVNE"
+  sample_key_2:
+    key: "0d9aacaf7184c2b6491e0e69db0388e36eac531bab7cb9f01ccab79a3f9212c350"
+    key_base64: "DZqsr3GEwrZJHg5p2wOI426sUxurfLnwHMq3mj+SEsNQ"
+  sample_key_3:
+    key: "dff28842498b16c403747eda44882b04760985c75a911b1f51499bd37afb952b04"
+    key_base64: "3/KIQkmLFsQDdH7aRIgrBHYJhcdakRsfUUmb03r7lSsE"
+  sample_key_4:
+    key: "db7e106b1ac25248da8a0521426530cf983d8cc63f34d5001755f084b362501f4c"
+    key_base64: "234QaxrCUkjaigUhQmUwz5g9jMY/NNUAF1XwhLNiUB9M"
+  sample_key_5:
+    key: "a23d2664477cd7e1749f79fc0e62f7d0ce16c38ee4cb88524c0372b9cac87ab111"
+    key_base64: "ThisKeyHasIncorrectBase64Encoding"
+  sample_key_6:
+    key: "c8e7f8bbfd7e5eabe82bff709e657793f46fc89622e332979e733add8fd4e3d390"
+    key_base64: "yOf4u/1+XqvoK/9wnmV3k/RvyJYi4zKXnnM63Y/U49OQ"
+  sample_key_7:
+    key: "686284f3cfb4a8785bae80ddd52126dd3c21dd7ebb406705d3b6e8857cf71bb577"
+    key_base64: "aGKE88+0qHhbroDd1SEm3Twh3X67QGcF07bohXz3G7V3"
+  sample_key_8:
+    key: "d8e6d404bdd09e11a96d16044a2024ebce3cc5ee1cd828a202e573b2742cfbc641"
+    key_base64: "2ObUBL3QnhGpbRYESiAk6848xe4c2CiiAuVzsnQs+8ZB"
+  sample_key_9:
+    key: "4be0f5ab94c8f87520d877f76e513013ba5cbd31bda85f1b6070cf445b92de0ba4"
+    key_base64: "S+D1q5TI+HUg2Hf3blEwE7pcvTG9qF8bYHDPRFuS3guk"
+  sample_key_10:
+    key: "bd8be3df76479d7a87b987f4f3d8752a9d9552d889de8b96e292d0b24b3fbff86a"
+    key_base64: "vYvj33ZHnXqHuYf089h1Kp2VUtiJ3ouW4pLQsks/v/hq"

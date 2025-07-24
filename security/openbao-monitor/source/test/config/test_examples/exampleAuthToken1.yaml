@@ -1,0 +1,13 @@
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+Tokens:
+  exampleToken:
+    duration: 0
+    key: s.ACurrectRootTokenWithCorrectFormat
+  anotherExampleToken:
+    duration: 1000
+    key: b.AnotherKeyThatIsNotARootToken
