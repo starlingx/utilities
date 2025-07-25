@@ -1,6 +1,7 @@
 ARG BASE
 FROM ${BASE} AS stx-debian
-FROM docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.1-1-20250207
+
+FROM docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_18.2.2-1-20240312
 
 RUN mkdir -p /tmp/build
 WORKDIR /tmp/build
