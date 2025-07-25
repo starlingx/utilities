@@ -1,0 +1,6 @@
+CACert: /mnt/data/ca/tls.crt
+ClientCert: ""
+ClientKey: ""
+logPath: /workdir/openbao_monitor.log
+logLevel: DEBUG
+WaitInterval: 5
