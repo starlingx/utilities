@@ -5,6 +5,7 @@
         - stx-utilities-tox-linters
         - stx-utilities-tox-pep8
         - stx-utilities-tox-pylint
+        - stx-utilities-tox-go-lint
         - stx-utilities-ceph-manager-tox-bandit
         - stx-utilities-ceph-manager-tox-py39
         - stx-utilities-ceph-client-tox-bandit
@@ -17,6 +18,7 @@
         - stx-utilities-tox-linters
         - stx-utilities-tox-pep8
         - stx-utilities-tox-pylint
+        - stx-utilities-tox-go-lint
         - stx-utilities-ceph-manager-tox-bandit
         - stx-utilities-ceph-manager-tox-py39
         - stx-utilities-ceph-client-tox-bandit
@@ -50,6 +52,16 @@
     vars:
       bindep_profile: pylint
       tox_envlist: pylint
+
+- job:
+    name: stx-utilities-tox-go-lint
+    parent: golangci-lint
+    description: |
+            Run go linting for openbao-monitor
+    vars:
+      go_version: 1.24.3
+      golangci_lint_version: 2.1.6
+      zuul_work_dir: "{{ zuul.project.src_dir }}/security/openbao-monitor/source"
 
 - job:
     name: stx-utilities-upload-git-mirror
