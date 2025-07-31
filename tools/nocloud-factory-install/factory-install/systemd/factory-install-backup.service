@@ -7,7 +7,7 @@ After=factory-install-tests.service
 
 [Service]
 Type=oneshot
-User=sysadmin
+User=root
 ExecStart=/usr/bin/run-parts --verbose --exit-on-error /var/lib/factory-install/backup
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/backup
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/final
