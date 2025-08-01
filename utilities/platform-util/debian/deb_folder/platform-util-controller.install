@@ -13,3 +13,5 @@
 /usr/local/bin/enroll-init-reconfigure
 /usr/local/bin/host-cis-benchmark-apparmor-setup.sh
 /usr/local/bin/apiserver_cis_compliance.sh
+/usr/local/bin/k8s-ca-read
+/usr/local/bin/k8s-ca-read.py
