@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-OpenbaoAddresses:
+ServerAddresses:
   controller-0:
     host: controller-0
     port: 4203
