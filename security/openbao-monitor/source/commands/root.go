@@ -66,8 +66,8 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 		logLevel = "INFO"
 	}
 
-	// Set default to stdout if no log file was specified.
-	logWriter = os.Stdout
+	// Set default to stderr if no log file was specified.
+	logWriter = os.Stderr
 	if logFile != "" {
 		// Setup Logs
 		logWriter, err = os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -122,7 +122,7 @@ func cleanCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Close the log file
-	if logWriter != os.Stdout {
+	if logWriter != os.Stderr {
 		err := logWriter.Close()
 		if err != nil {
 			return fmt.Errorf("error with closing the log file: %v", err)
@@ -141,7 +141,7 @@ var RootCmd = &cobra.Command{
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
 		slog.Error(fmt.Sprintf("The monitor failed with error: %v", err))
-		if baoLogger != nil && logWriter != os.Stdout {
+		if baoLogger != nil && logWriter != os.Stderr {
 			// If logging was setup on a file, print error separately to stderr as well.
 			fmt.Fprintln(os.Stderr, err)
 		}
