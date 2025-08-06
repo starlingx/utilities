@@ -12,7 +12,7 @@ import (
 	"log/slog"
 	"os"
 
-	openbao "github.com/openbao/openbao/api/v2"
+	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -20,26 +20,26 @@ var optFileStr string
 var secretShares int
 var secretThreshold int
 
-func initializeOpenbao(dnshost string, opts *openbao.InitRequest) error {
-	slog.Debug(fmt.Sprintf("Attempting the initialize openbao on host %v", dnshost))
+func initializeServer(dnshost string, opts *clientapi.InitRequest) error {
+	slog.Debug(fmt.Sprintf("Attempting the initialize the server %v", dnshost))
 	newClient, err := globalConfig.SetupClient(dnshost)
 	if err != nil {
 		return err
 	}
 
-	slog.Debug("Checking current openbao status")
+	slog.Debug("Checking current server status")
 	healthResult, err := checkHealth(dnshost, newClient)
 	if err != nil {
 		return err
 	}
 	if healthResult.Initialized {
-		return fmt.Errorf("openbao server on host %v is already initialized", dnshost)
+		return fmt.Errorf("The server on host %v is already initialized", dnshost)
 	}
 
 	slog.Debug("Running /sys/init")
 	response, err := newClient.Sys().Init(opts)
 	if err != nil {
-		return fmt.Errorf("error during call to openbao init: %v", err)
+		return fmt.Errorf("error during call to init: %v", err)
 	}
 
 	slog.Debug("/sys/init complete")
@@ -53,8 +53,8 @@ func initializeOpenbao(dnshost string, opts *openbao.InitRequest) error {
 
 var initCmd = &cobra.Command{
 	Use:   "init DNSHost",
-	Short: "Initialize openbao",
-	Long: `Initialize openbao server using the monitor configurations.
+	Short: "Initialize the server",
+	Long: `Initialize the server using the monitor configurations.
 The key shards returned from the initResponse will be stored in the monitor
 configurations.`,
 	Args:              cobra.ExactArgs(1),
@@ -67,13 +67,13 @@ configurations.`,
 
 		if (fileGiven && (secretSharesFlag || secretThresholdFlag)) ||
 			(!fileGiven && !(secretSharesFlag && secretThresholdFlag)) {
-			fmt.Fprintf(os.Stderr, "The options for openbao init must be set by one of:\n")
+			fmt.Fprintf(os.Stderr, "The options for init must be set by one of:\n")
 			fmt.Fprintf(os.Stderr, "utilizing an option file using --file, or\n")
 			fmt.Fprintf(os.Stderr, "--secret-shares and -- secret-threshold\n")
 			return fmt.Errorf("failed due to invalid or missing options")
 		}
 
-		var opts openbao.InitRequest
+		var opts clientapi.InitRequest
 		if fileGiven {
 			optFileReader, err := os.ReadFile(optFileStr)
 			if err != nil {
@@ -96,21 +96,21 @@ configurations.`,
 			opts.SecretShares = secretShares
 			opts.SecretThreshold = secretThreshold
 		}
-		slog.Debug(fmt.Sprintf("Parsing init option successful. Attempting to run openbao init on host %v", args[0]))
+		slog.Debug(fmt.Sprintf("Parsing init option successful. Attempting to run init on host %v", args[0]))
 		cmd.SilenceUsage = true
-		err := initializeOpenbao(args[0], &opts)
+		err := initializeServer(args[0], &opts)
 		if err != nil {
-			return fmt.Errorf("openbao init failed with error: %v", err)
+			return fmt.Errorf("Init failed with error: %v", err)
 		}
-		slog.Info(fmt.Sprintf("Openbao init successful for host %v", args[0]))
-		fmt.Print("Openbao init complete\n")
+		slog.Info(fmt.Sprintf("Init successful for host %v", args[0]))
+		fmt.Print("Init complete\n")
 		return nil
 	},
 	PersistentPostRunE: cleanCmd,
 }
 
 func init() {
-	initCmd.Flags().StringVarP(&optFileStr, "file", "f", "", "A JSON file containing the options for openbao init")
+	initCmd.Flags().StringVarP(&optFileStr, "file", "f", "", "A JSON file containing the options for init")
 	initCmd.Flags().IntVar(&secretShares, "secret-shares", 0, "The number of shares to split the root key into.")
 	initCmd.Flags().IntVar(&secretThreshold, "secret-threshold", 0, "The number of shares required to reconstruct the root key.")
 	RootCmd.AddCommand(initCmd)

@@ -7,7 +7,7 @@ import (
 	"maps"
 	"time"
 
-	openbao "github.com/openbao/openbao/api/v2"
+	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 )
@@ -16,8 +16,8 @@ var waitInterval int
 
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "keep unsealing openbao",
-	Long: `Run a loop which detects if the openbao server is sealed, then if it is
+	Short: "keep unsealing the servers",
+	Long: `Run a loop which detects if any servers are sealed, then if any are
 attempt to unseal.`,
 	PersistentPreRunE:  setupCmd,
 	PersistentPostRunE: cleanCmd,
@@ -47,9 +47,9 @@ attempt to unseal.`,
 				}
 			}
 
-			slog.Debug("Creating api clients for each openbao addresses..")
-			clientMap := make(map[string]*openbao.Client, len(globalConfig.OpenbaoAddresses))
-			for host := range maps.Keys(globalConfig.OpenbaoAddresses) {
+			slog.Debug("Creating api clients for each server addresses..")
+			clientMap := make(map[string]*clientapi.Client, len(globalConfig.ServerAddresses))
+			for host := range maps.Keys(globalConfig.ServerAddresses) {
 				slog.Debug(fmt.Sprintf("Creating client for host %v", host))
 				newClient, err := globalConfig.SetupClient(host)
 				if err != nil {
@@ -73,14 +73,14 @@ attempt to unseal.`,
 				}
 				slog.Debug(fmt.Sprintf("health check result: %v", string(healthPrint)))
 				if healthStatus.Sealed {
-					slog.Info(fmt.Sprintf("Openbao is sealed on host %v. Attempting to unseal.", host))
+					slog.Info(fmt.Sprintf("Server is sealed on host %v. Attempting to unseal.", host))
 					_, err := runUnseal(host, client)
 					if err != nil {
 						slog.Error(fmt.Sprintf("error occured during unseal on host %v: %v", host, err))
 						continue
 					}
 				}
-				slog.Debug(fmt.Sprintf("Openbao on host %v is unsealed", host))
+				slog.Debug(fmt.Sprintf("Server on host %v is unsealed", host))
 			}
 			slog.Debug(fmt.Sprintf("Unseal check complete. Waiting %v seconds until the next check...", waitInterval))
 			time.Sleep(time.Duration(waitInterval) * time.Second)

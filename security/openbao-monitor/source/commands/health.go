@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 
-	openbao "github.com/openbao/openbao/api/v2"
+	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 )
 
-func checkHealth(dnshost string, client *openbao.Client) (*openbao.HealthResponse, error) {
-	slog.Debug(fmt.Sprintf("Attempting to check openbao health on host %v", dnshost))
+func checkHealth(dnshost string, client *clientapi.Client) (*clientapi.HealthResponse, error) {
+	slog.Debug(fmt.Sprintf("Attempting to check health on host %v", dnshost))
 	healthResult, err := client.Sys().Health()
 	if err != nil {
-		return nil, fmt.Errorf("error during call to openbao check health: %v", err)
+		return nil, fmt.Errorf("error during call to check health: %v", err)
 	}
 
 	slog.Debug("health check complete")
@@ -22,8 +22,8 @@ func checkHealth(dnshost string, client *openbao.Client) (*openbao.HealthRespons
 
 var healthCmd = &cobra.Command{
 	Use:                "health DNSHost",
-	Short:              "Check openbao health",
-	Long:               "Check the health status of the openbao server on the specified host",
+	Short:              "Check server health",
+	Long:               "Check the health status of the server on the specified host",
 	Args:               cobra.ExactArgs(1),
 	PersistentPreRunE:  setupCmd,
 	PersistentPostRunE: cleanCmd,
@@ -33,11 +33,11 @@ var healthCmd = &cobra.Command{
 		cmd.SilenceUsage = true
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
-			return fmt.Errorf("openbao health failed with error: %v", err)
+			return fmt.Errorf("server health failed with error: %v", err)
 		}
 		healthResult, err := checkHealth(args[0], newClient)
 		if err != nil {
-			return fmt.Errorf("openbao health failed with error: %v", err)
+			return fmt.Errorf("server health failed with error: %v", err)
 		}
 		healthPrint, err := json.MarshalIndent(healthResult, "", "  ")
 		if err != nil {

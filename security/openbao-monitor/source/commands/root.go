@@ -30,13 +30,13 @@ func getK8sConfig() (*rest.Config, error) {
 	var err error = nil
 	slog.Debug("Setting up kubernetes config...")
 	if useInClusterConfig {
-		slog.Debug("Baomon is running inside the kubernetes cluster. Using in-cluster configs.")
+		slog.Debug("The monitor is running inside the kubernetes cluster. Using in-cluster configs.")
 		config, err = rest.InClusterConfig()
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		slog.Debug(fmt.Sprintf("Baomon is running outside the kubernetes cluster. Using configs from %v", kubeConfigPath))
+		slog.Debug(fmt.Sprintf("The monitor is running outside the kubernetes cluster. Using configs from %v", kubeConfigPath))
 		config, err = clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 		if err != nil {
 			return nil, err
@@ -85,7 +85,7 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 	slog.Debug(fmt.Sprintf("Set log level: %v", logLevel))
 
 	// If useK8sConfig is set to true, then it will override the following configs:
-	// OpenbaoAddresses, Tokens, UnsealKeyShards
+	// ServerAddresses, Tokens, UnsealKeyShards
 	if useK8sConfig {
 		// create client config
 		config, err := getK8sConfig()
@@ -134,13 +134,13 @@ func cleanCmd(cmd *cobra.Command, args []string) error {
 
 var RootCmd = &cobra.Command{
 	Use:   "baomon",
-	Short: "A monitor service for managing Openbao in StarlingX",
-	Long:  `A monitor service for managing Openbao servers in StarlingX systems.`,
+	Short: "A monitor service for managing the secret servers",
+	Long:  `A monitor service for managing the secret servers`,
 }
 
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		slog.Error(fmt.Sprintf("Baomon failed with error: %v", err))
+		slog.Error(fmt.Sprintf("The monitor failed with error: %v", err))
 		if baoLogger != nil && logWriter != os.Stdout {
 			// If logging was setup on a file, print error separately to stderr as well.
 			fmt.Fprintln(os.Stderr, err)
@@ -153,9 +153,9 @@ func init() {
 	// Declarations for global flags
 	RootCmd.PersistentFlags().StringVar(&configFile, "config",
 		"/workdir/testConfig.yaml", "file path to the monitor config file")
-	RootCmd.PersistentFlags().BoolVar(&useK8sConfig, "k8s", false, "use openbao configs from kubernetes instead")
+	RootCmd.PersistentFlags().BoolVar(&useK8sConfig, "k8s", false, "use configs from kubernetes instead")
 	RootCmd.PersistentFlags().BoolVar(&useInClusterConfig, "in-cluster", true,
-		"Set this to true if baomon is run in a kubernetes pod")
+		"Set this to true if the monitor is run in a kubernetes pod")
 	RootCmd.PersistentFlags().StringVar(&kubeConfigPath, "kubeconfig", "/etc/kubernetes/admin.conf",
 		"The path for kubernetes config file (KUBECONFIG)")
 }

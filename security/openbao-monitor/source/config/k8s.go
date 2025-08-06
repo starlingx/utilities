@@ -14,7 +14,7 @@ import (
 )
 
 // Default values in case the values are not included in the config
-var openbaoNamespace string = "openbao"
+var k8sNamespace string = "openbao"
 var podPort int = 8200
 var podPrefix string = "stx-openbao"
 var podAddressSuffix string = "pod.cluster.local"
@@ -27,10 +27,10 @@ type keySecret struct {
 
 // Get list of DNS names fro k8s pods
 func (configInstance *MonitorConfig) MigratePodConfig(config *rest.Config) error {
-	slog.Debug("Migrating openbao addresses from kubernetes openbao server pods")
+	slog.Debug("Migrating server addresses from kubernetes server pods")
 	// Use the settings from config if they aren't empty
 	if configInstance.Namespace != "" {
-		openbaoNamespace = configInstance.Namespace
+		k8sNamespace = configInstance.Namespace
 	}
 	if configInstance.DefaultPort != 0 {
 		podPort = configInstance.DefaultPort
@@ -54,44 +54,44 @@ func (configInstance *MonitorConfig) MigratePodConfig(config *rest.Config) error
 	coreClient := clientset.CoreV1()
 	ctx := context.Background()
 
-	slog.Debug("Accessing openbao server pods for the addresses...")
+	slog.Debug("Accessing the server pods for the addresses...")
 	// get pod list
-	pods, err := coreClient.Pods(openbaoNamespace).List(ctx, metaV1.ListOptions{})
+	pods, err := coreClient.Pods(k8sNamespace).List(ctx, metaV1.ListOptions{})
 	if err != nil {
 		return err
 	}
 
 	// clear existing DNS names
-	configInstance.OpenbaoAddresses = make(map[string]OpenbaoAddress)
+	configInstance.ServerAddresses = make(map[string]ServerAddress)
 
-	// Use pod and its ip to fill in the "OpenbaoAddresses" section
+	// Use pod and its ip to fill in the "ServerAddresses" section
 	r, _ := regexp.Compile(fmt.Sprintf("%v-\\d$", podPrefix))
 	for _, pod := range pods.Items {
 		podName := pod.ObjectMeta.Name
 		if r.Match([]byte(podName)) {
 			podIP := pod.Status.PodIP
-			podURL := fmt.Sprintf("%v.%v.%v", strings.ReplaceAll(podIP, ".", "-"), openbaoNamespace, podAddressSuffix)
-			configInstance.OpenbaoAddresses[podName] = OpenbaoAddress{podURL, podPort}
+			podURL := fmt.Sprintf("%v.%v.%v", strings.ReplaceAll(podIP, ".", "-"), k8sNamespace, podAddressSuffix)
+			configInstance.ServerAddresses[podName] = ServerAddress{podURL, podPort}
 		}
 	}
 	slog.Debug("All addresses obtained.")
 
-	// Validate input for OpenbaoAddresses
+	// Validate input for ServerAddresses
 	err = configInstance.validateDNS()
 	if err != nil {
 		return err
 	}
 
-	slog.Debug("Openbao address migration complete.")
+	slog.Debug("Server address migration complete.")
 	return nil
 }
 
 // Get root token and unseal key shards from k8s secrets
 func (configInstance *MonitorConfig) MigrateSecretConfig(config *rest.Config) error {
-	slog.Debug("Migrating root-token and unseal key shards from openbao kubernetes secrets")
+	slog.Debug("Migrating root-token and unseal key shards from kubernetes secrets")
 	// Use the settings from config if they aren't empty
 	if configInstance.Namespace != "" {
-		openbaoNamespace = configInstance.Namespace
+		k8sNamespace = configInstance.Namespace
 	}
 	if configInstance.SecretPrefix != "" {
 		secretPrefix = configInstance.SecretPrefix
@@ -106,11 +106,11 @@ func (configInstance *MonitorConfig) MigrateSecretConfig(config *rest.Config) er
 	slog.Debug("Setting up kubernetes client complete")
 
 	// client for secret
-	secretClient := clientset.CoreV1().Secrets(openbaoNamespace)
+	secretClient := clientset.CoreV1().Secrets(k8sNamespace)
 
 	ctx := context.Background()
 
-	slog.Debug("Accessing openbao secrets for the info...")
+	slog.Debug("Accessing k8s secrets for the info...")
 	// get secrets list
 	secrets, err := secretClient.List(ctx, metaV1.ListOptions{})
 	if err != nil {

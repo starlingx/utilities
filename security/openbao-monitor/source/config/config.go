@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/go-yaml/yaml"
-	openbao "github.com/openbao/openbao/api/v2"
+	clientapi "github.com/openbao/openbao/api/v2"
 )
 
-type OpenbaoAddress struct {
+type ServerAddress struct {
 	Host string `yaml:"host"`
 	Port int    `yaml:"port"`
 }
@@ -36,8 +36,8 @@ type KeyShards struct {
 type MonitorConfig struct {
 	// A map value listing all DNS names
 	// Key: Domain name
-	// Value: OpenbaoAddress. consisting of host address and port number
-	OpenbaoAddresses map[string]OpenbaoAddress `yaml:"OpenbaoAddresses"`
+	// Value: ServerAddress. consisting of host address and port number
+	ServerAddresses map[string]ServerAddress `yaml:"ServerAddresses"`
 
 	// A map value listing all authentication tokens
 	// Key: release id
@@ -50,7 +50,7 @@ type MonitorConfig struct {
 	UnsealKeyShards map[string]KeyShards `yaml:"UnsealKeyShards"`
 
 	// A string of path to the PEM-encoded CA cert file to use to verify
-	// Openbao's server SSL certificate
+	// The server's SSL certificate
 	// Leave this empty if using the default CA cert file location
 	CACert string `yaml:"CACert"`
 
@@ -72,13 +72,12 @@ type MonitorConfig struct {
 	// If neither is supplied, then default time of 5 seconds will be used.
 	WaitInterval int `yaml:"WaitInterval"`
 
-	// Time, in seconds, the openbao client will wait for each request before
+	// Time, in seconds, the client will wait for each request before
 	// returning timeout exceeded error.
 	// Set this value in negative to use the default value of 60 seconds.
 	Timeout int `yaml:"Timeout"`
 
-	// Namespace used for openbao.
-	// Default is "openbao"
+	// Namespace used for the k8s application.
 	Namespace string `yaml:"Namespace"`
 
 	// Default port for all addresses.
@@ -87,8 +86,7 @@ type MonitorConfig struct {
 	// Default value is always 8200
 	DefaultPort int `yaml:"DefaultPort"`
 
-	// Prefix string used to find all openbao server pods
-	// Default is "stx-openbao"
+	// Prefix string used to find all server pods
 	PodPrefix string `yaml:"PodPrefix"`
 
 	// Suffix string for all generated pod addresses
@@ -119,14 +117,14 @@ func (configInstance *MonitorConfig) ReadYAMLMonitorConfig(in io.Reader) error {
 	}
 
 	// Fill in empty ports
-	for dnsname, addr := range configInstance.OpenbaoAddresses {
+	for dnsname, addr := range configInstance.ServerAddresses {
 		if addr.Port == 0 {
 			addr.Port = configInstance.DefaultPort
-			configInstance.OpenbaoAddresses[dnsname] = addr
+			configInstance.ServerAddresses[dnsname] = addr
 		}
 	}
 
-	// Validate YAML input for OpenbaoAddresses
+	// Validate YAML input for ServerAddresses
 	err = configInstance.validateDNS()
 	if err != nil {
 		return err
@@ -175,30 +173,30 @@ func (configInstance MonitorConfig) WriteYAMLMonitorConfig(out io.Writer) error 
 	return nil
 }
 
-// Create a new openbao config based on the monitor config
-func (configInstance MonitorConfig) NewOpenbaoConfig(dnshost string) (*openbao.Config, error) {
+// Create a new config based on the monitor config
+func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config, error) {
 	slog.Debug(fmt.Sprintf("Setting up api access config for host %v", dnshost))
-	defConfig := openbao.DefaultConfig()
+	defConfig := clientapi.DefaultConfig()
 
 	// Check if DefaultConfig has issues
 	if defConfig.Error != nil {
-		return defConfig, fmt.Errorf("issue found in openbao default config: %v", defConfig.Error)
+		return defConfig, fmt.Errorf("issue found in default config: %v", defConfig.Error)
 	}
-	slog.Debug("No issues found in retrieving openbao default config.")
+	slog.Debug("No issues found in retrieving default config.")
 
-	// Check if there is a domain name listed under OpenbaoAddresses
-	dnsAddr, ok := configInstance.OpenbaoAddresses[dnshost]
+	// Check if there is a domain name listed under ServerAddresses
+	dnsAddr, ok := configInstance.ServerAddresses[dnshost]
 	if !ok {
 		return defConfig, fmt.Errorf("unable to find %v under the list of available DNS names", dnshost)
 	}
 
-	// Set the DNS address as the address to openbao
+	// Set the DNS address as the configured address for the server
 	defConfig.Address = strings.Join([]string{"https://", dnsAddr.Host, ":", strconv.Itoa(dnsAddr.Port)}, "")
 
-	slog.Debug(fmt.Sprintf("Openbao address set to %v", defConfig.Address))
+	slog.Debug(fmt.Sprintf("Server address set to %v", defConfig.Address))
 
-	// Apply CACert entry to openbao config
-	var newTLSconfig openbao.TLSConfig
+	// Apply CACert entry to the config
+	var newTLSconfig clientapi.TLSConfig
 	slog.Debug("Applying the following cert configs:")
 	slog.Debug(fmt.Sprintf("CACert: %v", configInstance.CACert))
 	slog.Debug(fmt.Sprintf("ClientCert: %v", configInstance.ClientCert))
@@ -211,7 +209,7 @@ func (configInstance MonitorConfig) NewOpenbaoConfig(dnshost string) (*openbao.C
 	// This does nothing if newTLSconfig is empty
 	err := defConfig.ConfigureTLS(&newTLSconfig)
 	if err != nil {
-		return defConfig, fmt.Errorf("error with configuring TLS for openbao: %v", err)
+		return defConfig, fmt.Errorf("error with configuring TLS: %v", err)
 	}
 
 	slog.Debug("Configuring TLS successful")
@@ -221,22 +219,22 @@ func (configInstance MonitorConfig) NewOpenbaoConfig(dnshost string) (*openbao.C
 		defConfig.Timeout = time.Duration(configInstance.Timeout) * time.Second
 	}
 
-	slog.Debug("Openbao api access config setup complete.")
+	slog.Debug("API access config setup complete.")
 	// Config creation complete.
 	return defConfig, nil
 }
 
-func (configInstance MonitorConfig) SetupClient(dnshost string) (*openbao.Client, error) {
+func (configInstance MonitorConfig) SetupClient(dnshost string) (*clientapi.Client, error) {
 	slog.Debug(fmt.Sprintf("Setting up client for host %v", dnshost))
-	newConfig, err := configInstance.NewOpenbaoConfig(dnshost)
+	newConfig, err := configInstance.NewConfig(dnshost)
 	if err != nil {
-		return nil, fmt.Errorf("error in creating new config for openbao: %v", err)
+		return nil, fmt.Errorf("error in creating new config: %v", err)
 	}
 
-	slog.Debug("Creating Openbao client for API access...")
-	newClient, err := openbao.NewClient(newConfig)
+	slog.Debug("Creating client for API access...")
+	newClient, err := clientapi.NewClient(newConfig)
 	if err != nil {
-		return nil, fmt.Errorf("error in creating new client for openbao: %v", err)
+		return nil, fmt.Errorf("error in creating new client: %v", err)
 	}
 
 	slog.Debug("Client setup complete.")
@@ -244,7 +242,7 @@ func (configInstance MonitorConfig) SetupClient(dnshost string) (*openbao.Client
 }
 
 // Parse the new keys from the init responce into the monitor config
-func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce *openbao.InitResponse) error {
+func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce *clientapi.InitResponse) error {
 	slog.Debug("Parsing response from /sys/init to monitor configs")
 
 	keyShardheader := strings.Join([]string{"key", "shard", dnshost}, "-")
