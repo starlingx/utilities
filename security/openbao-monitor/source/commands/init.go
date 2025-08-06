@@ -103,7 +103,6 @@ configurations.`,
 			return fmt.Errorf("Init failed with error: %v", err)
 		}
 		slog.Info(fmt.Sprintf("Init successful for host %v", args[0]))
-		fmt.Print("Init complete\n")
 		return nil
 	},
 	PersistentPostRunE: cleanCmd,
