@@ -124,8 +124,8 @@ run_command() {
 }
 
 
-echo "Waiting for sometime for the  changes to take effect ..."
-sleep 10
+echo "Waiting for 30 seconds for the changes to take effect..."
+sleep 30
 CURRENT_PLUGINS=$(sudo grep -oP -- '--enable-admission-plugins=\K[^"]+' "$MANIFEST_FILE")
 
 if [[ "$CURRENT_PLUGINS" == *"$EXPECTED_PLUGINS"* ]]; then
