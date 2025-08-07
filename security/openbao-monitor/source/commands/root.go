@@ -60,11 +60,7 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 
 	// Set default configuration for logs if no custum configs are given
 	logFile := globalConfig.LogPath
-	logLevel := globalConfig.LogLevel
-	if logLevel == "" {
-		// Default log level if no log level was set
-		logLevel = "INFO"
-	}
+	logLevel := globalConfig.InterpretLogLevel()
 
 	// Set default to stderr if no log file was specified.
 	logWriter = os.Stderr

@@ -65,6 +65,7 @@ type MonitorConfig struct {
 
 	// The default log level
 	// Available log levels: DEBUG, INFO, WARN and ERROR
+	// Accepts numeric values matching helm chart log levels (4-5 are interpreted as ERROR)
 	LogLevel string `yaml:"logLevel"`
 
 	// The time in seconds waited between each unseal check in the run command.
@@ -294,4 +295,27 @@ func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce 
 
 	slog.Debug("Parsing init response complete")
 	return nil
+}
+
+// Interpret numeric or text log level
+// Always returns a log level in string format
+func (configInstance *MonitorConfig) InterpretLogLevel() string {
+	// Check if the log level is a number
+	if converted, err := strconv.Atoi(configInstance.LogLevel); err == nil {
+		if level, exists := availableLogLevels[converted]; exists {
+			return level
+		}
+
+		// error, but this code should not be reached if validateLogConfig works
+		fmt.Errorf("the numeric LogLevel %v is not a valid log level", configInstance.LogLevel)
+		return "INFO" // Default to INFO if the numeric level is invalid
+	}
+
+	// Default to INFO if no log level was set
+	if configInstance.LogLevel == "" {
+		return "INFO"
+	}
+
+	// validateLogConfig already validated the LogLevel
+	return configInstance.LogLevel
 }

@@ -6,8 +6,17 @@ import (
 	"os"
 	"path"
 	"regexp"
-	"slices"
+	"strconv"
 )
+
+// Available log levels; these should match the levels available in helm chart
+var availableLogLevels = map[int]string{
+		1: "DEBUG",
+		2: "INFO",
+		3: "WARN",
+		4: "ERROR",
+		5: "ERROR",
+}
 
 func (configInstance MonitorConfig) validateDNS() error {
 	for domain_name, url := range configInstance.ServerAddresses {
@@ -63,6 +72,8 @@ func (configInstance MonitorConfig) validateKeyShards() error {
 }
 
 func (configInstance MonitorConfig) validateLogConfig() error {
+	var found bool = false
+
 	if configInstance.LogPath != "" {
 		_, err := os.Stat(path.Dir(configInstance.LogPath))
 		if err != nil {
@@ -71,10 +82,27 @@ func (configInstance MonitorConfig) validateLogConfig() error {
 		}
 	}
 	if configInstance.LogLevel != "" {
-		availableLogLevels := []string{"DEBUG", "INFO", "WARN", "ERROR"}
-		if !slices.Contains(availableLogLevels, configInstance.LogLevel) {
-			return fmt.Errorf(
-				"the listed LogLevel %v is not a valid log level", configInstance.LogLevel)
+		if converted, err := strconv.Atoi(configInstance.LogLevel); err == nil {
+			// convert the numeric log level to string
+			if _, exists := availableLogLevels[converted]; exists {
+				// pass, Accept the numeric LogLevel
+			} else {
+				return fmt.Errorf(
+					"the numeric LogLevel %v is not a valid log level", configInstance.LogLevel)
+			}
+		} else {
+			// Check if the LogLevel is one of the available log levels
+			for _, value := range availableLogLevels {
+				if value == configInstance.LogLevel {
+					// Accept LogLevel
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf(
+					"the listed LogLevel %v is not a valid log level", configInstance.LogLevel)
+			}
 		}
 	}
 
