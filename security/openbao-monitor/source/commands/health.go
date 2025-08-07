@@ -44,7 +44,6 @@ var healthCmd = &cobra.Command{
 			return fmt.Errorf("unable to marshal health check result: %v", err)
 		}
 		slog.Info(fmt.Sprintf("Health check command successful for host %v", args[0]))
-		fmt.Print("Health check successful. Result:\n")
 		fmt.Print(string(healthPrint))
 
 		return nil
