@@ -105,6 +105,22 @@ configurations.`,
 		slog.Info(fmt.Sprintf("Init successful for host %v", args[0]))
 		return nil
 	},
+	PostRunE: func(cmd *cobra.Command, args []string) error {
+		if useK8sConfig {
+			// create client config
+			config, err := getK8sConfig()
+			if err != nil {
+				return err
+			}
+
+			// Store only the token & key shard info gained from init
+			err = globalConfig.StoreSecretConfig(config)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	},
 	PersistentPostRunE: cleanCmd,
 }
 

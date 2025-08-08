@@ -101,7 +101,6 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 
 func cleanCmd(cmd *cobra.Command, args []string) error {
 	slog.Debug("Running cleanup...")
-	// Write back to configs from file only
 	if !useK8sConfig {
 		configWriter, err := os.OpenFile(configFile, os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
