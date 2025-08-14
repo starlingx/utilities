@@ -53,12 +53,42 @@ ENDUSAGE
 # IPMI event types
 readonly EVENT_FACTORY_SETUP_COMPLETE="factory_setup_complete"
 readonly EVENT_FACTORY_SETUP_FAILED="factory_setup_failed"
+
+readonly EVENT_APISERVER_CERT_OK="apiserver_cert_ok"
+readonly EVENT_RENEW_FAIL_KUBECTL="renew_fail_kubectl"
+readonly EVENT_RENEW_FAIL_PODS="renew_fail_pods"
+readonly EVENT_LEAF_CERTS_RENEW_FAIL="leaf_certs_renew_fail"
+readonly EVENT_CERTMANAGER_CERTS_FAIL="certmanager_certs_fail"
+
+readonly EVENT_MANUAL_CAS_OK="k8s_frontproxy_etcd_certs_ok"
+readonly EVENT_MANUAL_CA_K8S_FP_FAIL="k8s_frontproxy_certs_fail"
+readonly EVENT_MANUAL_CA_ETCD_FAIL="etcd_cert_fail"
+readonly EVENT_MANUAL_CAS_BOTH_FAIL="k8s_frontproxy_etcd_certs_fail"
+
+readonly EVENT_SLOCAL_CA_OK="slocal_ca_cert_ok"
+readonly EVENT_SLOCAL_CA_FAIL="slocal_ca_cert_fail"
+
 readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="platform_cloudinit_update_complete"
 readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED="platform_cloudinit_update_failed"
 
 # IPMI payloads (data bytes)
 readonly DATA_FACTORY_SETUP_COMPLETE="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe0 # \"Factory Setup Complete\""
 readonly DATA_FACTORY_SETUP_FAILED="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe1 # \"Factory Setup Failed\""
+
+readonly DATA_APISERVER_CERT_OK="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe2 # \"ApiServer Cert Valid\""
+readonly DATA_LEAF_CERTS_RENEW_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe3 # \"K8S Leaf Certs Renew Failed\""
+readonly DATA_RENEW_FAIL_PODS="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe8 # \"Pods Cert Renew Failed\""
+readonly DATA_CERTMANAGER_CERTS_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xef # \"Cert-manager Secrets Renew Failed\""
+readonly DATA_RENEW_FAIL_KUBECTL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xf0 # \"Kubectl Cert Renew Failed\""
+
+readonly DATA_MANUAL_CAS_OK="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe9 # \"Manual CA Certs Valid\""
+readonly DATA_MANUAL_CA_K8S_FP_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xec # \"K8S/Front-proxy Cert Expired\""
+readonly DATA_MANUAL_CA_ETCD_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xed # \"ETCD CA Cert Expired\""
+readonly DATA_MANUAL_CAS_BOTH_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xee # \"ETCD CA and K8S/Front-proxy Certs Expired\""
+
+readonly DATA_SLOCAL_CA_OK="0x04 0xF0 0x01 0x6f 0xff 0xff 0xea # \"System-local-ca Cert Valid\""
+readonly DATA_SLOCAL_CA_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xeb # \"System-local-ca Cert Expired\""
+
 readonly DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe4 # \"Platform Cloud-init Update Complete\""
 readonly DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe5 # \"Platform Cloud-init Update Failed\""
 
@@ -88,6 +118,21 @@ function send_ipmi_event {
     case "$event_type" in
         "$EVENT_FACTORY_SETUP_COMPLETE")            event_data="$DATA_FACTORY_SETUP_COMPLETE" ;;
         "$EVENT_FACTORY_SETUP_FAILED")              event_data="$DATA_FACTORY_SETUP_FAILED" ;;
+
+        "$EVENT_APISERVER_CERT_OK")                 event_data="$DATA_APISERVER_CERT_OK" ;;
+        "$EVENT_RENEW_FAIL_KUBECTL")                event_data="$DATA_RENEW_FAIL_KUBECTL" ;;
+        "$EVENT_RENEW_FAIL_PODS")                   event_data="$DATA_RENEW_FAIL_PODS" ;;
+        "$EVENT_LEAF_CERTS_RENEW_FAIL")             event_data="$DATA_LEAF_CERTS_RENEW_FAIL" ;;
+        "$EVENT_CERTMANAGER_CERTS_FAIL")            event_data="$DATA_CERTMANAGER_CERTS_FAIL" ;;
+
+        "$EVENT_MANUAL_CAS_OK")                     event_data="$DATA_MANUAL_CAS_OK" ;;
+        "$EVENT_MANUAL_CA_K8S_FP_FAIL")             event_data="$DATA_MANUAL_CA_K8S_FP_FAIL" ;;
+        "$EVENT_MANUAL_CA_ETCD_FAIL")               event_data="$DATA_MANUAL_CA_ETCD_FAIL" ;;
+        "$EVENT_MANUAL_CAS_BOTH_FAIL")              event_data="$DATA_MANUAL_CAS_BOTH_FAIL" ;;
+
+        "$EVENT_SLOCAL_CA_OK")                      event_data="$DATA_SLOCAL_CA_OK" ;;
+        "$EVENT_SLOCAL_CA_FAIL")                    event_data="$DATA_SLOCAL_CA_FAIL" ;;
+
         "$EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE") event_data="$DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE" ;;
         "$EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED")   event_data="$DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED" ;;
         *)
@@ -457,6 +502,239 @@ function reconfigure_password {
     check_rc_die $? "chpasswd failed"
 }
 
+
+APISERVER_CERT="/etc/kubernetes/pki/apiserver.crt"
+KUBECONFIG="/etc/kubernetes/admin.conf"
+RETRY_COUNT=10
+RETRY_SLEEP=15
+NAMESPACES=("cert-manager" "flux-helm" "kube-system")
+NODE_FILTER="controller-0"
+
+check_apiserver_cert() {
+    log_info "Checking apiserver certificate (${APISERVER_CERT}), threshold=${CERT_CHECKEND_DAYS} days..."
+    if _cert_valid_for_threshold "${APISERVER_CERT}"; then
+        log_info "OK: apiserver certificate valid for >= ${CERT_CHECKEND_DAYS} days."
+        return 0
+    fi
+    log_warn "apiserver cert expired or expiring in < ${CERT_CHECKEND_DAYS} days."
+    return 1
+}
+
+run_kube_cert_rotation() {
+    if [ -x /usr/bin/kube-cert-rotation.sh ]; then
+        log_info "Running /usr/bin/kube-cert-rotation.sh..."
+        bash -x /usr/bin/kube-cert-rotation.sh
+    else
+        log_info "/usr/bin/kube-cert-rotation.sh not present; skipping."
+    fi
+}
+
+recover_kubelet_cert() {
+    log_info "Recovering kubelet client certificate..."
+    WORKDIR="/home/sysadmin/kubelet"
+    mkdir -p "$WORKDIR"
+    cd "$WORKDIR" || return 1
+
+    cat <<'EOF' > controller-0_csr.conf
+[req]
+prompt = no
+x509_extensions = v3_req
+distinguished_name = dn
+[dn]
+O = system:nodes
+CN = system:node:controller-0
+[v3_req]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, Digital Signature, Key Encipherment
+extendedKeyUsage = TLS Web Client Authentication
+EOF
+
+    openssl genrsa -out controller-0.key 2048
+    openssl req -new -key controller-0.key -out controller-0.csr -config controller-0_csr.conf
+    openssl x509 -req -in controller-0.csr -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -out controller-0.crt -days 365 -extensions v3_req -extfile controller-0_csr.conf
+    cat controller-0.key controller-0.crt > kubelet-client-cert_with_key.pem
+    cp kubelet-client-cert_with_key.pem /var/lib/kubelet/pki
+    cd /var/lib/kubelet/pki/ || return 1
+    rm -f kubelet-client-current.pem
+    ln -s /var/lib/kubelet/pki/kubelet-client-cert_with_key.pem kubelet-client-current.pem
+    kill -s SIGHUP $(pidof kube-apiserver) || true
+    kill -s SIGHUP $(pidof kube-scheduler) || true
+    kill -s SIGHUP $(pidof kube-controller-manager) || true
+    systemctl restart kubelet
+    sm-restart-safe service sysinv-conductor || true
+    sm-restart-safe service cert-mon || true
+    cd /
+    rm -rf "$WORKDIR"
+}
+
+wait_for_kubectl() {
+    log_info "Waiting for kubectl to respond (retries=${RETRY_COUNT}, sleep=${RETRY_SLEEP}s)..."
+    local i=0
+    while [ $i -lt $RETRY_COUNT ]; do
+        if kubectl --kubeconfig "${KUBECONFIG}" get nodes >/dev/null 2>&1; then
+            log_info "kubectl responded."
+            return 0
+        fi
+        sleep "${RETRY_SLEEP}"
+        i=$((i+1))
+    done
+    return 1
+}
+
+delete_pods_on_node() {
+    for ns in "${NAMESPACES[@]}"; do
+        log_info "Deleting pods in '${ns}' on '${NODE_FILTER}'..."
+        pods=$(kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" get po -o wide 2>/dev/null | awk -v n="${NODE_FILTER}" 'NR>1 && $0 ~ n {print $1}')
+        if [ -n "${pods}" ]; then
+            echo "${pods}" | xargs -r kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" delete po
+        else
+            log_info "No pods to delete in ${ns}."
+        fi
+    done
+}
+
+wait_pods_running_on_node() {
+    log_info "Waiting for pods to be Running on '${NODE_FILTER}' (retries=${RETRY_COUNT}, sleep=${RETRY_SLEEP}s)..."
+    local i=0
+    while [ $i -lt $RETRY_COUNT ]; do
+        local all_ok=1
+        for ns in "${NAMESPACES[@]}"; do
+            mapfile -t lines < <(kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" get po -o wide 2>/dev/null | awk -v n="${NODE_FILTER}" 'NR>1 && $0 ~ n {print $1, $3}')
+            [ "${#lines[@]}" -eq 0 ] && continue
+            for l in "${lines[@]}"; do
+                state=$(echo "$l" | awk '{print $2}')
+                if [ "$state" != "Running" ]; then all_ok=0; break; fi
+            done
+            [ $all_ok -eq 1 ] || break
+        done
+        [ $all_ok -eq 1 ] && { log_info "All target pods Running."; return 0; }
+        sleep "${RETRY_SLEEP}"
+        i=$((i+1))
+    done
+    return 1
+}
+
+# This checks etcd CA, Kubernetes Root CA, and Front Proxy CA expiration dates.
+function check_manual_ca_certs {
+    log_info "Checking manual CA certificates (threshold=${CERT_CHECKEND_DAYS} days)..."
+
+    local CERTS=(
+        "etcd:/etc/etcd/ca.crt"
+        "k8s_root:/etc/kubernetes/pki/ca.crt"
+        "front_proxy:/etc/kubernetes/pki/front-proxy-ca.crt"
+    )
+
+    local fail_etcd=false
+    local fail_k8s_fp=false
+
+    for entry in "${CERTS[@]}"; do
+        IFS=: read -r name path <<<"$entry"
+        if _cert_valid_for_threshold "$path"; then
+            log_info "Valid: ${name} CA (${path})"
+        else
+            log_warn "Missing/expired/expiring (<${CERT_CHECKEND_DAYS}d): ${name} CA (${path})"
+            if [ "$name" = "etcd" ]; then
+                fail_etcd=true
+            else
+                fail_k8s_fp=true
+            fi
+        fi
+    done
+
+    if $fail_etcd && $fail_k8s_fp; then
+        send_ipmi_event "$EVENT_MANUAL_CAS_BOTH_FAIL"
+        log_fatal "Manual CA certs failed: both ETCD and Kubernetes/Front-Proxy"
+    elif $fail_etcd; then
+        send_ipmi_event "$EVENT_MANUAL_CA_ETCD_FAIL"
+        log_fatal "Manual CA certs failed: ETCD"
+    elif $fail_k8s_fp; then
+        send_ipmi_event "$EVENT_MANUAL_CA_K8S_FP_FAIL"
+        log_fatal "Manual CA certs failed: Kubernetes/Front-Proxy"
+    else
+        send_ipmi_event "$EVENT_MANUAL_CAS_OK"
+        log_info "All manual CA certificates are valid"
+    fi
+}
+
+# Check system-local-ca from Kubernetes secret (tls.crt)
+function check_system_local_ca_cert {
+    log_info "Checking system-local-ca, threshold=${CERT_CHECKEND_DAYS} days..."
+
+    local crt_file
+    crt_file="$(mktemp)"
+    trap 'rm -f "${crt_file}"' RETURN
+
+    # Attempt to read the secret; fail immediately if not found
+    if ! kubectl --kubeconfig /etc/kubernetes/admin.conf -n "${SLOCAL_NS}" \
+        get secret "${SLOCAL_SECRET}" -o 'jsonpath={.data.tls\.crt}' \
+        | base64 -d > "${crt_file}" 2>/dev/null; then
+        send_ipmi_event "$EVENT_SLOCAL_CA_FAIL"
+        log_fatal "system-local-ca secret not found or unreadable: ${SLOCAL_NS}/${SLOCAL_SECRET}"
+    fi
+
+    if ! _cert_valid_for_threshold "${crt_file}"; then
+        send_ipmi_event "$EVENT_SLOCAL_CA_FAIL"
+        log_fatal "system-local-ca expired or expiring in < ${CERT_CHECKEND_DAYS} days."
+    fi
+
+    send_ipmi_event "$EVENT_SLOCAL_CA_OK"
+    log_info "OK: system-local-ca (${SLOCAL_NS}/${SLOCAL_SECRET})"
+}
+
+# Certificates managed by cert-manager
+RESTAPI_CERT="/etc/ssl/private/server-cert.pem"        # ssl (restapi/gui)
+REGISTRY_CERT="/etc/ssl/private/registry-cert.crt"     # docker_registry
+
+# Returns 0 if cert file exists and is valid >= CERT_CHECKEND_SECONDS
+_cert_valid_for_threshold() {
+    local f="$1"
+    [ -r "$f" ] && openssl x509 -in "$f" -noout -checkend "$CERT_CHECKEND_SECONDS" >/dev/null 2>&1
+}
+
+# Wait up to ~5 minutes for both RESTAPI and REGISTRY certs to be valid
+# for at least CERT_CHECKEND_SECONDS. Returns 0 on success, 1 on timeout.
+check_cert_manager_renewal() {
+    log_info "Waiting for cert-manager to refresh restapi/registry certs..."
+    local attempts=20 sleep_s=15 i=0
+    local restapi_done=false registry_done=false
+
+    while [ $i -lt $attempts ]; do
+        # Check RESTAPI only if not already validated
+        if ! $restapi_done; then
+            if _cert_valid_for_threshold "$RESTAPI_CERT"; then
+                restapi_done=true
+                log_info "RESTAPI cert renewed: $RESTAPI_CERT"
+            else
+                log_warn "RESTAPI cert not yet renewed: $RESTAPI_CERT"
+            fi
+        fi
+
+        # Check REGISTRY only if not already validated
+        if ! $registry_done; then
+            if _cert_valid_for_threshold "$REGISTRY_CERT"; then
+                registry_done=true
+                log_info "REGISTRY cert renewed: $REGISTRY_CERT"
+            else
+                log_warn "REGISTRY cert not yet renewed: $REGISTRY_CERT"
+            fi
+        fi
+
+        # If both are renewed, return successfully
+        if $restapi_done && $registry_done; then
+            return 0
+        fi
+
+        i=$((i+1))
+        sleep "$sleep_s"
+    done
+
+    # Timeout: report which ones are still pending
+    $restapi_done || log_warn "Timeout: RESTAPI cert never reached threshold."
+    $registry_done || log_warn "Timeout: REGISTRY cert never reached threshold."
+    return 1
+}
+
+
 # Declare required variables
 OAM_SUBNET=""
 OAM_GATEWAY_IP=""
@@ -464,6 +742,10 @@ OAM_IP=""
 OAM_C0_IP=""
 OAM_C1_IP=""
 NEW_PASSWORD=""
+CERT_CHECKEND_DAYS=3   # fail if cert expires in less than 3 days
+CERT_CHECKEND_SECONDS=$((CERT_CHECKEND_DAYS*24*3600))
+SLOCAL_NS="cert-manager"
+SLOCAL_SECRET="system-local-ca"
 
 log_info "Starting enroll-init reconfiguration..."
 
@@ -515,6 +797,41 @@ if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z 
     usage
     log_fatal "Missing required arguments"
 fi
+
+check_manual_ca_certs
+
+if check_apiserver_cert; then
+    send_ipmi_event "$EVENT_APISERVER_CERT_OK"
+else
+    log_warn "apiserver cert expired/near-expiration; starting recovery..."
+    run_kube_cert_rotation
+    recover_kubelet_cert
+
+    if ! wait_for_kubectl; then
+        send_ipmi_event "$EVENT_RENEW_FAIL_KUBECTL"
+        log_fatal "kubectl did not recover after retries."
+    fi
+
+    delete_pods_on_node
+
+    if ! wait_pods_running_on_node; then
+        send_ipmi_event "$EVENT_RENEW_FAIL_PODS"
+        log_fatal "Pods did not reach Running state after retries."
+    fi
+    if ! check_apiserver_cert; then
+        send_ipmi_event "$EVENT_LEAF_CERTS_RENEW_FAIL"
+        log_fatal "An error occurred when renewing the leaf certificates"
+    fi
+    if check_cert_manager_renewal; then
+        send_ipmi_event "$EVENT_APISERVER_CERT_OK"
+    else
+        send_ipmi_event "$EVENT_CERTMANAGER_CERTS_FAIL"
+        log_fatal "REST API or Docker registry certs did not renew within timeout."
+    fi
+    log_info "Leaf certificate recovery complete and healthy."
+fi
+
+check_system_local_ca_cert
 
 load_credentials
 check_services_status
