@@ -457,43 +457,6 @@ function reconfigure_OAM {
     if ! execute_with_retries "system oam-modify $args"; then
         log_fatal "system oam-modify failed after multiple attempts."
     fi
-
-    # Apply manifest for duplex systems
-    if [ "$system_mode" = "duplex" ]; then
-        log_info "Applying manifest ..."
-        source /etc/build.info
-        OAM_CONFIG_DIR="/tmp/oam_config"
-        rm -rf $OAM_CONFIG_DIR
-        mkdir -p $OAM_CONFIG_DIR
-
-        # The applied manifest must align with sysinv update_oam_config()
-        cat > $OAM_CONFIG_DIR/oam_runtime.yml <<EOF
-classes: ['platform::network::runtime',
-'platform::kubernetes::certsans::runtime',
-'platform::firewall::runtime',
-'platform::smapi',
-'platform::sm::update_oam_config::runtime',
-'platform::nfv::webserver::runtime',
-'platform::haproxy::runtime',
-'openstack::keystone::endpoint::runtime::post',
-'platform::dockerdistribution::config',
-'platform::dockerdistribution::runtime']
-EOF
-        log_info "Wait 2m for system to settle and run puppet-manifest-apply ..."
-
-        sleep 120
-
-        /usr/local/bin/puppet-manifest-apply.sh \
-            /opt/platform/puppet/$SW_VERSION/hieradata/ \
-            controller-0 \
-            controller \
-            runtime \
-            $OAM_CONFIG_DIR/oam_runtime.yml
-
-        check_rc_die $? "puppet-manifest-apply failed"
-
-        rm -rf $OAM_CONFIG_DIR
-    fi
 }
 
 function reconfigure_password {
