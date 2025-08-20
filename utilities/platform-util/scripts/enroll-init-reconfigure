@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2024 Wind River Systems, Inc.
+# Copyright (c) 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,6 +19,7 @@ function check_rc_die {
 
 function log_fatal {
     echo "$(tput setaf 1)$(date "+%F %H:%M:%S") FATAL: ${*}$(tput sgr0)" >&2
+    send_ipmi_event "$EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED"
     exit 1
 }
 
@@ -49,14 +50,76 @@ Usage:
 ENDUSAGE
 }
 
+# IPMI event types
+readonly EVENT_FACTORY_SETUP_COMPLETE="factory_setup_complete"
+readonly EVENT_FACTORY_SETUP_FAILED="factory_setup_failed"
+readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="platform_cloudinit_update_complete"
+readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED="platform_cloudinit_update_failed"
+
+# IPMI payloads (data bytes)
+readonly DATA_FACTORY_SETUP_COMPLETE="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe0 # \"Factory Setup Complete\""
+readonly DATA_FACTORY_SETUP_FAILED="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe1 # \"Factory Setup Failed\""
+readonly DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe4 # \"Platform Cloud-init Update Complete\""
+readonly DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe5 # \"Platform Cloud-init Update Failed\""
+
+# IPMI SEL event format reference:
+#   [EvM Revision] [Sensor Type] [Sensor Number] [Event Dir / Event Type Code]
+#                  [Event Data 1] [Event Data 2] [Event Data 3]
+#
+# Example: 0x04 0xF0 0x01 0x6f 0xff 0xff 0xe4
+#   0x04 = EvM Revision (IPMI v2.0)
+#   0xF0 = Sensor Type (vendor-defined / OEM-specific)
+#   0x01 = Sensor Number (firmware-defined)
+#   0x6f = Event direction (vendor-specific encoding)
+#   0xff 0xff 0xe4 = Event Data bytes (3 bytes, OEM-specific payload)
+#
+# For our usage:
+# - The third byte (Sensor Number) is set to 0x01, corresponding to a sensor type "Unknown".
+# - The last three bytes are the Event Data payload, used to encode success/failure/status.
+#
+# These values are read by enroll_init.yml playbook running on the System Controller,
+# triggered during subcloud enrollment. Any changes to these bytes require updating both
+# this definition and the playbook that interprets them.
+
+function send_ipmi_event {
+    local event_type="$1"
+    local event_data
+
+    case "$event_type" in
+        "$EVENT_FACTORY_SETUP_COMPLETE")            event_data="$DATA_FACTORY_SETUP_COMPLETE" ;;
+        "$EVENT_FACTORY_SETUP_FAILED")              event_data="$DATA_FACTORY_SETUP_FAILED" ;;
+        "$EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE") event_data="$DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE" ;;
+        "$EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED")   event_data="$DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED" ;;
+        *)
+            log_warn "Unknown IPMI event type: $event_type"
+            return 1
+            ;;
+    esac
+
+    local temp_file=$(mktemp /tmp/ipmi_event_XXXXXX.txt)
+    echo "$event_data" > "$temp_file"
+
+    if ipmitool sel add "$temp_file" 2>/dev/null; then
+        log_info "IPMI event sent successfully: $event_type"
+        rm -f "$temp_file"
+        return 0
+    else
+        log_warn "Failed to send IPMI event: $event_type"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
 function verify_factory_install {
     log_info "Checking factory-install..."
 
     if [ ! -f /var/lib/factory-install/stage/final ]; then
+        send_ipmi_event "$EVENT_FACTORY_SETUP_FAILED"
         log_fatal "/var/lib/factory-install/stage/final does not exist. Ensure factory-install was successful."
     fi
 
-    log_info "factory-install check successfull."
+    send_ipmi_event "$EVENT_FACTORY_SETUP_COMPLETE"
+    log_info "factory-install check successful."
 }
 
 # The enroll-init reconfigure script runs during startup via cloud-init while
@@ -292,7 +355,7 @@ function check_oam_reconfiguration_on_same_interface {
 
     command="system interface-network-list controller-0 --nowrap"
     if ! execute_with_retries "$command"; then
-        log_fatal "$command failed after mutiple attempts."
+        log_fatal "$command failed after multiple attempts."
     fi
     oam_if=$($command | awk '$8 == "oam" { print $6 }')
     check_rc_die $? "system interface-network-list failed"
@@ -300,7 +363,7 @@ function check_oam_reconfiguration_on_same_interface {
 
     command="system host-if-list controller-0 --nowrap"
     if ! execute_with_retries "$command"; then
-        log_fatal "$command failed after mutiple attempts."
+        log_fatal "$command failed after multiple attempts."
     fi
     host_if_list_output=$($command)
     oam_if_details=$(echo "$host_if_list_output" | awk -v oam_if="$oam_if" '$4 == oam_if { print $8 " " $10 " " $12 " " $14 }')
@@ -347,7 +410,7 @@ function reconfigure_OAM {
     log_info "Reconfiguring OAM: $args ..."
 
     if ! execute_with_retries "system oam-modify $args"; then
-        log_fatal "system oam-modify failed after mutiple attempts."
+        log_fatal "system oam-modify failed after multiple attempts."
     fi
 
     # Apply manifest for duplex systems
@@ -441,14 +504,18 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+# This script can only be run if the factory install is complete, so we check that first.
+# It's important that we fail due to an invalid factory install before any other
+# type of failure, as that's the IPMI SEL event the system controller monitors first.
+# Main execution flow
+verify_factory_install
+
 # Ensure all required arguments are provided
 if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z "$NEW_PASSWORD" ]; then
     usage
     log_fatal "Missing required arguments"
 fi
 
-# Main execution flow
-verify_factory_install
 load_credentials
 check_services_status
 
@@ -487,4 +554,5 @@ reconfigure_password
 
 touch /var/lib/factory-install/state/enroll-init
 
+send_ipmi_event "$EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE"
 log_info "Successfully completed reconfiguration for enrollment."
