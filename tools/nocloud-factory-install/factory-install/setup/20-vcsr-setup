@@ -74,6 +74,11 @@ function log_fatal {
     exit 1
 }
 
+function log_error {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - vCSR-setup -") FAIL: ${*}"
+    exit 0
+}
+
 function log_warn {
     echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - vCSR-setup -") WARN: ${*}"
 }
@@ -110,7 +115,7 @@ wait_for_pod_ready() {
 
     local rc=$?
     if [ $rc -ne 0 ]; then
-        log_fatal "Timeout: Not all vCSR pods became Ready within \
+        log_error "Timeout: Not all vCSR pods became Ready within \
         ${timeout_seconds} seconds."
     fi
 
@@ -125,7 +130,7 @@ check_required_networks() {
     log_info "Checking for required data network 'vcsr-midhaul' (adjust as needed)..."
 
     if [ -z "$output" ]; then
-        log_fatal "No data networks configured on the system. \
+        log_error "No data networks configured on the system. \
         Please ensure the networks are created before running this script."
     fi
 
@@ -133,7 +138,7 @@ check_required_networks() {
     if echo "$output" | grep -q "vcsr-midhaul" ; then
         log_info "vcsr-midhaul network is present."
     else
-        log_fatal "Required network 'vcsr-midhaul' is missing."
+        log_error "Required network 'vcsr-midhaul' is missing."
     fi
 }
 
@@ -150,7 +155,7 @@ copy_registry_secret() {
 
     # Check that the secret exists in the source namespace
     if ! kubectl get secret "$SECRET_NAME" -n "$SRC_NS" >/dev/null 2>&1; then
-        log_fatal "Secret '$SECRET_NAME' not found in namespace '$SRC_NS'."
+        log_error "Secret '$SECRET_NAME' not found in namespace '$SRC_NS'."
     fi
 
     # Export, fix namespace, and apply to the destination namespace
@@ -177,10 +182,8 @@ ensure_namespace() {
 install_vcsr() {
     log_info "Installing vCSR application..."
 
-    check_required_networks
-
     if [ -z "$VCSR_YAML_FILE_PATH" ]; then
-        log_fatal "No vCSR YAML file found in ${HOME_DIR} matching ${VCSR_PREFIX}*.yaml"
+        log_error "No vCSR YAML file found in ${HOME_DIR} matching ${VCSR_PREFIX}*.yaml"
     fi
 
     log_info "Applying manifest: ${VCSR_YAML_FILE_PATH}"
