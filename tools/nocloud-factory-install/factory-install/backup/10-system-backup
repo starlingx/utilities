@@ -7,6 +7,20 @@
 # Factory install backup triggered during the backup stage
 #
 
+# Flag files that need to be created if backup is successful
+BACKUP_FLAG="/var/lib/factory-install/state/backup"
+FINAL_FLAG="/var/lib/factory-install/stage/final"
+COMPLETE_FLAG="/var/lib/factory-install/complete"
+
+# Remove flag files on failure
+cleanup_on_failure() {
+    log_warn "Backup failed, cleaning up flags..."
+    rm -f "$BACKUP_FLAG" "$FINAL_FLAG" "$COMPLETE_FLAG"
+}
+
+# Trap to cleanup flags on any failure
+trap cleanup_on_failure ERR
+
 # Get software version from build info
 SW_VERSION=$(awk -F= '/^SW_VERSION/ {print $2}' /etc/build.info | tr -d '"')
 BACKUP_DIR="/opt/platform-backup/factory/${SW_VERSION}"
@@ -39,6 +53,17 @@ function log_warn {
 function log_info {
     echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - factory-backup -") INFO: $*"
 }
+
+# Create flags at the beginning so they are included in the backup
+log_info "Creating factory install flags..."
+touch "$BACKUP_FLAG"
+check_rc_die $? "Failed to create backup flag"
+
+touch "$FINAL_FLAG"
+check_rc_die $? "Failed to create final flag"
+
+touch "$COMPLETE_FLAG"
+check_rc_die $? "Failed to create complete flag"
 
 # Skip the execution of the system-backup script if system_mode is duplex
 system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
