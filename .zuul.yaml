@@ -32,13 +32,17 @@
 
 - job:
     name: stx-utilities-tox-linters
-    parent: openstack-tox-linters
+    parent: tox
     nodeset: debian-bullseye
+    vars:
+      tox_envlist: linters
 
 - job:
     name: stx-utilities-tox-pep8
-    parent: openstack-tox-pep8
+    parent: tox
     nodeset: debian-bullseye
+    vars:
+      tox_envlist: pep8
 
 - job:
     name: stx-utilities-tox-pylint
