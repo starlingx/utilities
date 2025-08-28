@@ -86,7 +86,8 @@ check_rc_die $? "Unable to backup $OSTREE_REPO_SRC"
 
 # Generate ostree_repo directory checksum and copy it to the factory backup dir
 log_info "Generating ostree_repo checksum file..."
-find $OSTREE_REPO_SRC -type f -exec md5sum {} + | LC_ALL=C sort | \
+cd "$(dirname "$OSTREE_REPO_SRC")"
+find "$(basename "$OSTREE_REPO_SRC")" -type f -exec md5sum {} + | LC_ALL=C sort | \
 md5sum | awk '{ print $1; }' > "${BACKUP_DIR}/.ostree_repo_checksum"
 check_rc_die $? "Unable to generate ostree_repo checksum file"
 
