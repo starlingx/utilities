@@ -14,3 +14,5 @@ rm -f /etc/systemd/system-preset/20-factory-install.preset
 
 systemctl daemon-reload
 systemctl preset-all
+
+/var/lib/factory-install/utils/send-factory-sel-event finished ok
