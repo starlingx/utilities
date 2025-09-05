@@ -4,11 +4,13 @@ ConditionPathExists=/var/lib/factory-install/enabled
 ConditionPathExists=/var/lib/factory-install/stage/backup
 ConditionPathExists=!/var/lib/factory-install/state/backup
 After=factory-install-tests.service
+OnFailure=factory-install-failure@backup.service
 
 [Service]
 Type=oneshot
 User=root
 ExecStart=/usr/bin/run-parts --verbose --exit-on-error /var/lib/factory-install/backup
+ExecStartPost=+/var/lib/factory-install/utils/send-factory-sel-event backup ok
 ExecStartPost=+/var/lib/factory-install/utils/disable-factory-install
 StandardOutput=append:/var/log/factory-install.log
 RemainAfterExit=yes

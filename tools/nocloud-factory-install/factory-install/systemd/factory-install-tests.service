@@ -4,6 +4,7 @@ ConditionPathExists=/var/lib/factory-install/enabled
 ConditionPathExists=/var/lib/factory-install/stage/tests
 ConditionPathExists=!/var/lib/factory-install/state/tests
 After=factory-install-setup.service
+OnFailure=factory-install-failure@tests.service
 
 [Service]
 Type=oneshot
@@ -11,6 +12,7 @@ User=sysadmin
 ExecStart=/usr/bin/run-parts --verbose --exit-on-error /var/lib/factory-install/tests
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/tests
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/backup
+ExecStartPost=+/var/lib/factory-install/utils/send-factory-sel-event tests ok
 
 StandardOutput=append:/var/log/factory-install.log
 RemainAfterExit=yes

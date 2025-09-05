@@ -4,6 +4,7 @@ ConditionPathExists=/var/lib/factory-install/enabled
 ConditionPathExists=/var/lib/factory-install/stage/config
 ConditionPathExists=!/var/lib/factory-install/state/config
 After=factory-install-bootstrap.service
+OnFailure=factory-install-failure@config.service
 
 [Service]
 Type=oneshot
@@ -11,6 +12,8 @@ User=sysadmin
 ExecStart=/usr/bin/ansible-playbook /usr/local/share/applications/playbooks/wind-river-cloud-platform-deployment-manager.yaml -e "@/home/sysadmin/dm-playbook-overrides.yaml"
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/state/config
 ExecStartPost=+/usr/bin/touch /var/lib/factory-install/stage/setup
+ExecStartPost=+/var/lib/factory-install/utils/send-factory-sel-event config ok
+
 StandardOutput=append:/var/log/factory-install.log
 RemainAfterExit=yes
 Restart=no
