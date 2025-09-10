@@ -69,10 +69,19 @@ def _lookupPod(pid):
     return None
 
 
-def _systemCoreFile():
+def _systemCoreFile(**kwargs):
     # delegate handling to systemd coredump handler
     try:
-        cmd = [SYSTEMD_COREDUMP] + sys.argv[1:]
+        systemd_args = [
+            kwargs['host_pid'],  # %P
+            kwargs['uid'],  # %u
+            kwargs['gid'],  # %g
+            kwargs['signal'],  # %s
+            kwargs['timestamp'],  # %t
+            kwargs['rlimit_core'],  # 9223372036854775808 %c
+            kwargs['hostname']  # %h
+        ]
+        cmd = [SYSTEMD_COREDUMP] + systemd_args
         LOG.info("No pod information was found, using default system coredump. Command: %s" % cmd)
         subprocess.run(cmd)
         LOG.info("Dumped through default core process")
@@ -135,4 +144,4 @@ def CoreDumpHandler(**kwargs):
             pass
 
     # not handled by pod, redirect to systemd coredump handler
-    _systemCoreFile()
+    _systemCoreFile(**kwargs)

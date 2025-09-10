@@ -17,9 +17,9 @@ def main():
         'gid': sys.argv[3],  # %g
         'signal': sys.argv[4],  # %s
         'timestamp': sys.argv[5],  # %t
-        'comm': sys.argv[6],  # %e
+        'rlimit_core': sys.argv[6],  # %c
         'hostname': sys.argv[7],  # %h
-        'comm2': sys.argv[8],  # %h
+        'comm': sys.argv[8],  # %e
         'container_pid': sys.argv[9],  # %p
     }
     coredump.CoreDumpHandler(**kwargs)
