@@ -130,8 +130,7 @@ class BaseTestCase(TestCase):
             'gid': "7",  # %g
             'signal': "6",  # %s
             'timestamp': "1671181200",  # %t
-            'comm': "process_name_for_systemd_handler",  # %e
             'hostname': "test_host",  # %h
-            'comm2': "process_name_for_k8s_handler",  # %e
+            'comm': "process_name_for_k8s_handler",  # %e
             'container_pid': "123456",  # %p
         }

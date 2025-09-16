@@ -80,7 +80,7 @@ def parse_core_pattern(string_core_pattern, **kwargs):
         ('%s', kwargs.get('signal')),
         ('%t', kwargs.get('timestamp')),
         ('%h', kwargs.get('hostname')),
-        ('%e', kwargs.get('comm2'))
+        ('%e', kwargs.get('comm'))
     ]:
         if pattern in processed_string:
             processed_string = processed_string.replace(pattern, value)
