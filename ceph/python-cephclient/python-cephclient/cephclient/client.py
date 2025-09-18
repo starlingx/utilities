@@ -250,6 +250,16 @@ class CephClient(object):
                             'and retry.'.format(self.username))
                 self._get_password()
                 self._refresh_session()
+            except requests.exceptions.SSLError as e:
+                if "CERTIFICATE_VERIFY_FAILED" in str(e):
+                    LOG.warning("Request SSL error: %s. Refresh session and retring...", e, exc_info=0)
+                    self._refresh_session()
+                else:
+                    LOG.warning(
+                        'Request SSL error: %s. '
+                        'Refresh restful service URL and retry', e, exc_info=0)
+                    self._get_service_url()
+                    self._refresh_session()
             except (requests.ConnectionError,
                     requests.Timeout,
                     requests.HTTPError) as e:
