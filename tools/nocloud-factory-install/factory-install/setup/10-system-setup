@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Factory install system setup triggered during the config stage
+# Factory install system setup triggered during the setup stage
 #
 
 echo "System Setup - Start"

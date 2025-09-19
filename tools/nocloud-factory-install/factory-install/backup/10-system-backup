@@ -81,6 +81,36 @@ if systemctl is-failed --quiet fm-api.service; then
     systemctl restart fm-api.service
 fi
 
+source /etc/platform/openrc >/dev/null 2>&1 || true
+# Check if rook-ceph is configured in the node via ceph-rook-store backend
+if system storage-backend-list 2>/dev/null | grep -q ceph-rook-store; then
+    log_info "Waiting for rook-ceph application to reach applied state..."
+
+    start_time=$(date +%s)
+    timeout=$((15 * 60))  # 15 minutes
+
+    while true; do
+        # Prevent non-zero rc from triggering the ERR trap: swallow the error with || true
+        rook_status=$(system application-show rook-ceph --column status --format value 2>/dev/null || true)
+
+        if [ "$rook_status" = "applied" ]; then
+            log_info "Ready - rook-ceph application applied"
+            break
+        elif [ "$rook_status" = "apply-failed" ]; then
+            log_fatal "rook-ceph application failed to apply"
+        fi
+
+        now=$(date +%s)
+        elapsed=$((now - start_time))
+
+        if [ $elapsed -ge $timeout ]; then
+            log_warn "Timeout after $((elapsed/60)) minutes. Current rook-ceph status: $rook_status."
+            exit 0
+        fi
+        sleep 15
+    done
+fi
+
 log_info "Creating backup directory: $BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"
 check_rc_die $? "Failed to create backup directory $BACKUP_DIR"
