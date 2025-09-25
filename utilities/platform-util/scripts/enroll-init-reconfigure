@@ -72,36 +72,36 @@ readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="platform_cloudinit_update_com
 readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED="platform_cloudinit_update_failed"
 
 # IPMI payloads (data bytes)
-readonly DATA_FACTORY_SETUP_COMPLETE="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe0 # \"Factory Setup Complete\""
-readonly DATA_FACTORY_SETUP_FAILED="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe1 # \"Factory Setup Failed\""
+readonly DATA_FACTORY_SETUP_COMPLETE="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE0 # \"Factory Setup Complete\""
+readonly DATA_FACTORY_SETUP_FAILED="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE1 # \"Factory Setup Failed\""
 
-readonly DATA_APISERVER_CERT_OK="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe2 # \"ApiServer Cert Valid\""
-readonly DATA_LEAF_CERTS_RENEW_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe3 # \"K8S Leaf Certs Renew Failed\""
-readonly DATA_RENEW_FAIL_PODS="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe8 # \"Pods Cert Renew Failed\""
-readonly DATA_CERTMANAGER_CERTS_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xef # \"Cert-manager Secrets Renew Failed\""
-readonly DATA_RENEW_FAIL_KUBECTL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xf0 # \"Kubectl Cert Renew Failed\""
+readonly DATA_APISERVER_CERT_OK="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE2 # \"ApiServer Cert Valid\""
+readonly DATA_LEAF_CERTS_RENEW_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE3 # \"K8S Leaf Certs Renew Failed\""
+readonly DATA_RENEW_FAIL_PODS="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE4 # \"Pods Cert Renew Failed\""
+readonly DATA_CERTMANAGER_CERTS_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE5 # \"Cert-manager Secrets Renew Failed\""
+readonly DATA_RENEW_FAIL_KUBECTL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE6 # \"Kubectl Cert Renew Failed\""
 
-readonly DATA_MANUAL_CAS_OK="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe9 # \"Manual CA Certs Valid\""
-readonly DATA_MANUAL_CA_K8S_FP_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xec # \"K8S/Front-proxy Cert Expired\""
-readonly DATA_MANUAL_CA_ETCD_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xed # \"ETCD CA Cert Expired\""
-readonly DATA_MANUAL_CAS_BOTH_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xee # \"ETCD CA and K8S/Front-proxy Certs Expired\""
+readonly DATA_MANUAL_CAS_OK="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE7 # \"Manual CA Certs Valid\""
+readonly DATA_MANUAL_CA_K8S_FP_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE8 # \"K8S/Front-proxy Cert Expired\""
+readonly DATA_MANUAL_CA_ETCD_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE9 # \"ETCD CA Cert Expired\""
+readonly DATA_MANUAL_CAS_BOTH_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEA # \"ETCD CA and K8S/Front-proxy Certs Expired\""
 
-readonly DATA_SLOCAL_CA_OK="0x04 0xF0 0x01 0x6f 0xff 0xff 0xea # \"System-local-ca Cert Valid\""
-readonly DATA_SLOCAL_CA_FAIL="0x04 0xF0 0x01 0x6f 0xff 0xff 0xeb # \"System-local-ca Cert Expired\""
+readonly DATA_SLOCAL_CA_OK="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEB # \"System-local-ca Cert Valid\""
+readonly DATA_SLOCAL_CA_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEC # \"System-local-ca Cert Expired\""
 
-readonly DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe4 # \"Platform Cloud-init Update Complete\""
-readonly DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED="0x04 0xF0 0x01 0x6f 0xff 0xff 0xe5 # \"Platform Cloud-init Update Failed\""
+readonly DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="0x04 0x12 0xCC 0x63 0xCC 0x10 0xED # \"Platform Cloud-init Update Complete\""
+readonly DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEE # \"Platform Cloud-init Update Failed\""
 
 # IPMI SEL event format reference:
 #   [EvM Revision] [Sensor Type] [Sensor Number] [Event Dir / Event Type Code]
 #                  [Event Data 1] [Event Data 2] [Event Data 3]
 #
-# Example: 0x04 0xF0 0x01 0x6f 0xff 0xff 0xe4
+# Example: 0x04 0x12 0xCC 0x63 0xCC 0x10 0xE0
 #   0x04 = EvM Revision (IPMI v2.0)
-#   0xF0 = Sensor Type (vendor-defined / OEM-specific)
-#   0x01 = Sensor Number (firmware-defined)
-#   0x6f = Event direction (vendor-specific encoding)
-#   0xff 0xff 0xe4 = Event Data bytes (3 bytes, OEM-specific payload)
+#   0x12 = Sensor Type (vendor-defined / OEM-specific)
+#   0xCC = Sensor Number (firmware-defined)
+#   0x63 = Event direction (vendor-specific encoding)
+#   0xCC 0x10 0xE0 = Event Data bytes (3 bytes, OEM-specific payload)
 #
 # For our usage:
 # - The third byte (Sensor Number) is set to 0x01, corresponding to a sensor type "Unknown".
@@ -153,18 +153,6 @@ function send_ipmi_event {
         rm -f "$temp_file"
         return 1
     fi
-}
-
-function verify_factory_install {
-    log_info "Checking factory-install..."
-
-    if [ ! -f /var/lib/factory-install/stage/final ]; then
-        send_ipmi_event "$EVENT_FACTORY_SETUP_FAILED"
-        log_fatal "/var/lib/factory-install/stage/final does not exist. Ensure factory-install was successful."
-    fi
-
-    send_ipmi_event "$EVENT_FACTORY_SETUP_COMPLETE"
-    log_info "factory-install check successful."
 }
 
 # The enroll-init reconfigure script runs during startup via cloud-init while
@@ -639,11 +627,7 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-# This script can only be run if the factory install is complete, so we check that first.
-# It's important that we fail due to an invalid factory install before any other
-# type of failure, as that's the IPMI SEL event the system controller monitors first.
 # Main execution flow
-verify_factory_install
 
 # Ensure all required arguments are provided
 if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z "$NEW_PASSWORD" ]; then
