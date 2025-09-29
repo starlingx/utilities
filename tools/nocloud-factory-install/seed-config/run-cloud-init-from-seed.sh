@@ -17,6 +17,10 @@ SEED_SERVICE="/etc/systemd/system/cloud-init-seed.service"
 SEED_NETWORK_CFG="network-config"
 NETWORK_CFG_FILE="/run/.$SEED_NETWORK_CFG"
 CLOUD_INIT_IF_FILE="/etc/network/interfaces.d/50-cloud-init"
+readonly EVENT_FACTORY_SETUP_COMPLETE="factory_setup_complete"
+readonly EVENT_FACTORY_SETUP_FAILED="factory_setup_failed"
+readonly DATA_FACTORY_SETUP_COMPLETE="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE0 # \"Factory Setup Complete\""
+readonly DATA_FACTORY_SETUP_FAILED="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE1 # \"Factory Setup Failed\""
 
 function check_rc_die {
     local -i rc=${1}
@@ -59,6 +63,32 @@ flock -n 200 || {
     exit 0
 }
 
+function send_ipmi_event {
+    local event_type="$1"
+    local event_data
+    case "$event_type" in
+        "$EVENT_FACTORY_SETUP_COMPLETE")            event_data="$DATA_FACTORY_SETUP_COMPLETE" ;;
+        "$EVENT_FACTORY_SETUP_FAILED")              event_data="$DATA_FACTORY_SETUP_FAILED" ;;
+        *)
+            log_warn "Unknown IPMI event type: $event_type"
+            return 1
+            ;;
+    esac
+
+    local temp_file=$(mktemp /tmp/ipmi_event_XXXXXX.txt)
+    echo "$event_data" > "$temp_file"
+
+    if ipmitool sel add "$temp_file" 2>/dev/null; then
+        log_info "IPMI event sent successfully: $event_type"
+        rm -f "$temp_file"
+        return 0
+    else
+        log_warn "Failed to send IPMI event: $event_type"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
 # If clean is passed as an argument, remove the udev rule and service,
 # the custom cloud.cfg file, and the script itself.
 # This is to ensure that the cloud-init-seed service is not triggered
@@ -78,8 +108,10 @@ log_info "Starting cloud-init using seed ISO..."
 # Checks if factory-install has been completed. This is required to be able
 # to run cloud-init from a seed ISO.
 if [[ ! -f "$FACTORY_INSTALL_COMPLETE_FILE" ]]; then
-    log_fatal "Cloud-init from factory-install has not been completed yet. Exiting."
+    send_ipmi_event "$EVENT_FACTORY_SETUP_FAILED"
+    log_fatal "/var/lib/factory-install/stage/complete does not exist. Ensure factory-install was successful."
 fi
+send_ipmi_event "$EVENT_FACTORY_SETUP_COMPLETE"
 
 # Finds the first device found with the label CIDATA or cidata.
 # If the device is not found, exit the script.
