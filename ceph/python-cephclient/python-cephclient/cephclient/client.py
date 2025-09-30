@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019-2021,2024 Wind River Systems, Inc.
+# Copyright (c) 2019-2021,2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -16,7 +16,6 @@ import time
 
 import requests
 import six
-from six.moves.urllib.parse import urlparse
 
 from cephclient import exception
 
@@ -132,16 +131,23 @@ class CephClient(object):
 
     def _get_certificate(self):
         self._cleanup_certificate()
-        active_mgr = self._get_service_active_mgr()
         try:
+            key = 'mgr/restful/crt'
+            result = subprocess.run('ceph config-key exists {}'.format(key).split(),
+                                    timeout=CEPH_CLI_TIMEOUT_SEC,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL,)
+            if result.returncode != 0:
+                active_mgr = self._get_service_active_mgr()
+                key = 'mgr/restful/{}/crt'.format(active_mgr)
+            LOG.info("Getting the certificate from '{}'.".format(key))
             certificate = subprocess.check_output(
-                ('ceph config-key get '
-                 'mgr/restful/{}/crt').format(
-                     active_mgr),
+                'ceph config-key get {}'.format(key),
                 timeout=CEPH_CLI_TIMEOUT_SEC,
                 shell=True)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return
+
         with tempfile.NamedTemporaryFile(delete=False) as self.cert_file:
             self.cert_file.write(certificate)
 
