@@ -40,6 +40,7 @@ Usage:
                     --oam_gateway_ip <oam_gateway_ip>
                     --oam_ip <oam_ip>
                     --new_password <new_password>
+                    --enroll-timestamp <timestamp>
 
         --oam_subnet <subnet>: Specify OAM subnet
         --oam_gateway_ip <ip>: Specify OAM gateway IP
@@ -47,6 +48,7 @@ Usage:
         --oam_c0_ip <ip>: Specify Controller-0 OAM IP (required for duplex systems)
         --oam_c1_ip <ip>: Specify Controller-1 OAM IP (required for duplex systems)
         --new_password <password>: Specify new password for sysadmin user
+        --enroll-timestamp <seconds>: UNIX timestamp used to set the hardware and system clock
 ENDUSAGE
 }
 
@@ -152,6 +154,42 @@ function send_ipmi_event {
         log_warn "Failed to send IPMI event: $event_type"
         rm -f "$temp_file"
         return 1
+    fi
+}
+
+update_time() {
+    if ! [[ "$ENROLL_TIMESTAMP" =~ ^[0-9]+$ ]]; then
+        log_warn "Invalid enroll-timestamp value: ${ENROLL_TIMESTAMP}"
+        return 0
+    fi
+
+    # Add 20 seconds to compensate for transit/execution delay
+    ENROLL_TIMESTAMP=$((ENROLL_TIMESTAMP + 20))
+    local CURRENT_EPOCH
+    CURRENT_EPOCH=$(date +%s)
+    local DIFF=$((ENROLL_TIMESTAMP - CURRENT_EPOCH))
+    local ABS_DIFF=${DIFF#-}
+
+    # Only update if gap > 20 seconds
+    if (( ABS_DIFF > 20 )); then
+        log_info "Applying enroll-timestamp: ${ENROLL_TIMESTAMP} ($(date -d "@${ENROLL_TIMESTAMP}" '+%F %T'))"
+
+        if date -u -s "@${ENROLL_TIMESTAMP}" >/dev/null 2>&1; then
+            log_info "date -s applied epoch ${ENROLL_TIMESTAMP}"
+        else
+            log_warn "date -s failed for epoch ${ENROLL_TIMESTAMP}"
+        fi
+
+        if [ -e /sbin/hwclock ]; then
+            log_info "Aligning hwclock to system date"
+            /sbin/hwclock --systohc || log_warn "hwclock --systohc failed"
+        else
+            log_warn "/sbin/hwclock missing."
+        fi
+
+        log_info "System date is now: $(date), hwclock: $(hwclock)"
+    else
+        log_info "Clock difference (${ABS_DIFF}s) is within threshold; skipping time update."
     fi
 }
 
@@ -348,7 +386,7 @@ APISERVER_CERT="/etc/kubernetes/pki/apiserver.crt"
 KUBECONFIG="/etc/kubernetes/admin.conf"
 RETRY_COUNT=10
 RETRY_SLEEP=15
-NAMESPACES=("cert-manager" "flux-helm" "kube-system")
+NAMESPACES=("kube-system" "cert-manager" "flux-helm")
 NODE_FILTER="controller-0"
 
 check_apiserver_cert() {
@@ -536,7 +574,7 @@ _cert_valid_for_threshold() {
 # for at least CERT_CHECKEND_SECONDS. Returns 0 on success, 1 on timeout.
 check_cert_manager_renewal() {
     log_info "Waiting for cert-manager to refresh restapi/registry certs..."
-    local attempts=20 sleep_s=15 i=0
+    local attempts="${1:-20}" sleep_s="${2:-15}" i=0
     local restapi_done=false registry_done=false
 
     while [ $i -lt $attempts ]; do
@@ -575,6 +613,41 @@ check_cert_manager_renewal() {
     return 1
 }
 
+# Wrapper that performs a single quick check first, then recovers pods and
+# waits for them before re-running the full renewal wait.
+check_and_recover_cert_manager() {
+    # Full-window attempts/sleep
+    local full_attempts="${1:-20}"
+    local full_sleep_s="${2:-15}"
+
+    log_info "Check RESTAPI/REGISTRY certs..."
+
+    if check_cert_manager_renewal 1 0; then
+        log_info "RESTAPI and REGISTRY certs are valid."
+        return 0
+    fi
+
+    log_warn "RESTAPI/REGISTRY certs not yet renewed. Initiating pod deletion on node ${NODE_FILTER} to force cert-manager reprocessing."
+
+    delete_pods_on_node
+
+    # Wait for pods running on node
+    if ! wait_pods_running_on_node; then
+        send_ipmi_event "$EVENT_RENEW_FAIL_PODS"
+        log_fatal "Pods did not reach Running state after deletion/restart. Aborting."
+    fi
+
+    # After pods are back, give cert-manager time to renew
+    log_info "Pods recovered. Now waiting up to ${full_attempts} attempts (sleep ${full_sleep_s}s) for cert-manager to refresh restapi/registry certs..."
+    if check_cert_manager_renewal "$full_attempts" "$full_sleep_s"; then
+        log_info "Cert-manager refreshed REST API and Docker registry certs successfully."
+        return 0
+    else
+        send_ipmi_event "$EVENT_CERTMANAGER_CERTS_FAIL"
+        log_fatal "REST API or Docker registry certs did not renew within timeout."
+    fi
+}
+
 
 # Declare required variables
 OAM_SUBNET=""
@@ -583,6 +656,7 @@ OAM_IP=""
 OAM_C0_IP=""
 OAM_C1_IP=""
 NEW_PASSWORD=""
+ENROLL_TIMESTAMP=""
 CERT_CHECKEND_DAYS=3   # fail if cert expires in less than 3 days
 CERT_CHECKEND_SECONDS=$((CERT_CHECKEND_DAYS*24*3600))
 SLOCAL_NS="cert-manager"
@@ -621,6 +695,10 @@ while [[ "$#" -gt 0 ]]; do
             NEW_PASSWORD="$2"
             shift 2
             ;;
+        --enroll-timestamp)
+            ENROLL_TIMESTAMP="$2"
+            shift 2
+            ;;
         *)
             log_fatal "Unexpected option: $1"
             ;;
@@ -635,10 +713,16 @@ if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z 
     log_fatal "Missing required arguments"
 fi
 
+if [ -n "$ENROLL_TIMESTAMP" ]; then
+    update_time
+fi
+
 check_manual_ca_certs
 
 if check_apiserver_cert; then
-    send_ipmi_event "$EVENT_APISERVER_CERT_OK"
+    if check_and_recover_cert_manager; then
+        send_ipmi_event "$EVENT_APISERVER_CERT_OK"
+    fi
 else
     log_warn "apiserver cert expired/near-expiration; starting recovery..."
     run_kube_cert_rotation
