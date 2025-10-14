@@ -1,5 +1,6 @@
 ceph/ceph-manager
 ceph/python-cephclient
+security/openbao-monitor
 tools/collector
 tools/engtools/hostdata-collectors
 tools/accel-config

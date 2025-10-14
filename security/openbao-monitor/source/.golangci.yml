@@ -1,0 +1,37 @@
+version: "2"
+linters:
+  default: all
+  disable:
+    - depguard
+    - dupl
+    - prealloc
+  settings:
+    goconst:
+      min-occurrences: 2
+    gocyclo:
+      min-complexity: 7
+    gomoddirectives:
+      replace-local: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
