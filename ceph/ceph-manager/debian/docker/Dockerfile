@@ -30,7 +30,7 @@ RUN pip3.9 install greenlet yappi
 
 # Install apt dependencies
 RUN apt-get install -y               \
-    python3-ldap=3.2.0-4ubuntu7.1    \
+    python3-ldap=3.2.0-4ubuntu7.2    \
     libpq5 libldap-2.4-2             \
     python3-pyasn1                   \
     python3-pyasn1-modules
