@@ -139,9 +139,10 @@ class Monitor(HandleUpgradesMixin):
                 LOG.exception(
                     "Error getting fsid, will retry in %ss"
                     % constants.CEPH_HEALTH_CHECK_INTERVAL)
-            if self.service.entity_instance_id:
+                time.sleep(constants.CEPH_HEALTH_CHECK_INTERVAL)
+                continue
+            else:
                 break
-            time.sleep(constants.CEPH_HEALTH_CHECK_INTERVAL)
 
         # Start monitoring ceph status
         while True:
@@ -158,15 +159,11 @@ class Monitor(HandleUpgradesMixin):
     def ceph_get_fsid(self):
         # Check whether an alarm has already been raised
         self._refresh_current_alarms()
-        if self.current_health_alarm:
-            LOG.info(_LI("Current alarm: %s") %
-                     str(self.current_health_alarm.__dict__))
 
         fsid = self._get_fsid()
-
         if fsid:
-            # Clear alarm with no entity_instance_id
-            self._clear_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH)
+            # Clear alarm without entity_instance_id
+            self._clear_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH, "")
             self.service.entity_instance_id = 'cluster=%s' % fsid
         else:
             health_info = {
@@ -176,15 +173,14 @@ class Monitor(HandleUpgradesMixin):
             }
             # Raise alarm - it will not have an entity_instance_id
             self._report_fault(health_info, fm_constants.FM_ALARM_ID_STORAGE_CEPH)
+            # Throws exception to get fsid again
+            raise Exception("Could not get ceph fsid.")
 
     def ceph_poll_status(self):
         # get previous data every time in case:
         # * daemon restarted
         # * alarm was cleared manually but stored as raised in daemon
         self._refresh_current_alarms()
-        if self.current_health_alarm:
-            LOG.info(_LI("Current alarm: %s") %
-                     str(self.current_health_alarm.__dict__))
 
         health = self._get_health_detail()
 
@@ -194,6 +190,8 @@ class Monitor(HandleUpgradesMixin):
                 self._report_fault(health_info, fm_constants.FM_ALARM_ID_STORAGE_CEPH)
             else:
                 self._clear_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH)
+                # Clear alarm without entity_instance_id
+                self._clear_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH, "")
 
         # Report OSD down/out even if ceph health is OK
         self._report_alarm_osds_health()
@@ -572,13 +570,19 @@ class Monitor(HandleUpgradesMixin):
                 self.detailed_health_reason = health['checks']
 
     def _clear_fault(self, alarm_id, entity_instance_id=None):
-        # Only clear alarm if there is one already raised
-        if (alarm_id == fm_constants.FM_ALARM_ID_STORAGE_CEPH and
-                self.current_health_alarm):
+        if entity_instance_id is None:
+            entity_instance_id = self.service.entity_instance_id
+
+        # Only clear the alarm if it exists
+        if self._get_fault(alarm_id, entity_instance_id):
             LOG.info(_LI("Clearing health alarm"))
+
             self.service.fm_api.clear_fault(
-                fm_constants.FM_ALARM_ID_STORAGE_CEPH,
-                self.service.entity_instance_id)
+                alarm_id,
+                entity_instance_id)
+
+    def _get_fault(self, alarm_id, entity_instance_id):
+        return self.service.fm_api.get_fault(alarm_id, entity_instance_id)
 
     def clear_critical_alarm(self, group_name):
         alarm_list = self.service.fm_api.get_faults_by_id(
@@ -596,6 +600,8 @@ class Monitor(HandleUpgradesMixin):
 
     def _refresh_current_alarms(self):
         """Retrieve currently raised alarm"""
-        self.current_health_alarm = self.service.fm_api.get_fault(
-            fm_constants.FM_ALARM_ID_STORAGE_CEPH,
-            self.service.entity_instance_id)
+        self.current_health_alarm = self._get_fault(fm_constants.FM_ALARM_ID_STORAGE_CEPH,
+                                                    self.service.entity_instance_id)
+        if self.current_health_alarm:
+            LOG.info(_LI("Current alarm: %s") %
+                     str(self.current_health_alarm.__dict__))
