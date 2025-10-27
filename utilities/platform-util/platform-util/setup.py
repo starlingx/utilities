@@ -11,7 +11,7 @@ setuptools.setup(
     version='1.0.0',
     license='Apache-2.0',
     platforms=['any'],
-    packages=['platform_util', 'platform_util.license'],
+    packages=['platform_util', 'platform_util.license', 'platform_util.oidc'],
     entry_points={
         'console_scripts': [
             'verify-license = platform_util.license.license:main'
