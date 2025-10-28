@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -172,6 +173,65 @@ func (configInstance *MonitorConfig) MigrateK8sConfig(config *rest.Config) error
 	err = configInstance.MigrateSecretConfig(config)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// Stores token and key shards from MonitorConfig to k8s secrets.
+// Used to store the output from the init command.
+// The stored secrets can be pulled using the MigrateSecretConfig function.
+// The token and shard names from the Monitor config must follow
+// the k8s secret naming convention.
+func (configInstance *MonitorConfig) StoreSecretConfig(config *rest.Config) error {
+	slog.Debug("Storing root-token and unseal key shards to kubernetes secrets")
+	// Use the settings from config if they aren't empty
+	if configInstance.Namespace != "" {
+		k8sNamespace = configInstance.Namespace
+	}
+
+	slog.Debug("Setting up kubernetes client...")
+	// create clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	slog.Debug("Setting up kubernetes client complete")
+
+	// client for secret
+	secretClient := clientset.CoreV1().Secrets(k8sNamespace)
+
+	ctx := context.Background()
+
+	for tokenName, token := range configInstance.Tokens {
+		newToken := new(v1.Secret)
+		newToken.SetName(tokenName)
+		newToken.SetNamespace(k8sNamespace)
+		newToken.StringData = make(map[string]string)
+		newToken.StringData["strdata"] = token.Key
+		_, err := secretClient.Create(ctx, newToken, metaV1.CreateOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
+	for shardName, shard := range configInstance.UnsealKeyShards {
+		newShard := new(v1.Secret)
+		newShard.SetName(shardName)
+		newShard.SetNamespace(k8sNamespace)
+		var newSecret keySecret
+		newSecret.Key = append(newSecret.Key, shard.Key)
+		newSecret.KeyEncoded = append(newSecret.KeyEncoded, shard.KeyBase64)
+		marshalData, err := json.Marshal(newSecret)
+		if err != nil {
+			return err
+		}
+		newShard.Data = make(map[string][]byte)
+		newShard.Data["strdata"] = marshalData
+		_, err = secretClient.Create(ctx, newShard, metaV1.CreateOptions{})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

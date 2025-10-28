@@ -29,8 +29,8 @@ type Token struct {
 }
 
 type KeyShards struct {
-	Key       string `yaml:"key"`
-	KeyBase64 string `yaml:"key_base64"`
+	Key       string `yaml:"key" json:"key"`
+	KeyBase64 string `yaml:"key_base64" json:"key_base64"`
 }
 
 type MonitorConfig struct {
@@ -246,17 +246,23 @@ func (configInstance MonitorConfig) SetupClient(dnshost string) (*clientapi.Clie
 func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce *clientapi.InitResponse) error {
 	slog.Debug("Parsing response from /sys/init to monitor configs")
 
-	keyShardheader := strings.Join([]string{"key", "shard", dnshost}, "-")
+	secretPrefix = "cluster-key"
+
+	if configInstance.SecretPrefix != "" {
+		secretPrefix = configInstance.SecretPrefix
+	}
+
+	rootTokenPrefix := strings.Join([]string{secretPrefix, "root"}, "-")
 
 	slog.Debug("Parsing the root token...")
 	// Parse in the root token
-	if _, ok := configInstance.Tokens["root_token"]; ok {
+	if _, ok := configInstance.Tokens[rootTokenPrefix]; ok {
 		return fmt.Errorf("an entry of the root token was already found")
 	}
 	if configInstance.Tokens == nil {
 		configInstance.Tokens = make(map[string]Token)
 	}
-	configInstance.Tokens["root_token"] = Token{
+	configInstance.Tokens[rootTokenPrefix] = Token{
 		Duration: 0,
 		Key:      responce.RootToken,
 	}
@@ -264,7 +270,7 @@ func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce 
 	slog.Debug("Parsing the unseal key shards...")
 	// Parse in the key shards for unseal
 	for i := range len(responce.Keys) {
-		keyShardName := strings.Join([]string{keyShardheader, strconv.Itoa(i)}, "-")
+		keyShardName := strings.Join([]string{secretPrefix, strconv.Itoa(i)}, "-")
 		if _, ok := configInstance.UnsealKeyShards[keyShardName]; ok {
 			return fmt.Errorf("an entry of %v was already found under UnsealKeyShards", keyShardName)
 		}
@@ -280,7 +286,7 @@ func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce 
 	slog.Debug("Parsing the recovery key shards...")
 	// Parse in the recovery key shards
 	for i := range len(responce.RecoveryKeys) {
-		keyShardName := strings.Join([]string{keyShardheader, "recovery", strconv.Itoa(i)}, "-")
+		keyShardName := strings.Join([]string{secretPrefix, "recovery", strconv.Itoa(i)}, "-")
 		if _, ok := configInstance.UnsealKeyShards[keyShardName]; ok {
 			return fmt.Errorf("an entry of %v was already found under UnsealKeyShards", keyShardName)
 		}
