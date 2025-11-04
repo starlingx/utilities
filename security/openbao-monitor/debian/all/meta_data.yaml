@@ -1,0 +1,9 @@
+---
+debname: openbao-monitor
+debver: 1.0-1
+src_path: source
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true
+  SRC_GITREVCOUNT:
+    SRC_BASE_SRCREV: b3a8abf24ac5ab59b44a2112d2c483b0a12eade6

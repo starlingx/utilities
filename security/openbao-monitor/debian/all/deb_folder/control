@@ -1,0 +1,18 @@
+Source: openbao-monitor
+Section: golang
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13),
+               golang-any,
+               golang-github-spf13-cobra-dev,
+               golang-k8s-sigs-yaml-dev,
+Standards-Version: 4.6.2
+Homepage: https://www.starlingx.io
+
+Package: openbao-monitor
+Architecture: any
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+Static-Built-Using: ${misc:Static-Built-Using},
+Description: Openbao monitor
+ CLI interface for openbao API calls
