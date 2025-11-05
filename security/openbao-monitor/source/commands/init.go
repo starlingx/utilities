@@ -33,7 +33,7 @@ func initializeServer(dnshost string, opts *clientapi.InitRequest) error {
 		return err
 	}
 	if healthResult.Initialized {
-		return fmt.Errorf("The server on host %v is already initialized", dnshost)
+		return fmt.Errorf("the server on host %v is already initialized", dnshost)
 	}
 
 	slog.Debug("Running /sys/init")
@@ -100,7 +100,7 @@ configurations.`,
 		cmd.SilenceUsage = true
 		err := initializeServer(args[0], &opts)
 		if err != nil {
-			return fmt.Errorf("Init failed with error: %v", err)
+			return err
 		}
 		slog.Info(fmt.Sprintf("Init successful for host %v", args[0]))
 		return nil

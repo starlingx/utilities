@@ -33,7 +33,7 @@ func runUnseal(dnshost string, client *clientapi.Client) (*clientapi.SealStatusR
 		return nil, err
 	}
 	if !healthResult.Sealed {
-		return nil, fmt.Errorf("The server on host %v is already unsealed", dnshost)
+		return nil, fmt.Errorf("the server on host %v is already unsealed", dnshost)
 	}
 
 	tryCount := 1
@@ -65,10 +65,10 @@ non-recovery keys with its name on it to unseal.`,
 	Args:               cobra.ExactArgs(1),
 	PersistentPreRunE:  setupCmd,
 	PersistentPostRunE: cleanCmd,
+	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		slog.Debug(fmt.Sprintf("Action: unseal %v", args[0]))
 
-		cmd.SilenceUsage = true
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
 			return fmt.Errorf("unseal failed with error: %v", err)
