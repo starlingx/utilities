@@ -6,6 +6,7 @@
 
 import os
 from pathlib import Path
+import subprocess
 import time
 
 import jwkest
@@ -131,32 +132,36 @@ def get_apiserver_oidc_args():
 
     Returns: dict of the apiserver parameters, None if they are not configured
     """
+    cmd = ['kubectl', '--kubeconfig', '/etc/kubernetes/admin.conf',
+           'get', 'configmap', 'kubeadm-config',
+           '-n', 'kube-system', '-o', 'yaml'
+           ]
 
-    kubeadm_config_path = '/etc/kubernetes/kubeadm.yaml'
     oidc_param_keys = ['oidc-issuer-url', 'oidc-client-id',
                        'oidc-groups-claim', 'oidc-username-claim']
     oidc_parameters = {}
 
-    with open(kubeadm_config_path, 'r') as f:
-        data = yaml.safe_load_all(f)
-        for document in data:
-            if 'apiServer' not in document:
-                continue
+    kubeadm_config_output = subprocess.run(cmd, capture_output=True)
+    kubeadm_config = yaml.safe_load(kubeadm_config_output.stdout)
 
-            try:
-                kube_apiserver_args = document['apiServer']['extraArgs']
-            except KeyError:
-                return None
+    try:
+        kubeadm_config = yaml.safe_load(
+            kubeadm_config['data']['ClusterConfiguration']
+        )
+        for extraArg in kubeadm_config['apiServer']['extraArgs']:
+            if extraArg['name'] in oidc_param_keys:
+                oidc_parameters[extraArg['name']] = extraArg['value']
+    except KeyError:
+        return None
 
-    for oidc_param_key in oidc_param_keys:
-        # we have error checking for kube-apiserver oidc parameters
-        # all 4 should be present, or none at all
-        # but just in case the system somehow got in a state where some
-        # are present and some are not, respond as if none are present,
-        # since that's an invalid config
-        if oidc_param_key not in kube_apiserver_args:
-            return None
-        oidc_parameters[oidc_param_key] = kube_apiserver_args[oidc_param_key]
+    # we have error checking for kube-apiserver oidc parameters
+    # all 4 in oidc_param_keys should be present, or none at all
+    # but just in case the system somehow got in a state where some
+    # are present and some are not, respond as if none are present,
+    # since that's an invalid config
+    if len(oidc_parameters) != 4:
+        return None
+
     return oidc_parameters
 
 
