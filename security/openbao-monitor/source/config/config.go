@@ -158,6 +158,17 @@ func (configInstance *MonitorConfig) ReadYAMLMonitorConfig(in io.Reader) error {
 	return nil
 }
 
+func (configInstance MonitorConfig) getRootTokenName() string {
+	secretPrefix = "cluster-key"
+
+	if configInstance.SecretPrefix != "" {
+		secretPrefix = configInstance.SecretPrefix
+	}
+	rootTokenName := strings.Join([]string{secretPrefix, "root"}, "-")
+
+	return rootTokenName
+}
+
 func (configInstance MonitorConfig) WriteYAMLMonitorConfig(out io.Writer) error {
 	data, err := yaml.Marshal(configInstance)
 	if err != nil {
@@ -238,6 +249,14 @@ func (configInstance MonitorConfig) SetupClient(dnshost string) (*clientapi.Clie
 		return nil, fmt.Errorf("error in creating new client: %v", err)
 	}
 
+	slog.Debug("Setting root token to use for client")
+
+	// Find & set root token if it exists
+	rootToken, tokenExists := configInstance.Tokens[configInstance.getRootTokenName()]
+	if tokenExists {
+		newClient.SetToken(rootToken.Key)
+	}
+
 	slog.Debug("Client setup complete.")
 	return newClient, nil
 }
@@ -246,23 +265,16 @@ func (configInstance MonitorConfig) SetupClient(dnshost string) (*clientapi.Clie
 func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce *clientapi.InitResponse) error {
 	slog.Debug("Parsing response from /sys/init to monitor configs")
 
-	secretPrefix = "cluster-key"
-
-	if configInstance.SecretPrefix != "" {
-		secretPrefix = configInstance.SecretPrefix
-	}
-
-	rootTokenPrefix := strings.Join([]string{secretPrefix, "root"}, "-")
-
 	slog.Debug("Parsing the root token...")
 	// Parse in the root token
-	if _, ok := configInstance.Tokens[rootTokenPrefix]; ok {
+	rootTokenName := configInstance.getRootTokenName()
+	if _, ok := configInstance.Tokens[rootTokenName]; ok {
 		return fmt.Errorf("an entry of the root token was already found")
 	}
 	if configInstance.Tokens == nil {
 		configInstance.Tokens = make(map[string]Token)
 	}
-	configInstance.Tokens[rootTokenPrefix] = Token{
+	configInstance.Tokens[rootTokenName] = Token{
 		Duration: 0,
 		Key:      responce.RootToken,
 	}
