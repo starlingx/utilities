@@ -11,11 +11,11 @@ import (
 
 // Available log levels; these should match the levels available in helm chart
 var availableLogLevels = map[int]string{
-		1: "DEBUG",
-		2: "INFO",
-		3: "WARN",
-		4: "ERROR",
-		5: "ERROR",
+	1: "DEBUG",
+	2: "INFO",
+	3: "WARN",
+	4: "ERROR",
+	5: "FATAL",
 }
 
 func (configInstance MonitorConfig) validateDNS() error {

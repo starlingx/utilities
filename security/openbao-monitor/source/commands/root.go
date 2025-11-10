@@ -61,6 +61,11 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 	// Set default configuration for logs if no custum configs are given
 	logFile := globalConfig.LogPath
 	logLevel := globalConfig.InterpretLogLevel()
+	// Switch "FATAL" to "ERROR+4" so that it can be marshalled to the correct
+	// slog.Level value
+	if logLevel == "FATAL" {
+		logLevel = "ERROR+4"
+	}
 
 	// Set default to stderr if no log file was specified.
 	logWriter = os.Stderr
@@ -74,7 +79,7 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 
 	var LogLevel slog.Level
 	LogLevel.UnmarshalText([]byte(logLevel))
-	baoLogger = slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{
+	baoLogger = slog.New(baoConfig.NewBaoHandler(logWriter, &slog.HandlerOptions{
 		Level: LogLevel,
 	}))
 	slog.SetDefault(baoLogger)
