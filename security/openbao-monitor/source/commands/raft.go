@@ -33,6 +33,7 @@ the command will not run.
 	Args:               cobra.ExactArgs(1),
 	PersistentPreRunE:  setupCmd,
 	PersistentPostRunE: cleanCmd,
+	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		slog.Debug(fmt.Sprintf("Starting joinRaft for node %v", args[0]))
 		newClient, err := globalConfig.SetupClient(args[0])

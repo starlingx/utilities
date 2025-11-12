@@ -21,6 +21,7 @@ var runCmd = &cobra.Command{
 attempt to unseal.`,
 	PersistentPreRunE:  setupCmd,
 	PersistentPostRunE: cleanCmd,
+	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		slog.Debug("Action: run")
 		if globalConfig.WaitInterval != 0 {

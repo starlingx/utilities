@@ -27,10 +27,10 @@ var healthCmd = &cobra.Command{
 	Args:               cobra.ExactArgs(1),
 	PersistentPreRunE:  setupCmd,
 	PersistentPostRunE: cleanCmd,
+	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		slog.Debug(fmt.Sprintf("Action: Health %v", args[0]))
 
-		cmd.SilenceUsage = true
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
 			return fmt.Errorf("server health failed with error: %v", err)
@@ -43,7 +43,7 @@ var healthCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("unable to marshal health check result: %v", err)
 		}
-		slog.Info(fmt.Sprintf("Health check command successful for host %v", args[0]))
+		slog.Debug(fmt.Sprintf("Health check command successful for host %v", args[0]))
 		fmt.Print(string(healthPrint))
 
 		return nil

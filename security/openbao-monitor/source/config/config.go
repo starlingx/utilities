@@ -325,7 +325,7 @@ func (configInstance *MonitorConfig) InterpretLogLevel() string {
 		}
 
 		// error, but this code should not be reached if validateLogConfig works
-		fmt.Errorf("the numeric LogLevel %v is not a valid log level", configInstance.LogLevel)
+		slog.Error(fmt.Sprintf("the numeric LogLevel %v is not a valid log level", configInstance.LogLevel))
 		return "INFO" // Default to INFO if the numeric level is invalid
 	}
 
