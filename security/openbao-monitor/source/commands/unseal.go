@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 )
+
+var printResponse bool
+var waitTime int
 
 // A single instance of unseal.
 func tryUnseal(keyShard baoConfig.KeyShards, client *clientapi.Client) (*clientapi.SealStatusResponse, error) {
@@ -17,7 +21,7 @@ func tryUnseal(keyShard baoConfig.KeyShards, client *clientapi.Client) (*clienta
 	key := keyShard.Key
 	UnsealResult, err := client.Sys().Unseal(key)
 	if err != nil {
-		return nil, fmt.Errorf("error with unseal call: %v", err)
+		return UnsealResult, fmt.Errorf("error with unseal call: %v", err)
 	}
 	slog.Debug("Unseal attempt successful")
 	return UnsealResult, nil
@@ -42,12 +46,30 @@ func runUnseal(dnshost string, client *clientapi.Client) (*clientapi.SealStatusR
 		if !strings.Contains(keyName, "recovery") {
 			slog.Debug(fmt.Sprintf("Unseal attempt %v", tryCount))
 			UnsealResult, err := tryUnseal(keyShard, client)
+			if printResponse {
+				responsePrint, _ := json.MarshalIndent(UnsealResult, "", "  ")
+				slog.Debug(fmt.Sprintf("Unseal responce result: %v", string(responsePrint)))
+			}
 			if err != nil {
-				return nil, err
+				return UnsealResult, err
 			}
 			if !UnsealResult.Sealed {
 				slog.Debug("Unseal complete.")
 				return UnsealResult, nil
+			}
+			if tryCount == UnsealResult.T {
+				slog.Debug(fmt.Sprintf("Number of tries reached the threshold. waiting for %v seconds before checking unseal status.", waitTime))
+				time.Sleep(time.Second * time.Duration(waitTime))
+				healthResult, err := checkHealth(dnshost, client)
+				if err != nil {
+					return UnsealResult, fmt.Errorf("health check error after reaching unseal threshold: %v", err)
+				}
+				if !healthResult.Sealed {
+					slog.Debug("Unseal complete.")
+					return UnsealResult, nil
+				} else {
+					return UnsealResult, fmt.Errorf("server %v still unsealed after reaching threshold", dnshost)
+				}
 			}
 			slog.Debug(fmt.Sprintf("The server is still sealed: threshold %v, progress %v", UnsealResult.T, UnsealResult.Progress))
 			tryCount++
@@ -74,14 +96,14 @@ non-recovery keys with its name on it to unseal.`,
 			return fmt.Errorf("unseal failed with error: %v", err)
 		}
 		UnsealResult, err := runUnseal(args[0], newClient)
+		UnsealPrint, _ := json.MarshalIndent(UnsealResult, "", "  ")
+		if printResponse {
+			slog.Debug(fmt.Sprintf("Final unseal result: %v", string(UnsealPrint)))
+		}
 		if err != nil {
 			return fmt.Errorf("unseal failed with error: %v", err)
 		}
 
-		UnsealPrint, err := json.MarshalIndent(UnsealResult, "", "  ")
-		if err != nil {
-			return fmt.Errorf("unable to marshal unseal result: %v", err)
-		}
 		slog.Debug(fmt.Sprintf("Unseal successful. Result: %v", string(UnsealPrint)))
 		slog.Info(fmt.Sprintf("Unseal successful for host %v", args[0]))
 
@@ -90,5 +112,9 @@ non-recovery keys with its name on it to unseal.`,
 }
 
 func init() {
+	unsealCmd.PersistentFlags().BoolVarP(&printResponse, "verbose", "v", false,
+		"Log extra DEBUG level logs")
+	unsealCmd.PersistentFlags().IntVarP(&waitTime, "wait-converge", "w", 3,
+		"The number of seconds to wait after reaching threshold to check unseal status. Default is 3 seconds.")
 	RootCmd.AddCommand(unsealCmd)
 }
