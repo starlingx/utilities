@@ -2,6 +2,7 @@
 Description=Cloud-init from seed ISO
 After=local-fs.target
 RequiresMountsFor=/opt/nocloud
+ConditionPathExists=/var/lib/factory-install/complete
 
 [Service]
 Type=oneshot
