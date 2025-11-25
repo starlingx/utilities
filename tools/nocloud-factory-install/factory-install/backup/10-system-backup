@@ -72,15 +72,6 @@ if [ "$system_mode" != "simplex" ]; then
     exit 0
 fi
 
-# TODO(ecandotti): Remove when https://bugs.launchpad.net/starlingx/+bug/2116270
-# is resolved
-if systemctl is-failed --quiet fm-api.service; then
-    # Restart fm-api if it is in failed state,
-    # otherwise the backup health-query will fail
-    log_info "fm-api.service is in failed state, restarting..."
-    systemctl restart fm-api.service
-fi
-
 source /etc/platform/openrc >/dev/null 2>&1 || true
 # Check if rook-ceph is configured in the node via ceph-rook-store backend
 if system storage-backend-list 2>/dev/null | grep -q ceph-rook-store; then
