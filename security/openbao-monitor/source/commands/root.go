@@ -17,13 +17,26 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-var configFile string
+// Command-wide objects
 var globalConfig baoConfig.MonitorConfig
 var logWriter *os.File
 var baoLogger *slog.Logger = nil
+
+// root options
+var configFile string
 var useK8sConfig bool
 var useInClusterConfig bool
 var kubeConfigPath string
+var flgTimeout int
+var flgLogLevel string
+
+// root option names
+var configFileName string = "config"
+var useK8sConfigName string = "k8s"
+var useInClusterConfigName string = "in-cluster"
+var kubeConfigPathName string = "kubeconfig"
+var flgTimeoutName string = "timeout"
+var flgLogLevelName string = "log-level"
 
 func getK8sConfig() (*rest.Config, error) {
 	var config *rest.Config
@@ -56,6 +69,20 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 	err = globalConfig.ReadYAMLMonitorConfig(configReader)
 	if err != nil {
 		return fmt.Errorf("error in parsing config file: %v, message: %v", configFile, err)
+	}
+
+	// Pass values from flags
+	if !cmd.Flags().Changed(useK8sConfigName) {
+		useK8sConfig = globalConfig.UseK8sConfig
+	}
+	if !cmd.Flags().Changed(useInClusterConfigName) {
+		useInClusterConfig = globalConfig.UseInClusterConfig
+	}
+	if cmd.Flags().Changed(flgTimeoutName) {
+		globalConfig.Timeout = flgTimeout
+	}
+	if cmd.Flags().Changed(flgLogLevelName) {
+		globalConfig.LogLevel = flgLogLevel
 	}
 
 	// Set default configuration for logs if no custum configs are given
@@ -151,11 +178,15 @@ func Execute() {
 
 func init() {
 	// Declarations for global flags
-	RootCmd.PersistentFlags().StringVar(&configFile, "config",
+	RootCmd.PersistentFlags().StringVar(&configFile, configFileName,
 		"/workdir/testConfig.yaml", "file path to the monitor config file")
-	RootCmd.PersistentFlags().BoolVar(&useK8sConfig, "k8s", false, "use configs from kubernetes instead")
-	RootCmd.PersistentFlags().BoolVar(&useInClusterConfig, "in-cluster", true,
+	RootCmd.PersistentFlags().BoolVar(&useK8sConfig, useK8sConfigName, false, "use configs from kubernetes instead")
+	RootCmd.PersistentFlags().BoolVar(&useInClusterConfig, useInClusterConfigName, true,
 		"Set this to true if the monitor is run in a kubernetes pod")
-	RootCmd.PersistentFlags().StringVar(&kubeConfigPath, "kubeconfig", "/etc/kubernetes/admin.conf",
+	RootCmd.PersistentFlags().StringVar(&kubeConfigPath, kubeConfigPathName, "/etc/kubernetes/admin.conf",
 		"The path for kubernetes config file (KUBECONFIG)")
+	RootCmd.PersistentFlags().IntVar(&flgTimeout, flgTimeoutName, 60,
+		"Time, in seconds, the client will wait for each request before returning timeout exceeded error")
+	RootCmd.PersistentFlags().StringVar(&flgLogLevel, flgLogLevelName, "INFO",
+		"Minimum log level printed in the logs")
 }

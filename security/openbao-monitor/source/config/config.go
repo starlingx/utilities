@@ -97,6 +97,14 @@ type MonitorConfig struct {
 	// Prefix string used to find root token and unseal key shards
 	// Default is "cluster-key"
 	SecretPrefix string `yaml:"SecretPrefix"`
+
+	// Indicates if openbao is run in a kubernetes environment
+	// Default is false
+	UseK8sConfig bool `yaml:"k8s"`
+
+	// Indicates if baomon is run in a kubernetes pod
+	// Default is false
+	UseInClusterConfig bool `yaml:"in-cluster"`
 }
 
 func (configInstance *MonitorConfig) ReadYAMLMonitorConfig(in io.Reader) error {
