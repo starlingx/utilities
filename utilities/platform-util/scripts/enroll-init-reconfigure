@@ -381,23 +381,12 @@ function reconfigure_password {
     check_rc_die $? "chpasswd failed"
 }
 
-
-APISERVER_CERT="/etc/kubernetes/pki/apiserver.crt"
 KUBECONFIG="/etc/kubernetes/admin.conf"
-RETRY_COUNT=10
-RETRY_SLEEP=15
+KUBELET_CERT="/var/lib/kubelet/pki/kubelet-client-current.pem"
+RETRY_COUNT=60
+RETRY_SLEEP=5
 NAMESPACES=("kube-system" "cert-manager" "flux-helm")
 NODE_FILTER="controller-0"
-
-check_apiserver_cert() {
-    log_info "Checking apiserver certificate (${APISERVER_CERT}), threshold=${CERT_CHECKEND_DAYS} days..."
-    if _cert_valid_for_threshold "${APISERVER_CERT}"; then
-        log_info "OK: apiserver certificate valid for >= ${CERT_CHECKEND_DAYS} days."
-        return 0
-    fi
-    log_warn "apiserver cert expired or expiring in < ${CERT_CHECKEND_DAYS} days."
-    return 1
-}
 
 run_kube_cert_rotation() {
     if [ -x /usr/bin/kube-cert-rotation.sh ]; then
@@ -482,7 +471,10 @@ wait_pods_running_on_node() {
             [ "${#lines[@]}" -eq 0 ] && continue
             for l in "${lines[@]}"; do
                 state=$(echo "$l" | awk '{print $2}')
-                if [ "$state" != "Running" ]; then all_ok=0; break; fi
+                if [[ ! "$state" =~ ^(Running|Completed)$ ]]; then
+                    all_ok=0
+                    break
+                fi
             done
             [ $all_ok -eq 1 ] || break
         done
@@ -648,6 +640,57 @@ check_and_recover_cert_manager() {
     fi
 }
 
+# Check whether Kubernetes leaf certificates (apiserver, controller-manager,
+# scheduler, etc.) will expire within the specified number of days.
+#
+# This function relies on kubeadm's built-in certificate expiration inspection
+# to determine if any critical Kubernetes PKI certificates are close to
+# expiration. It returns:
+#
+#   0 (true)  – if ALL leaf certificates remain valid for at least N days
+#   1 (false) – if ANY certificate expires within N days or is already expired
+#   1 (false) – if kubeadm fails to run or its output cannot be parsed
+kubeadm_certs_expire_within_days() {
+  local n="${1:-}"
+  local now exp_epoch diff_days
+
+  local out
+  if ! out="$(sudo kubeadm certs check-expiration 2>/dev/null)"; then
+    # kubeadm failed: kubelet cert is expired or kubelet is unhealthy
+    return 1
+  fi
+
+  now="$(date -u +%s)"
+
+  # Parse only the CERTIFICATE table, extract the EXPIRES column, and check if any cert
+  # expires within N days, or already expired.
+  while IFS= read -r expires; do
+    # Convert EXPIRES date to epoch; if parsing fails treat as failure.
+    exp_epoch="$(date -u -d "$expires" +%s 2>/dev/null)" || return 1
+
+    if (( exp_epoch - now <= n * 86400 )); then
+      return 1
+    fi
+
+  done < <(
+    printf '%s\n' "$out" |
+    awk '
+      # Stop once CA table starts
+      $1=="CERTIFICATE" && $2=="AUTHORITY" { exit }
+
+      # Enable parsing when CERTIFICATE section appears
+      $1=="CERTIFICATE" { in_cert=1; next }
+
+      # Extract EXPIRES (cols 2-5) only for rows within CERTIFICATE table
+      in_cert && NF>=5 {
+        print $2, $3, $4, $5
+      }
+    '
+  )
+
+  return 0
+}
+
 
 # Declare required variables
 OAM_SUBNET=""
@@ -719,18 +762,25 @@ fi
 
 check_manual_ca_certs
 
-if check_apiserver_cert; then
+if kubeadm_certs_expire_within_days "$CERT_CHECKEND_DAYS"; then
+    log_info "Leaf certificates valid >= ${CERT_CHECKEND_DAYS} days."
     if check_and_recover_cert_manager; then
         send_ipmi_event "$EVENT_APISERVER_CERT_OK"
     fi
 else
-    log_warn "apiserver cert expired/near-expiration; starting recovery..."
+    log_warn "Leaf certificates expired or near expiration; starting recovery..."
     run_kube_cert_rotation
-    recover_kubelet_cert
+    if ! _cert_valid_for_threshold "$KUBELET_CERT"; then
+        log_warn "Kubelet certificate expired or near expiration; recovering kubelet certificate..."
+        recover_kubelet_cert
 
-    if ! wait_for_kubectl; then
-        send_ipmi_event "$EVENT_RENEW_FAIL_KUBECTL"
-        log_fatal "kubectl did not recover after retries."
+        # After recovery, kubelet needs time to reconnect before kubectl works
+        if ! wait_for_kubectl; then
+            send_ipmi_event "$EVENT_RENEW_FAIL_KUBECTL"
+            log_fatal "Kubectl did not recover after kubelet certificate regeneration."
+        fi
+    else
+        log_info "Kubelet certificate is valid for >= ${CERT_CHECKEND_DAYS} days."
     fi
 
     delete_pods_on_node
@@ -739,7 +789,7 @@ else
         send_ipmi_event "$EVENT_RENEW_FAIL_PODS"
         log_fatal "Pods did not reach Running state after retries."
     fi
-    if ! check_apiserver_cert; then
+    if ! kubeadm_certs_expire_within_days "$CERT_CHECKEND_DAYS"; then
         send_ipmi_event "$EVENT_LEAF_CERTS_RENEW_FAIL"
         log_fatal "An error occurred when renewing the leaf certificates"
     fi
