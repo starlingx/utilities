@@ -640,11 +640,11 @@ function report_error()
 
 function check_if_collect_is_running()
 {
-    # Looks for collect and collect_* processes. If more than one PID is avail-
-    # able, the actual instance will exit, given the application is already
+    # Looks for collect and collect_host processes. If more than one PID is
+    # available, the actual instance will exit, given the application is already
     # running on the system.
     local filtered_pids=()
-    read -a collect_pids <<< "$(ps -eo pid,comm | grep -E 'collect$|collect_' | awk '{print $1}' | tr '\n' ' ')"
+    read -a collect_pids <<< "$(ps -eo pid,comm | grep -E '\bcollect$|\bcollect_host$' | awk '{print $1}' | tr '\n' ' ')"
     for pid in "${collect_pids[@]}"; do
         if [ "$pid" != "$$" ]; then
             filtered_pids+=("$pid")
@@ -1470,7 +1470,7 @@ EOF
 function check_host_reachable_and_collect()
 {
     local hostname=${1}
-    local ps_command="ps -eo comm | grep -F collect | grep -v collectd"
+    local ps_command="ps -eo comm | grep -G -w -e collect\$ -e collect_host\$"
 
     if [ "${hostname}" == "${HOSTNAME}" ] ; then
         return ${PASS}
