@@ -1,0 +1,9 @@
+---
+debname: python-cephclient
+debver: 13.2.2.0
+src_path: python-cephclient
+revision:
+  dist: $STX_DIST
+  PKG_GITREVCOUNT: true
+  SRC_GITREVCOUNT:
+    SRC_BASE_SRCREV: ddf814efcf14225e537d90785b030a224d67eda0

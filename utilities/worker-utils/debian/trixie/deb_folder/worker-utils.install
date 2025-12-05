@@ -1,0 +1,6 @@
+usr/bin/*
+etc/init.d/*
+etc/goenabled.d/*
+lib/systemd/system/affine-platform.sh.service
+lib/systemd/system/affine-tasks.service
+usr/share/worker-utils/config/worker_reserved.conf
