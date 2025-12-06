@@ -1,0 +1,44 @@
+From 193d2a45b754c8cdc69e74253adf6778ceafb2ca Mon Sep 17 00:00:00 2001
+From: Sai Lakshmi Teja Vanka <SaiLakshmiTeja.Vanka@windriver.com>
+Date: Tue, 5 Aug 2025 08:16:35 +0000
+Subject: [PATCH] Fix build failure 1
+
+Signed-off-by: Sai Lakshmi Teja Vanka <SaiLakshmiTeja.Vanka@windriver.com>
+---
+ common/include/opae/cxx/core/pvalue.h        | 1 +
+ tools/extra/pac/fpgabist/dma/fpga_dma_test.c | 6 ++++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/common/include/opae/cxx/core/pvalue.h b/common/include/opae/cxx/core/pvalue.h
+index 698fdc7..767f9ef 100644
+--- a/common/include/opae/cxx/core/pvalue.h
++++ b/common/include/opae/cxx/core/pvalue.h
+@@ -29,6 +29,7 @@
+ #include <opae/utils.h>
+ #include <uuid/uuid.h>
+ #include <algorithm>
++#include <array>
+ #include <cstring>
+ #include <iostream>
+ #include <type_traits>
+diff --git a/tools/extra/pac/fpgabist/dma/fpga_dma_test.c b/tools/extra/pac/fpgabist/dma/fpga_dma_test.c
+index 4361cd4..50d495a 100644
+--- a/tools/extra/pac/fpgabist/dma/fpga_dma_test.c
++++ b/tools/extra/pac/fpgabist/dma/fpga_dma_test.c
+@@ -691,8 +691,14 @@ int main(int argc, char *argv[])
+ 		// Find the device from the topology
+ 		hwloc_topology_t topology;
+ 		hwloc_topology_init(&topology);
++		// Use version-compatible flags for hwloc
++#ifdef HWLOC_TOPOLOGY_FLAG_IO_DEVICES
+ 		hwloc_topology_set_flags(topology,
+ 					 HWLOC_TOPOLOGY_FLAG_IO_DEVICES);
++#else
++		hwloc_topology_set_flags(topology,
++					 HWLOC_TOPOLOGY_FLAG_IS_THISSYSTEM);
++#endif
+ 		hwloc_topology_load(topology);
+ 		hwloc_obj_t obj = hwloc_get_pcidev_by_busid(topology, dom, bus,
+ 							    dev, func);
+-- 
+2.47.2
