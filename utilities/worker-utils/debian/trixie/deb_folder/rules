@@ -8,7 +8,7 @@ export ROOT = $(CURDIR)/debian/tmp
 override_dh_auto_build:
 	rm -rf __pycache__
 	python3 -m compileall topology.py
-	cp __pycache__/topology.cpython-39.pyc topology.pyc
+	cp __pycache__/topology.cpython-3*.pyc topology.pyc
 
 override_dh_auto_install:
 	$(MAKE) BINDIR=$(ROOT)/usr/bin \
