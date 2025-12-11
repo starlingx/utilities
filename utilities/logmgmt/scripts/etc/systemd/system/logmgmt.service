@@ -1,6 +1,6 @@
 [Unit]
 Description=StarlingX Log Management
-After=network.target syslog-ng.service iscsid.service sw-patch.service crash-dump-manager.service
+After=network.target syslog-ng.service iscsid.service crash-dump-manager.service
 Before=config.service pmon.service
 
 [Service]
