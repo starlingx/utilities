@@ -129,7 +129,7 @@ func (configInstance *MonitorConfig) MigrateSecretConfig(config *rest.Config) er
 			secretData := secret.Data["strdata"]
 			if strings.HasSuffix(secretName, "root") {
 				// secretData should be the root token
-				configInstance.Tokens[secretName] = Token{Duration: 0, Key: string(secretData)}
+				configInstance.Tokens[secretName] = Token{Duration: 0, Key: strings.TrimSpace(string(secretData))}
 			} else {
 				// secretData should be an unseal key shard and its base 64 encoded version
 				var newKey keySecret
