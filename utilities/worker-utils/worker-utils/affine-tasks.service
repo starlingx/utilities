@@ -1,6 +1,6 @@
 [Unit]
 Description=StarlingX Affine Tasks
-After=syslog.service network.service dbus.service affine-platform.sh.service
+After=syslog.service network.service dbus.service sw-patch.service affine-platform.sh.service
 
 [Service]
 Type=simple

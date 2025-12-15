@@ -1,5 +1,6 @@
 [Unit]
 Description=StarlingX opt-platform mounter
+After=sw-patch.service
 
 [Service]
 Type=oneshot
