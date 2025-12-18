@@ -1,0 +1,31 @@
+usr/bin/bmc_test usr/sbin
+usr/bin/bist usr/sbin
+usr/bin/bist_app usr/sbin
+usr/bin/bist_app.py usr/sbin
+usr/bin/bist_common.py usr/sbin
+usr/bin/bist_def.py usr/sbin
+usr/bin/bist_dma.py usr/sbin
+usr/bin/bist_nlb0.py usr/sbin
+usr/bin/bist_nlb3.py usr/sbin
+usr/bin/coreidle usr/sbin
+usr/bin/fecmode usr/sbin
+usr/bin/fpga_dma_test usr/sbin
+usr/bin/fpgabist usr/sbin
+usr/bin/fpgadiag usr/sbin
+usr/bin/fpgalpbk usr/sbin
+usr/bin/fpgamac usr/sbin
+usr/bin/fpgametrics usr/sbin
+usr/bin/fpgastats usr/sbin
+usr/bin/fvlbypass usr/sbin
+usr/bin/hssi_config usr/sbin
+usr/bin/hssi_loopback usr/sbin
+usr/bin/mactest usr/sbin
+usr/bin/mmlink usr/sbin
+usr/bin/nlb0 usr/sbin
+usr/bin/nlb3 usr/sbin
+usr/bin/nlb7 usr/sbin
+usr/bin/userclk usr/sbin
+usr/lib/libhssi-io.so*
+usr/lib/libopae-c++-nlb.so*
+usr/lib/libopae-c++-utils.so*
+LICENSE usr/share/doc/opae-tools-extra

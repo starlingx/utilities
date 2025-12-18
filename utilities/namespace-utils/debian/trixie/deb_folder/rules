@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+export ROOT = $(CURDIR)/debian/tmp
+export SBINDIR = ${ROOT}/usr/sbin
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	gcc -g -o bashns bashns.c
+	dh_auto_build
+
+override_dh_install:
+	install -d -m 755 ${SBINDIR}
+	install -m 500 -p -D bashns ${SBINDIR}
+	install -m 500 -p -D umount-in-namespace ${SBINDIR}
+
+	dh_install
+
+# Prevents dh_fixperms from changing the permissions defined from 500 to 755
+override_dh_fixperms:
+	dh_fixperms -Xbashns -Xumount-in-namespace

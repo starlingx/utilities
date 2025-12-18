@@ -1,0 +1,10 @@
+etc/opae/fpgad.cfg
+etc/sysconfig/fpgad.conf
+usr/bin/fpgaconf usr/sbin
+usr/bin/fpgad usr/sbin
+usr/bin/fpgainfo usr/sbin
+usr/lib/libfpgad-api.so*
+usr/lib/libfpgad-vc.so*
+usr/lib/libfpgad-xfpga.so*
+usr/lib/systemd/system/fpgad.service etc/systemd/system
+LICENSE usr/share/doc/opae-tools
