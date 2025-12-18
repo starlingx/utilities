@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-CC := gcc-10
 CFLAGS := -Wall -O2
 
 all: k8s-ca-read
