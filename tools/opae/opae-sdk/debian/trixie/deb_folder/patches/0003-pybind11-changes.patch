@@ -1,0 +1,38 @@
+From 11a00523dc1174fcb5f45dbf29a6089a08d3038a Mon Sep 17 00:00:00 2001
+From: sjaisank <sainithish.jaisankar@windriver.com>
+Date: Tue, 27 May 2025 12:36:28 +0000
+Subject: [PATCH] pybind11 changes
+
+---
+ pyopae/pybind11/include/pybind11/cast.h     | 2 +-
+ pyopae/pybind11/include/pybind11/pybind11.h | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/pyopae/pybind11/include/pybind11/cast.h b/pyopae/pybind11/include/pybind11/cast.h
+index 2145450..0593c12 100644
+--- a/pyopae/pybind11/include/pybind11/cast.h
++++ b/pyopae/pybind11/include/pybind11/cast.h
+@@ -425,7 +425,7 @@ PYBIND11_NOINLINE inline std::string error_string() {
+         PyException_SetTraceback(scope.value, scope.trace);
+ #endif
+
+-#if !defined(PYPY_VERSION)
++#if !defined(PYPY_VERSION) && PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 11
+     if (scope.trace) {
+         PyTracebackObject *trace = (PyTracebackObject *) scope.trace;
+
+diff --git a/pyopae/pybind11/include/pybind11/pybind11.h b/pyopae/pybind11/include/pybind11/pybind11.h
+index 9094fc4..7b1da6d 100644
+--- a/pyopae/pybind11/include/pybind11/pybind11.h
++++ b/pyopae/pybind11/include/pybind11/pybind11.h
+@@ -1886,7 +1886,7 @@ inline function get_type_overload(const void *this_ptr, const detail::type_info
+
+     /* Don't call dispatch code if invoked from overridden function.
+        Unfortunately this doesn't work on PyPy. */
+-#if !defined(PYPY_VERSION)
++#if !defined(PYPY_VERSION) && PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 11
+     PyFrameObject *frame = PyThreadState_Get()->frame;
+     if (frame && (std::string) str(frame->f_code->co_name) == name &&
+         frame->f_code->co_argcount > 0) {
+-- 
+2.30.2

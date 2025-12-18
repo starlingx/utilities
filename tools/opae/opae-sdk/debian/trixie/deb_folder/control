@@ -11,7 +11,7 @@ Build-Depends:
   gcc,
   g++,
   libc6-dev,
-  libhwloc-dev (<< 2),
+  libhwloc-dev,
   libjson-c-dev,
   make,
   pandoc,
