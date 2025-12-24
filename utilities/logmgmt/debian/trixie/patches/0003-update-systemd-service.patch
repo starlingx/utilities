@@ -1,0 +1,18 @@
+Description: Update systemd service for Trixie compatibility
+ Change service type from forking to simple since daemon.runner
+ is no longer used. Add timeout and remain-after-exit settings
+ for proper service management.
+
+--- a/scripts/etc/systemd/system/logmgmt.service
++++ b/scripts/etc/systemd/system/logmgmt.service
+@@ -4,7 +4,9 @@ After=network.target syslog-ng.service 
+ Before=config.service pmon.service
+ 
+ [Service]
+-Type=forking
++Type=simple
++TimeoutStartSec=300
++RemainAfterExit=yes
+ ExecStart=/etc/init.d/logmgmt start
+ ExecStop=/etc/init.d/logmgmt stop
+ ExecReload=/etc/init.d/logmgmt restart

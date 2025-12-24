@@ -1,0 +1,20 @@
+Description: Add PID file creation for pmon.d compatibility
+ Add PID file creation to start_polling function so pmon.d can
+ monitor and manage the logmgmt process properly.
+
+--- a/logmgmt/logmgmt.py
++++ b/logmgmt/logmgmt.py
+@@ -37,6 +37,13 @@ LOGROTATE_PERIOD = 600  # Every ten min
+ ###################
+ def start_polling():
+     logmgmt_daemon = LogMgmtDaemon()
++    
++    # Create PID file for pmon.d
++    try:
++        with open(PID_FILE, 'w') as f:
++            f.write(str(os.getpid()))
++    except Exception as e:
++        logging.error("Failed to create PID file: %s", e)
+     logmgmt_daemon.run()
+ 
+ 
