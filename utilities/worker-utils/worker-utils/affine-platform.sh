@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# Copyright (c) 2013 Wind River Systems, Inc.
+# Copyright (c) 2013-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -97,21 +97,21 @@ function affine_tasks {
                       "/sys/bus/workqueue/devices/writeback/cpumask, err=${ERROR}"
         fi
 
-        # On low latency compute reassign the per cpu threads rcuc, ksoftirq,
-        # ktimersoftd to FIFO along with the specified priority
-        PIDLIST=$( ps -e -p 2 |grep rcuc | awk '{ print $1; }')
-        for PID in ${PIDLIST[@]}; do
-            chrt -p -f 4 ${PID}  2>/dev/null
-        done
+        # On low latency compute reassign the per cpu threads ksoftirq to 
+        # specified priority.
+        # The rcu [b,c] threads priority will be set during boot time by
+        # using the rcutree.kthread_prio parameter. The priority value can be
+        # changed by setting the related service-parameter.
 
+        # If ksoftirqd priority was set on service-parameter use it, otherwise use standard
         PIDLIST=$( ps -e -p 2 |grep ksoftirq | awk '{ print $1; }')
         for PID in ${PIDLIST[@]}; do
-            chrt -p -f 2 ${PID} 2>/dev/null
+            chrt -p -f ${ksoftirqd_priority:-22} ${PID} 2>/dev/null
         done
 
-        PIDLIST=$( ps -e -p 2 |grep ktimersoftd | awk '{ print $1; }')
+        PIDLIST=$( ps -e -p 2 |grep irq_work | awk '{ print $1; }')
         for PID in ${PIDLIST[@]}; do
-            chrt -p -f 3 ${PID} 2>/dev/null
+            chrt -p -f ${irq_work_priority:-22} ${PID} 2>/dev/null
         done
 
         # Ensure that ice-gnss threads are SCHED_OTHER and nice -10

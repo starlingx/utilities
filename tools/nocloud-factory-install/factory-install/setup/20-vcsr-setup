@@ -1,0 +1,211 @@
+#!/bin/bash
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# ====================================================================================
+# vCSR Sample Setup Script - Generic Deployment Example for a Virtual Cell Site Router
+# ====================================================================================
+#
+# This script demonstrates how to deploy a customized vCSR (Virtual Cell Site Router)
+# solution using Kubernetes on StarlingX.
+#
+# It is meant as an example: adapt it according to the tarball
+# or YAML file name, the network names, and any specific deployment logic.
+#
+# The accompanying YAML manifest can include NetworkAttachmentDefinitions (NADs),
+# pod/DaemonSet definitions, and additional configuration as needed.
+#
+# Main steps:
+#   1. Check that the required networks exist in StarlingX.
+#   2. Create the target Kubernetes namespace if not present.
+#   3. Copy the default registry secret from kube-system to the new namespace
+#   4. Apply the YAML manifest with all NADs and pods.
+#   5. Wait for pods to reach Ready state.
+#
+# NOTE:
+# Replace this file with your own logic to install any additional applications
+# required for your deployment.
+#
+# Delete this file if vCSR or any other custom application is not expected to
+# be installed during factory install.
+# ====================================================================================
+#
+# If you wish to perform additional reconfiguration during subcloud enrollment,
+# you must create a tarball with the following directory structure:
+#
+#   cloud-init-config/
+#     └── scripts/
+#           ├── 20-vCSR-reconfig
+#           └── additional-vCSR-config-file-or-dir
+#
+# - The reconfiguration script should be placed under the "scripts" directory.
+# - The script name must have a numeric prefix greater than 10, as the
+#   "10-platform-reconfig" script is reserved for StarlingX software reconfiguration.
+#
+# During enrollment, specify this tarball file using the --cloud-init-config option.
+#
+# Example:
+#   dcmanager subcloud add --enroll --cloud-init-config <your-tarball>.tar.gz ...
+# ====================================================================================
+
+HOME_DIR="/home/sysadmin"                # Directory to look for manifests/files
+KUBE_CONFIG="/etc/kubernetes/admin.conf" # Path to Kubernetes config
+VCSR_PREFIX="open-vcsr"                  # Prefix for the YAML manifest name
+VCSR_NAMESPACE="vcsr"                    # Namespace where vCSR will be deployed
+
+# Automatically finds the first YAML matching the prefix (update the logic if needed)
+VCSR_YAML_FILE_PATH=$(
+    find "${HOME_DIR}" -maxdepth 1 -type f -name "${VCSR_PREFIX}*.yaml" 2>/dev/null
+)
+
+# Logging functions
+function check_rc_die {
+    local -i rc=${1}
+    msg=${2}
+    if [ ${rc} -ne 0 ]; then
+        log_fatal "${msg} [rc=${rc}]"
+    fi
+}
+
+function log_fatal {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - vCSR-setup -") FATAL: ${*}"
+    exit 1
+}
+
+function log_error {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - vCSR-setup -") FAIL: ${*}"
+    exit 0
+}
+
+function log_warn {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - vCSR-setup -") WARN: ${*}"
+}
+
+function log_info {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - vCSR-setup -") INFO: ${*}"
+}
+
+# Load platform environment variables (required for StarlingX CLI)
+if [ -f /etc/platform/openrc ]; then
+    source /etc/platform/openrc
+else
+    log_fatal "Platform environment file /etc/platform/openrc not found"
+fi
+
+# Check Kubernetes config exists
+if [ ! -f "${KUBE_CONFIG}" ]; then
+    log_fatal "Kubernetes configuration file ${KUBE_CONFIG} not found."
+fi
+
+# Export kubeconfig for kubectl
+export KUBECONFIG=${KUBE_CONFIG}
+
+# Waits for all pods in the namespace to reach Ready
+wait_for_pod_ready() {
+    local timeout_seconds=300
+
+    log_info "Waiting for vCSR pods in namespace ${VCSR_NAMESPACE} to become Ready..."
+
+    kubectl -n ${VCSR_NAMESPACE} wait pod \
+        --for=condition=Ready \
+        --all \
+        --timeout=${timeout_seconds}s
+
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        log_error "Timeout: Not all vCSR pods became Ready within \
+        ${timeout_seconds} seconds."
+    fi
+
+    log_info "All vCSR pods are Ready."
+}
+
+# Checks that the required network exists; adjust the network name if needed
+check_required_networks() {
+    local output
+    output=$(system datanetwork-list)
+
+    log_info "Checking for required data network 'vcsr-midhaul' (adjust as needed)..."
+
+    if [ -z "$output" ]; then
+        log_error "No data networks configured on the system. \
+        Please ensure the networks are created before running this script."
+    fi
+
+    # MODIFY this network name if needed
+    if echo "$output" | grep -q "vcsr-midhaul" ; then
+        log_info "vcsr-midhaul network is present."
+    else
+        log_error "Required network 'vcsr-midhaul' is missing."
+    fi
+}
+
+
+# Copies the default registry secret from kube-system namespace to vCSR namespace
+copy_registry_secret() {
+    local SECRET_NAME="default-registry-key"
+    local SRC_NS="kube-system"
+    local DEST_NS="${VCSR_NAMESPACE}"
+
+    ensure_namespace
+
+    log_info "Copying secret '$SECRET_NAME' from '$SRC_NS' to '$DEST_NS'..."
+
+    # Check that the secret exists in the source namespace
+    if ! kubectl get secret "$SECRET_NAME" -n "$SRC_NS" >/dev/null 2>&1; then
+        log_error "Secret '$SECRET_NAME' not found in namespace '$SRC_NS'."
+    fi
+
+    # Export, fix namespace, and apply to the destination namespace
+    kubectl get secret "$SECRET_NAME" -n "$SRC_NS" -o yaml | \
+        sed "s/namespace: $SRC_NS/namespace: $DEST_NS/" | \
+        kubectl apply -f -
+
+    check_rc_die $? "Failed to copy secret '$SECRET_NAME' to '$DEST_NS'."
+    log_info "Secret '$SECRET_NAME' successfully copied to '$DEST_NS'."
+}
+
+# Creates the namespace in Kubernetes if it does not exist
+ensure_namespace() {
+    if ! kubectl get namespace "${VCSR_NAMESPACE}" >/dev/null 2>&1; then
+        log_info "Namespace ${VCSR_NAMESPACE} does not exist. Creating it..."
+        kubectl create namespace "${VCSR_NAMESPACE}"
+        check_rc_die $? "Failed to create namespace ${VCSR_NAMESPACE}"
+    else
+        log_info "Namespace ${VCSR_NAMESPACE} already exists."
+    fi
+}
+
+# Applies the YAML manifest
+install_vcsr() {
+    log_info "Installing vCSR application..."
+
+    if [ -z "$VCSR_YAML_FILE_PATH" ]; then
+        log_error "No vCSR YAML file found in ${HOME_DIR} matching ${VCSR_PREFIX}*.yaml"
+    fi
+
+    log_info "Applying manifest: ${VCSR_YAML_FILE_PATH}"
+    kubectl -n ${VCSR_NAMESPACE} apply -f ${VCSR_YAML_FILE_PATH}
+    check_rc_die $? "Failed to apply vCSR yaml manifest."
+
+    # Wait for all pods to be ready
+    wait_for_pod_ready
+
+}
+
+log_info "Starting to apply the open vCSR application..."
+
+# Ensure that the required networks are present
+check_required_networks
+
+# Copy the default registry secret to ensure that vCSR can pull images
+# from the registry.local
+copy_registry_secret
+
+install_vcsr
+
+log_info "Open vCSR application deployment completed successfully"
+
+exit 0

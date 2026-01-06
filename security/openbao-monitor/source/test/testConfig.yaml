@@ -1,0 +1,16 @@
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+ServerAddresses:
+  controller-0:
+    host: "Openbao"
+    port: 8200
+CACert: "/workdir/OpenBaoCA/ca.crt"
+ClientCert: "/workdir/OpenBaoClientCert/tls.crt"
+ClientKey: "/workdir/OpenBaoClientCert/tls.key"
+logPath: "/workdir/openbao_monitor.log"
+logLevel: "DEBUG"
+WaitInterval: 5

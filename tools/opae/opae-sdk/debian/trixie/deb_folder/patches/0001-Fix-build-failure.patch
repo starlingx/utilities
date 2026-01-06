@@ -1,0 +1,24 @@
+From e6e55095c3d98debb78dec79b6064efe3169b5ae Mon Sep 17 00:00:00 2001
+From: Sai Lakshmi Teja Vanka <SaiLakshmiTeja.Vanka@windriver.com>
+Date: Tue, 5 Aug 2025 07:13:00 +0000
+Subject: [PATCH] Fix build failure
+
+Signed-off-by: Sai Lakshmi Teja Vanka <SaiLakshmiTeja.Vanka@windriver.com>
+---
+ tools/extra/c++utils/cmd_handler.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tools/extra/c++utils/cmd_handler.h b/tools/extra/c++utils/cmd_handler.h
+index 7e7e166..37e2743 100644
+--- a/tools/extra/c++utils/cmd_handler.h
++++ b/tools/extra/c++utils/cmd_handler.h
+@@ -30,6 +30,7 @@
+ #include <string>
+ #include <iostream>
+ #include <fstream>
++#include <cstdint>
+ 
+ namespace intel
+ {
+-- 
+2.47.2

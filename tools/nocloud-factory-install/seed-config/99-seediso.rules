@@ -1,0 +1,17 @@
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# These udev rules trigger the systemd service "cloud-init-seed.service"
+# when a seed ISO is inserted.
+#
+# The first rule matches scsi devices (devices named "sr*") when a
+# CD/DVD media is detected and the medium is present.
+#
+# The second rule matches generic block devices (devices named "sd*")
+# formatted with an ISO9660 filesystem when they are added, such as a
+# USB drive or virtual disk containing a seed ISO.
+#
+SUBSYSTEM=="block", KERNEL=="sr*", ENV{ID_CDROM_MEDIA}=="1", ACTION=="change", TAG+="systemd", ENV{SYSTEMD_WANTS}="cloud-init-seed.service"
+SUBSYSTEM=="block", KERNEL=="sd*", ENV{ID_FS_TYPE}=="iso9660", ACTION=="add", TAG+="systemd", ENV{SYSTEMD_WANTS}="cloud-init-seed.service"

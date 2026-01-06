@@ -1,0 +1,108 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+
+export ROOT = debian/tmp
+export SYSCONFDIR = $(ROOT)/etc
+export SBINDIR = $(ROOT)/usr/sbin
+
+%:
+	dh $@
+
+
+override_dh_auto_install:
+
+	install -m 755 -d $(SYSCONFDIR)/collect.d
+	install -m 755 -d $(SYSCONFDIR)/collect
+	install -m 755 -d $(SYSCONFDIR)/collect/plugins
+	install -m 755 -d $(ROOT)/usr/local/sbin
+	install -m 755 -d $(ROOT)/usr/local/bin
+	install -m 755 -d $(ROOT)/usr/local/bin/report
+	install -m 755 -d $(ROOT)/usr/local/bin/report/plugins
+	install -m 755 -d $(ROOT)/usr/local/bin/report/plugin_algs
+	install -m 755 -d $(SBINDIR)
+
+	install -m 755 -p collect $(ROOT)/usr/local/sbin/collect
+	install -m 755 -p collect_host $(ROOT)/usr/local/sbin/collect_host
+	install -m 755 -p collect_date $(ROOT)/usr/local/sbin/collect_date
+	install -m 755 -p collect_utils $(ROOT)/usr/local/sbin/collect_utils
+	install -m 755 -p collect_parms $(ROOT)/usr/local/sbin/collect_parms
+	install -m 755 -p collect_timeouts $(SYSCONFDIR)/collect/collect_timeouts
+	install -m 755 -p collect_checkpoint $(ROOT)/usr/local/sbin/collect_checkpoint
+	install -m 755 -p collect_mask_passwords $(ROOT)/usr/local/sbin/collect_mask_passwords
+	install -m 755 -p collect_certificates $(ROOT)/usr/local/sbin/collect_certificates
+	install -m 755 -p expect_done $(ROOT)/usr/local/sbin/expect_done
+	install -m 755 -p mariadb-cli.sh $(ROOT)/usr/local/sbin/mariadb-cli
+
+	# Report Tool
+	install -m 755 -p report/report.py $(ROOT)/usr/local/bin/report/report.py
+	install -m 755 -p report/execution_engine.py $(ROOT)/usr/local/bin/report/execution_engine.py
+	install -m 755 -p report/algorithms.py $(ROOT)/usr/local/bin/report/algorithms.py
+	install -m 755 -p report/plugin.py $(ROOT)/usr/local/bin/report/plugin.py
+	install -m 755 -p report/correlator.py $(ROOT)/usr/local/bin/report/correlator.py
+	install -m 755 -p report/render.py $(ROOT)/usr/local/bin/report/render.py
+	install -m 755 -p report/render.exclude $(ROOT)/usr/local/bin/report/render.exclude
+	install -m 644 -p report/README $(ROOT)/usr/local/bin/report/README
+
+	# Report Tool Plugin Algorithms
+	install -m 755 -p report/plugin_algs/alarm.py $(ROOT)/usr/local/bin/report/plugin_algs/alarm.py
+	install -m 755 -p report/plugin_algs/audit.py $(ROOT)/usr/local/bin/report/plugin_algs/audit.py
+	install -m 755 -p report/plugin_algs/daemon_failures.py $(ROOT)/usr/local/bin/report/plugin_algs/daemon_failures.py
+	install -m 755 -p report/plugin_algs/heartbeat_loss.py $(ROOT)/usr/local/bin/report/plugin_algs/heartbeat_loss.py
+	install -m 755 -p report/plugin_algs/maintenance_errors.py $(ROOT)/usr/local/bin/report/plugin_algs/maintenance_errors.py
+	install -m 755 -p report/plugin_algs/process_failures.py $(ROOT)/usr/local/bin/report/plugin_algs/process_failures.py
+	install -m 755 -p report/plugin_algs/puppet_errors.py $(ROOT)/usr/local/bin/report/plugin_algs/puppet_errors.py
+	install -m 755 -p report/plugin_algs/state_changes.py $(ROOT)/usr/local/bin/report/plugin_algs/state_changes.py
+	install -m 755 -p report/plugin_algs/substring.py $(ROOT)/usr/local/bin/report/plugin_algs/substring.py
+	install -m 755 -p report/plugin_algs/swact_activity.py $(ROOT)/usr/local/bin/report/plugin_algs/swact_activity.py
+	install -m 755 -p report/plugin_algs/system_info.py $(ROOT)/usr/local/bin/report/plugin_algs/system_info.py
+
+	# Report Tool Plugins
+	install -m 644 -p report/plugins/alarm $(ROOT)/usr/local/bin/report/plugins/alarm
+	install -m 644 -p report/plugins/daemon_failures $(ROOT)/usr/local/bin/report/plugins/daemon_failures
+	install -m 644 -p report/plugins/heartbeat_loss $(ROOT)/usr/local/bin/report/plugins/heartbeat_loss
+	install -m 644 -p report/plugins/maintenance_errors $(ROOT)/usr/local/bin/report/plugins/maintenance_errors
+	install -m 644 -p report/plugins/process_failures $(ROOT)/usr/local/bin/report/plugins/process_failures
+	install -m 644 -p report/plugins/puppet_errors $(ROOT)/usr/local/bin/report/plugins/puppet_errors
+	install -m 644 -p report/plugins/sm_errors $(ROOT)/usr/local/bin/report/plugins/sm_errors
+	install -m 644 -p report/plugins/state_changes $(ROOT)/usr/local/bin/report/plugins/state_changes
+	install -m 644 -p report/plugins/substring $(ROOT)/usr/local/bin/report/plugins/substring
+	install -m 644 -p report/plugins/swact_activity $(ROOT)/usr/local/bin/report/plugins/swact_activity
+	install -m 644 -p report/plugins/system_info $(ROOT)/usr/local/bin/report/plugins/system_info
+	install -m 644 -p report/plugins/substring_hosts $(SYSCONFDIR)/collect/plugins/substring_hosts
+
+	# Collect Plugins
+	install -m 755 -p collect_sysinv.sh $(SYSCONFDIR)/collect.d/collect_sysinv
+	install -m 755 -p collect_psqldb.sh $(SYSCONFDIR)/collect.d/collect_psqldb
+	install -m 755 -p collect_mariadb.sh $(SYSCONFDIR)/collect.d/collect_mariadb
+	install -m 755 -p collect_openstack.sh $(SYSCONFDIR)/collect.d/collect_openstack
+	install -m 755 -p collect_networking.sh $(SYSCONFDIR)/collect.d/collect_networking
+	install -m 755 -p collect_ceph.sh $(SYSCONFDIR)/collect.d/collect_ceph
+	install -m 755 -p collect_dpkg.sh $(SYSCONFDIR)/collect.d/collect_dpkg
+	install -m 755 -p collect_sm.sh $(SYSCONFDIR)/collect.d/collect_sm
+	install -m 755 -p collect_tc.sh $(SYSCONFDIR)/collect.d/collect_tc
+	install -m 755 -p collect_nfv_vim.sh $(SYSCONFDIR)/collect.d/collect_nfv_vim
+	install -m 755 -p collect_ostree.sh $(SYSCONFDIR)/collect.d/collect_ostree
+	install -m 755 -p collect_ovs.sh $(SYSCONFDIR)/collect.d/collect_ovs
+	install -m 755 -p collect_coredump.sh $(SYSCONFDIR)/collect.d/collect_coredump
+	install -m 755 -p collect_crash.sh $(SYSCONFDIR)/collect.d/collect_crash
+	install -m 755 -p collect_ima.sh $(SYSCONFDIR)/collect.d/collect_ima
+	install -m 755 -p collect_fm.sh $(SYSCONFDIR)/collect.d/collect_fm
+	install -m 755 -p collect_containerization.sh $(SYSCONFDIR)/collect.d/collect_containerization
+	install -m 755 -p collect_dc.sh $(SYSCONFDIR)/collect.d/collect_dc
+	install -m 755 -p collect_disk.sh $(SYSCONFDIR)/collect.d/collect_disk
+	install -m 755 -p collect_interfaces.sh $(SYSCONFDIR)/collect.d/collect_interfaces
+	install -m 755 -p collect_sysadmin.sh $(SYSCONFDIR)/collect.d/collect_sysadmin
+	install -m 755 -p collect_systemd.sh $(SYSCONFDIR)/collect.d/collect_systemd
+	install -m 755 -p collect_usm.sh $(SYSCONFDIR)/collect.d/collect_usm
+	install -m 755 -p collect_ipsec.sh $(SYSCONFDIR)/collect.d/collect_ipsec
+
+	install -m 755 -p etc.exclude $(SYSCONFDIR)/collect/etc.exclude
+	install -m 755 -p run.exclude $(SYSCONFDIR)/collect/run.exclude
+	install -m 755 -p varlog.exclude $(SYSCONFDIR)/collect/varlog.exclude
+	install -m 755 -p certs.include $(SYSCONFDIR)/collect/certs.include
+
+	ln -sf /usr/local/sbin/collect $(SBINDIR)/collect
+	ln -sf /usr/local/sbin/collect $(ROOT)/usr/local/bin/collect
+
+override_dh_usrlocal:
+	echo "do nothing"

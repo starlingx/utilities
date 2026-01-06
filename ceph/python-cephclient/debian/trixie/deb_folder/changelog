@@ -1,0 +1,5 @@
+python-cephclient (13.2.2.0-1) unstable; urgency=medium
+
+  * Initial release.
+
+ -- Chuck Short <charles.short@windriver.com>  Wed, 18 Aug 2021 14:01:52 -0400

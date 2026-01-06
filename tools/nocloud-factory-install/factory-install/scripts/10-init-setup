@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2024 Wind River Systems, Inc.
+# Copyright (c) 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -31,10 +31,11 @@ fi
 mkdir -p "${FACTORY_INSTALL}"/{stage,state}
 check_rc_die $? "mkdir failed"
 
-# Copy system config, setup and test scripts
+# Copy system config, setup, test and backup scripts
 cp -r "${NOCLOUD}"/factory-install/scripts "${FACTORY_INSTALL}"/scripts && \
     cp -r "${NOCLOUD}"/factory-install/setup "${FACTORY_INSTALL}"/setup && \
     cp -r "${NOCLOUD}"/factory-install/tests "${FACTORY_INSTALL}"/tests && \
+    cp -r "${NOCLOUD}"/factory-install/backup "${FACTORY_INSTALL}"/backup && \
     cp -r "${NOCLOUD}"/factory-install/systemd/utils "${FACTORY_INSTALL}"/utils && \
     cp -r "${NOCLOUD}"/config "${FACTORY_INSTALL}"/config
 check_rc_die $? "copy failed"
@@ -43,6 +44,7 @@ check_rc_die $? "copy failed"
 chmod a+x "${FACTORY_INSTALL}"/scripts/* && \
     chmod a+x "${FACTORY_INSTALL}"/setup/* && \
     chmod a+x "${FACTORY_INSTALL}"/tests/* && \
+    chmod a+x "${FACTORY_INSTALL}"/backup/* && \
     chmod a+x "${FACTORY_INSTALL}"/utils/*
 check_rc_die $? "chmod failed"
 

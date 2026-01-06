@@ -1,0 +1,7 @@
+usr/lib/libbitstream.so*
+usr/lib/libbmc.so*
+usr/lib/libmodbmc.so*
+usr/lib/libopae-c.so*
+usr/lib/libopae-cxx-core.so*
+usr/lib/libxfpga.so*
+LICENSE usr/share/doc/opae-libs

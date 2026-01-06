@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloud-init from seed ISO
+After=local-fs.target
+RequiresMountsFor=/opt/nocloud
+ConditionPathExists=/var/lib/factory-install/complete
+
+[Service]
+Type=oneshot
+ExecStart=/var/lib/factory-install/run-cloud-init-from-seed.sh
+RemainAfterExit=no
+StandardOutput=append:/var/log/cloud-init.log
+StandardError=append:/var/log/cloud-init.log
+
+[Install]
+WantedBy=multi-user.target

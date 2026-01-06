@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2016-2020 Wind River Systems, Inc.
+# Copyright (c) 2016-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -18,21 +18,24 @@ LOGFILE="${extradir}/${SERVICE}.info"
 CRASHDIR="/var/crash"
 
 echo    "${hostname}: Kernel Crash Info .: ${LOGFILE}"
+if [ -n "$(ls -A ${CRASHDIR} 2>/dev/null)" ]; then
+    COMMAND="find ${CRASHDIR}"
+    delimiter ${LOGFILE} "${COMMAND}"
+    ${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
-COMMAND="find ${CRASHDIR}"
-delimiter ${LOGFILE} "${COMMAND}"
-${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    COMMAND="rsync -a  --include=*/ --include=*  ${CRASHDIR} ${basedir}/var/"
+    delimiter ${LOGFILE} "${COMMAND}"
+    ${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
-COMMAND="rsync -a --include=*.txt --include=*/ --exclude=* ${CRASHDIR} ${basedir}/var/"
-delimiter ${LOGFILE} "${COMMAND}"
-${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    COMMAND="ls -lrtd ${CRASHDIR}/*"
+    delimiter ${LOGFILE} "${COMMAND}"
+    ${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
-COMMAND="ls -lrtd ${CRASHDIR}/*"
-delimiter ${LOGFILE} "${COMMAND}"
-${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
-
-COMMAND="md5sum ${CRASHDIR}/*"
-delimiter ${LOGFILE} "${COMMAND}"
-${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    COMMAND="md5sum ${CRASHDIR}/*"
+    delimiter ${LOGFILE} "${COMMAND}"
+    ${COMMAND} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+else
+    echo "${CRASHDIR} is empty." >> ${LOGFILE}
+fi
 
 exit 0

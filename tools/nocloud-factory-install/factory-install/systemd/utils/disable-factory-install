@@ -1,16 +1,59 @@
 #!/bin/bash
 #
-# Copyright (c) 2024 Wind River Systems, Inc.
+# Copyright (c) 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 # script to disable the factory install services after the installation is complete
 #
 
-echo "Disabling factory install services"
+log_info() { echo "$(date '+%F %H:%M:%S') INFO: $*"; }
+log_warn() { echo "$(date '+%F %H:%M:%S') WARN: $*"; }
+
+log_info "Disabling factory install services"
+
+# Delete System CRs from cluster
+# Using the default namespace if fail to it
+system_ns=$(python3 << 'EOF'
+import yaml
+import os
+
+try:
+    if os.path.exists('/home/sysadmin/dm-playbook-overrides.yaml'):
+        with open('/home/sysadmin/dm-playbook-overrides.yaml') as f:
+            override_data = yaml.safe_load(f)
+        config_file = override_data.get('deployment_config')
+
+        if config_file and os.path.exists(config_file):
+            with open(config_file) as f:
+                docs = list(yaml.safe_load_all(f))
+            sys_doc = next((d for d in docs if d and d.get('kind') == 'System'), None)
+
+            if sys_doc and 'metadata' in sys_doc:
+                namespace = sys_doc['metadata'].get('namespace')
+                if namespace:
+                    print(namespace)
+except:
+    pass
+EOF
+)
+
+# Default to deployment if namespace not found
+if [ -z "$system_ns" ]; then
+    log_warn "Namespace not found from existing config files, using default namespace 'deployment'"
+    system_ns="deployment"
+fi
+
+log_info "Deleting all System CRs in namespace $system_ns"
+kubectl_output=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf delete system --all -n "$system_ns" 2>&1)
+if [ $? -ne 0 ]; then
+    log_warn "Failed to delete System CRs: $kubectl_output"
+fi
 
 rm -f /var/lib/factory-install/enabled
 rm -f /etc/systemd/system-preset/20-factory-install.preset
 
 systemctl daemon-reload
 systemctl preset-all
+
+/var/lib/factory-install/utils/send-factory-sel-event finished ok

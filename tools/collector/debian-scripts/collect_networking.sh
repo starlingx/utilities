@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2014,2024 Wind River Systems, Inc.
+# Copyright (c) 2013-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -27,20 +27,23 @@ declare -a CMDS=("ip -s link"
 "ip -6 rule"
 "ip -4 route"
 "ip -6 route"
+"ss -tupSnOl" # listening UDP, SCTP, and TCP ports
 )
 
 for CMD in "${CMDS[@]}" ; do
     delimiter ${LOGFILE} "${CMD}"
-    ${CMD} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    eval "${CMD}" >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 done
 
-CMD="iptables-save"
-delimiter ${LOGFILE} "${CMD}"
-${CMD} > ${extradir}/iptables.dump 2>>${COLLECT_ERROR_LOG}
+run_command "iptables-save" "${extradir}/iptables.dump"
 
-CMD="ip6tables-save"
-delimiter ${LOGFILE} "${CMD}"
-${CMD} > ${extradir}/ip6tables.dump 2>>${COLLECT_ERROR_LOG}
+run_command "nft list ruleset ip" "${extradir}/netfilter_list_ruleset.dump"
+
+run_command "ip6tables-save" "${extradir}/ip6tables.dump"
+
+run_command "nft list ruleset ip6" "${extradir}/netfilter6_list_ruleset.dump"
+
+run_command "ipset save" "${extradir}/ipset.dump"
 
 bond_status () {
     if [ -d /proc/net/bonding/ ]; then

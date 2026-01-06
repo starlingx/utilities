@@ -1,0 +1,10 @@
+[Unit]
+Description=Factory Installation Backup Stage
+ConditionPathExists=/var/lib/factory-install/enabled
+ConditionPathExists=!/var/lib/factory-install/state/backup
+
+[Path]
+PathModified=/var/lib/factory-install/stage/backup
+
+[Install]
+WantedBy=factory-install.target

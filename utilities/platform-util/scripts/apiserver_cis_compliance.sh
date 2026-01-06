@@ -34,24 +34,63 @@ if [[ $status -ne 0 ]]; then
     exit 1
 fi
 
-
+#CIS-1.2.9 EventRateLimit is not set because of  the bug: https://github.com/kubernetes/kubernetes/issues/62861
+#system service-parameter-modify kubernetes kube_apiserver enable-admission-plugins="EventRateLimit"
 EXPECTED_PLUGINS="NodeRestriction,AlwaysPullImages"
 MANIFEST_FILE="/etc/kubernetes/manifests/kube-apiserver.yaml"
 
-#CIS-1.2.9 EventRateLimit is not set because of  the bug: https://github.com/kubernetes/kubernetes/issues/62861
-#system service-parameter-modify kubernetes kube_apiserver enable-admission-plugins="EventRateLimit"
-system service-parameter-modify kubernetes kube_apiserver enable-admission-plugins="$EXPECTED_PLUGINS"
-system service-parameter-apply kubernetes
 
-echo "Waiting for sometime for the  changes to take effect ..."
-sleep 10
-CURRENT_PLUGINS=$(sudo grep -oP -- '--enable-admission-plugins=\K[^"]+' "$MANIFEST_FILE")
+get_current_plugins() {
+    sudo grep -E '^\s*- --enable-admission-plugins=' "$MANIFEST_FILE" | sed 's/.*=//;s/^[ \t]*//;s/[ \t]*$//' || echo ""
+}
 
-if [[ "$CURRENT_PLUGINS" == *"$EXPECTED_PLUGINS"* ]]; then
-    echo "Verification successful: The enable-admission-plugins setting includes: $EXPECTED_PLUGINS"
+update_plugins_if_needed() {
+    current_plugins=$(get_current_plugins)
+    param_exists=$(system service-parameter-list | grep enable-admission-plugins)
+    if [[ -z "$param_exists" ]]; then
+        echo "No enable-admission-plugins set. Setting to: $EXPECTED_PLUGINS"
+        system service-parameter-add kubernetes kube_apiserver enable-admission-plugins="$EXPECTED_PLUGINS"
+        if [[ $? -eq 0 ]]; then
+            apply_needed=true
+        else
+            echo "ERROR: Failed to add enable-admission-plugins"
+        fi
+    else
+        IFS=',' read -ra current <<< "$current_plugins"
+        IFS=',' read -ra expected <<< "$EXPECTED_PLUGINS"
+        updated=false
+
+        for plugin in "${expected[@]}"; do
+            if [[ ! " ${current[@]} " =~ " ${plugin} " ]]; then
+                current+=("$plugin")
+                updated=true
+            fi
+        done
+
+        if [[ "$updated" == true ]]; then
+            new_plugins=$(IFS=','; echo "${current[*]}")
+            echo "Updating enable-admission-plugins to: $new_plugins"
+            system service-parameter-modify kubernetes kube_apiserver enable-admission-plugins="$new_plugins"
+            if [[ $? -eq 0 ]]; then
+                apply_needed=true
+            else
+                echo "ERROR: Failed to add enable-admission-plugins"
+            fi
+        else
+            echo "All expected plugins are already present. No changes made."
+            apply_needed=false
+        fi
+    fi
+}
+
+apply_needed=false
+update_plugins_if_needed
+
+if [[ "$apply_needed" == true ]]; then
+    echo "Applying updated service parameters..."
+    system service-parameter-apply kubernetes
 else
-    echo "Verification failed: The enable-admission-plugins setting does not include: $EXPECTED_PLUGINS"
-    echo "Current setting: $CURRENT_PLUGINS"
+    echo "No update needed. Skipping apply."
 fi
 
 run_command() {
@@ -82,8 +121,19 @@ run_command() {
     fi
 
     return $status
-
 }
+
+
+echo "Waiting for 30 seconds for the changes to take effect..."
+sleep 30
+CURRENT_PLUGINS=$(sudo grep -oP -- '--enable-admission-plugins=\K[^"]+' "$MANIFEST_FILE")
+
+if [[ "$CURRENT_PLUGINS" == *"$EXPECTED_PLUGINS"* ]]; then
+    echo "Verification successful: The enable-admission-plugins setting includes: $EXPECTED_PLUGINS"
+else
+    echo "Verification failed: The enable-admission-plugins setting does not include: $EXPECTED_PLUGINS"
+    echo "Current setting: $CURRENT_PLUGINS"
+fi
 
 # Skipped k8s configs are : audit-log-maxbackup=10 and audit-log-maxsize=100. These configs are already set during bootstrap
 # Modify the audit-log-maxage parameter
@@ -113,8 +163,8 @@ if [ $? -eq 0 ]; then
     run_command "system service-parameter-apply kubernetes" \
         "Service parameters applied successfully." \
         "Failed to apply service parameters"
-        else
-            echo "One or more service parameters failed to modify, skipping apply step."
+else
+    echo "One or more service parameters failed to modify, skipping apply step."
 fi
 
 echo "All commands executed, checking api-server status after 30 secs"
@@ -141,5 +191,4 @@ while [ $RETRIES -lt $MAX_RETRIES ]; do
     sleep $SLEEP_INTERVAL
 done
 exit 0
-
 

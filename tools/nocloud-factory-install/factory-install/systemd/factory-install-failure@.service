@@ -1,0 +1,8 @@
+[Unit]
+Description=Factory Install Failure Notifier for %I
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/var/lib/factory-install/utils/send-factory-sel-event %i err
+StandardOutput=append:/var/log/factory-install.log

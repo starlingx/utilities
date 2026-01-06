@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2019 Wind River Systems, Inc.
+# Copyright (c) 2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -519,25 +519,25 @@ function wait_for_platform_upgrade_complete {
 
     while true; do
         # Check overall upgrade status. We don't have an API to tell us
-        # when we reach activation-complete. This API ignores host UUID.
-        is_upgrade_in_progress=$(curl -sf \
-            ${SYSINV_URL}/v1/upgrade/hostname/upgrade_in_progress)
-        if [ "$?" -ne 0 ]; then
-            ERROR "upgrade_in_progress api returned $?."
+        # when we reach activation-complete. This flag checks platform
+        # upgrade progress.
+        FLAG="/etc/platform/.usm_upgrade_in_progress"
+        if [ ! -e "$FILE" ]; then
+            LOG ".usm_upgrade_in_progress file doesn't exists"
             return
         fi
 
-        if [ "${is_upgrade_in_progress}" = "true" ]; then
+        if [ -e "$FLAG" ]; then
             if is_active_controller; then
                 # cpu-intensive operations have completed when upgrade
                 # has progressed to any of these states: completing,
                 # activation-complete, activation-failed,
                 # or '' which implies upgrade was deleted.
                 source /etc/platform/openrc
-                UPGRADE_STATE=$(system upgrade-show | grep state | awk '{ print $4; }' 2>/dev/null)
-                if [ "${UPGRADE_STATE}" = "activation-complete" ] || \
-                    [ "${UPGRADE_STATE}" = "activation-failed" ] || \
-                    [ "${UPGRADE_STATE}" = "completing" ] || \
+                UPGRADE_STATE=$(software deploy show | awk -F'|' '/^\| [0-9]/{gsub(/^ +| +$/,"",$5); print $5}' 2>/dev/null)
+                if [ "${UPGRADE_STATE}" = "deploy-activate-done" ] || \
+                    [ "${UPGRADE_STATE}" = "deploy-activate-failed" ] || \
+                    [ "${UPGRADE_STATE}" = "deploy-completed" ] || \
                     [ "${UPGRADE_STATE}" = "" ]
                 then
                     LOG "Platform upgrade reached completion"

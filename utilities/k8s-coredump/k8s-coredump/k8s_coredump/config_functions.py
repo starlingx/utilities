@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022,2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -71,14 +71,20 @@ def parse_core_pattern(string_core_pattern, **kwargs):
     string_core_pattern = splitted_path[-1]
 
     LOG.info(f'Parsing core pattern: {string_core_pattern}')
-    processed_string = string_core_pattern.lower()
-    processed_string = processed_string.replace('%p', kwargs['pid'])
-    processed_string = processed_string.replace('%u', kwargs['uid'])
-    processed_string = processed_string.replace('%g', kwargs['gid'])
-    processed_string = processed_string.replace('%s', kwargs['signal'])
-    processed_string = processed_string.replace('%t', kwargs['timestamp'])
-    processed_string = processed_string.replace('%h', kwargs['hostname'])
-    processed_string = processed_string.replace('%e', kwargs['comm2'])
+    processed_string = string_core_pattern
+    for pattern, value in [
+        ('%p', kwargs.get('container_pid')),
+        ('%P', kwargs.get('host_pid')),
+        ('%u', kwargs.get('uid')),
+        ('%g', kwargs.get('gid')),
+        ('%s', kwargs.get('signal')),
+        ('%t', kwargs.get('timestamp')),
+        ('%h', kwargs.get('hostname')),
+        ('%e', kwargs.get('comm'))
+    ]:
+        if pattern in processed_string:
+            processed_string = processed_string.replace(pattern, value)
+
     LOG.info(f'Core pattern parsed to {processed_string}')
 
     splitted_path[-1] = processed_string

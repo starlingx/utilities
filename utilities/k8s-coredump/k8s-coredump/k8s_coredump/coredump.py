@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022,2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -69,10 +69,19 @@ def _lookupPod(pid):
     return None
 
 
-def _systemCoreFile():
+def _systemCoreFile(**kwargs):
     # delegate handling to systemd coredump handler
     try:
-        cmd = [SYSTEMD_COREDUMP] + sys.argv[1:]
+        systemd_args = [
+            kwargs['host_pid'],  # %P
+            kwargs['uid'],  # %u
+            kwargs['gid'],  # %g
+            kwargs['signal'],  # %s
+            kwargs['timestamp'],  # %t
+            kwargs['rlimit_core'],  # 9223372036854775808 %c
+            kwargs['hostname']  # %h
+        ]
+        cmd = [SYSTEMD_COREDUMP] + systemd_args
         LOG.info("No pod information was found, using default system coredump. Command: %s" % cmd)
         subprocess.run(cmd)
         LOG.info("Dumped through default core process")
@@ -98,11 +107,14 @@ def _podCoreFile(pid, corefile, annotations_config):
 
 
 def CoreDumpHandler(**kwargs):
-    pid = kwargs['pid']
+    pid = kwargs['host_pid']
     uid = kwargs['uid']
     exe = kwargs['comm']
-
-    LOG.critical("Process %s (%s) of user %s dumped core." % (pid, exe, uid))
+    container_pid = kwargs['container_pid']
+    LOG.critical(
+        "Process of External PID %s / Internal PID %s (command:%s) of user %s dumped core" %
+        (pid, container_pid, exe, uid)
+    )
 
     pod = _lookupPod(pid)
     if pod:
@@ -132,4 +144,4 @@ def CoreDumpHandler(**kwargs):
             pass
 
     # not handled by pod, redirect to systemd coredump handler
-    _systemCoreFile()
+    _systemCoreFile(**kwargs)

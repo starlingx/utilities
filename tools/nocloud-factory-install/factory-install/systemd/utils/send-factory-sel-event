@@ -1,0 +1,51 @@
+#!/bin/bash
+#
+# Copyright (c) 2025 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Script to send IPMI SEL events depending on the status for each stage.
+#
+
+log_info() { echo "$(date '+%F %H:%M:%S') INFO: $*"; }
+log_warn() { echo "$(date '+%F %H:%M:%S') WARN: $*"; }
+
+declare -Ar CODES=(
+  [bootstrap.ok]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xF6"
+  [bootstrap.err]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xF7"
+  [config.ok]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xF8"
+  [config.err]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xF9"
+  [setup.ok]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xFA"
+  [setup.err]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xFB"
+  [tests.ok]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xFC"
+  [tests.err]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xFD"
+  [backup.ok]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xFE"
+  [backup.err]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xFF"
+  [finished.ok]="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE0"
+)
+
+stage="${1:-}"; status="${2:-}"
+key="${stage}.${status}"
+
+if [[ -z "$stage" || -z "$status" || -z "${CODES[$key]:-}" ]]; then
+  echo "Usage: send-factory-sel-event <bootstrap|config|setup|tests|backup|finished> <ok|err>" >&2
+  exit 2
+fi
+
+ts="$(date '+%F %H:%M:%S')"
+if [[ "$status" == "ok" ]]; then
+  log_info "Factory install '${stage}' stage completed. Sending IPMI event..."
+else
+  log_info "Factory install '${stage}' stage failed. Sending IPMI event..."
+fi
+
+tmp_file="$(mktemp /tmp/ipmi_event_XXXXXX.txt)"
+echo "${CODES[$key]}" > "$tmp_file"
+
+if ipmitool sel add "$tmp_file" >/dev/null 2>&1; then
+  log_info "Factory install '${stage}' stage ${status}. IPMI SEL event sent ($key)."
+else
+  log_warn "Failed to send IPMI SEL event ($key)."
+fi
+
+rm -f "$tmp_file"

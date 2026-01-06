@@ -1,10 +1,9 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2019, 2024 Wind River Systems, Inc.
+# Copyright (c) 2013-2019, 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-
 ##########################################################################################
 
 source /etc/collect/collect_timeouts
@@ -70,6 +69,7 @@ FAIL_PASSWORDLESS_REMOTE=66
 FAIL_INSUFFICIENT_SPACE_REMOTE=70
 FAIL_NOT_ENOUGH_SPACE_REMOTE=71
 FAIL_OUT_OF_SPACE_REMOTE=72
+FAIL_ALREADY_RUNNING=73
 
 # Warnings are above 200
 WARN_WARNING=200
@@ -132,6 +132,7 @@ FAIL_CONTINUE_STR="cannot continue"
 FAIL_UNREACHABLE_STR="Unreachable"
 FAIL_PERMISSION_REMOTE_STR="remote permission error"
 FAIL_UNSPECIFIED_CAUSE_STR="unspecified cause"
+FAIL_ALREADY_RUNNING_WAIT_STR="Please wait until the currently running collect instance has completed its work"
 
 # The minimum amount of % free space on /scratch to allow collect to proceed
 MIN_PERCENT_SPACE_REQUIRED=75
@@ -331,22 +332,22 @@ function run_command () {
         secs=${duration%%.*}
 
         if [ ${secs} -ge ${COLLECT_RUNCMD_XLARGE_THRESHOLD} ] ; then
-            sleep_time ${COLLECT_RUNCMD_XLARGE_DELAY}
+            sleep_time=${COLLECT_RUNCMD_XLARGE_DELAY}
             sleep_time_str="${COLLECT_RUNCMD_XLARGE_DELAY}"
 
         elif [ ${secs} -gt ${COLLECT_RUNCMD_LARGE_THRESHOLD} ] ; then
-            sleep_time ${COLLECT_RUNCMD_LARGE_DELAY}
+            sleep_time=${COLLECT_RUNCMD_LARGE_DELAY}
             sleep_time_str="${COLLECT_RUNCMD_LARGE_DELAY}"
 
         else
             msec=${duration#*.}
 
             if [ ${msec} -gt ${COLLECT_RUNCMD_MEDIUM_THRESHOLD} ] ; then
-                sleep_time ${COLLECT_RUNCMD_MEDIUM_DELAY}
+                sleep_time=${COLLECT_RUNCMD_MEDIUM_DELAY}
                 sleep_time_str="${COLLECT_RUNCMD_MEDIUM_DELAY}"
 
             elif [ ${msec} -gt ${COLLECT_RUNCMD_SMALL_THRESHOLD} ] ; then
-                sleep_time ${COLLECT_RUNCMD_SMALL_DELAY}
+                sleep_time=${COLLECT_RUNCMD_SMALL_DELAY}
                 sleep_time_str="${COLLECT_RUNCMD_SMALL_DELAY}"
             fi
         fi

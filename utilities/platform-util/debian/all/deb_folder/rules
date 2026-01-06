@@ -1,0 +1,66 @@
+#!/usr/bin/make -f
+#export DH_VERBOSE = 1
+
+DEBIAN_BUILDDIR := $(CURDIR)/debian/tmp
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+# do nothing here since we install stuff into /usr/local
+override_dh_usrlocal:
+	echo
+
+override_dh_auto_clean:
+	cd platform-util && python3 setup.py clean
+	cd platform-util && $(MAKE) clean
+
+override_dh_auto_build:
+	cd platform-util && python3 setup.py build
+	cd platform-util && $(MAKE)
+
+override_dh_auto_configure:
+	echo "CONFIGURE NOT REQUIRED"
+
+override_dh_auto_test:
+	echo "AUTO TEST NOT REQUIRED"
+
+override_dh_auto_install:
+	cd platform-util && python3 setup.py install -f --install-layout=deb --root=$(CURDIR)/debian/tmp
+	cd platform-util && python3 setup.py bdist_wheel \
+		--universal \
+		-d $(CURDIR)/debian/platform-util-wheel/usr/share/python3-wheels
+
+	install -d $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/update-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/gen-bootloader-iso.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/gen-bootloader-iso-centos.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/ipmicap.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/stx-iso-utils.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/stx-iso-utils-centos.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/show-certs.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/update_docker_registry_auth.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/change_system_private_registry.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/is-rootdisk-device.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/local_starlingxrc $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 555 scripts/kubeconfig-setup $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 755 scripts/connectivity_test $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/set_keystone_user_option.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/enroll-init-cleanup $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/enroll-init-reconfigure $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/host-cis-benchmark-apparmor-setup.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/apiserver_cis_compliance.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 755 platform-util/k8s-ca-read/k8s-ca-read.py $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 4755 platform-util/k8s-ca-read/k8s-ca-read $(DEBIAN_BUILDDIR)/usr/local/bin/
+
+	install -d $(DEBIAN_BUILDDIR)/usr/local/sbin/
+	install -m 700 -p -D scripts/patch-restart-mtce $(DEBIAN_BUILDDIR)/usr/local/sbin/
+	install -m 700 -p -D scripts/patch-restart-processes $(DEBIAN_BUILDDIR)/usr/local/sbin/
+	install -m 700 -p -D scripts/patch-restart-haproxy $(DEBIAN_BUILDDIR)/usr/local/sbin/
+
+	dh_install
+
+override_dh_fixperms:
+	dh_fixperms -Xupdate-iso.sh -Xpatch-dm.sh -Xgen-bootloader-iso.sh -Xstx-iso-utils.sh \
+	-Xshow-certs.sh -Xupdate_docker_registry_auth.sh -Xchange_system_private_registry.sh \
+	-Xis-rootdisk-device.sh -Xlocal_starlingxrc -Xkubeconfig-setup -Xpatch-restart-* \
+	-Xconnectivity_test -Xset_keystone_user_option.sh -Xenroll-init-* -Xk8s-ca-read

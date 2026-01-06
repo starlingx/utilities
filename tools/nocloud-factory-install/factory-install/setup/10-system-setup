@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# Copyright (c) 2024 Wind River Systems, Inc.
+# Copyright (c) 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Factory install system setup triggered during the config stage
+# Factory install system setup triggered during the setup stage
 #
 
 echo "System Setup - Start"
@@ -17,15 +17,48 @@ echo "Ready - host goenabled"
 
 system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
 
+# Get namespace from deployment config
+# Using the default namespace if fail to it
+system_ns=$(python3 << 'EOF'
+import yaml
+import os
+
+try:
+    if os.path.exists('/home/sysadmin/dm-playbook-overrides.yaml'):
+        with open('/home/sysadmin/dm-playbook-overrides.yaml') as f:
+            override_data = yaml.safe_load(f)
+        config_file = override_data.get('deployment_config')
+
+        if config_file and os.path.exists(config_file):
+            with open(config_file) as f:
+                docs = list(yaml.safe_load_all(f))
+            sys_doc = next((d for d in docs if d and d.get('kind') == 'System'), None)
+
+            if sys_doc and 'metadata' in sys_doc:
+                namespace = sys_doc['metadata'].get('namespace')
+                if namespace:
+                    print(namespace)
+except:
+    pass
+EOF
+)
+
+# Default to deployment if namespace not found
+# The host ns must be allocated in the same namespace of the system
+if [ -z "$system_ns" ]; then
+    echo "Warning: Namespace not found from existing config files, using default namespace 'deployment'"
+    system_ns="deployment"
+fi
+
 echo "Wait - system deployment reconciled"
 while true; do
     if [ "$system_mode" = "duplex" ]; then
         SYSTEM_RECONCILED=true
     else
-        SYSTEM_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n deployment get system -o jsonpath='{.items[0].status.reconciled}')
+        SYSTEM_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n "$system_ns" get system -o jsonpath='{.items[0].status.reconciled}')
     fi
 
-    HOST_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n deployment get host controller-0 -o jsonpath='{.status.reconciled}')
+    HOST_RECONCILED=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n "$system_ns" get host controller-0 -o jsonpath='{.status.reconciled}')
 
     if [ "$SYSTEM_RECONCILED" = true ] && [ "$HOST_RECONCILED" = true ]; then
         break

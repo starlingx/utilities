@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2024 Wind River Systems, Inc.
+# Copyright (c) 2024-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,6 +19,7 @@ function check_rc_die {
 
 function log_fatal {
     echo "$(tput setaf 1)$(date "+%F %H:%M:%S") FATAL: ${*}$(tput sgr0)" >&2
+    send_ipmi_event "$EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED"
     exit 1
 }
 
@@ -39,6 +40,7 @@ Usage:
                     --oam_gateway_ip <oam_gateway_ip>
                     --oam_ip <oam_ip>
                     --new_password <new_password>
+                    --enroll-timestamp <timestamp>
 
         --oam_subnet <subnet>: Specify OAM subnet
         --oam_gateway_ip <ip>: Specify OAM gateway IP
@@ -46,17 +48,149 @@ Usage:
         --oam_c0_ip <ip>: Specify Controller-0 OAM IP (required for duplex systems)
         --oam_c1_ip <ip>: Specify Controller-1 OAM IP (required for duplex systems)
         --new_password <password>: Specify new password for sysadmin user
+        --enroll-timestamp <seconds>: UNIX timestamp used to set the hardware and system clock
 ENDUSAGE
 }
 
-function verify_factory_install {
-    log_info "Checking factory-install..."
+# IPMI event types
+readonly EVENT_FACTORY_SETUP_COMPLETE="factory_setup_complete"
+readonly EVENT_FACTORY_SETUP_FAILED="factory_setup_failed"
 
-    if [ ! -f /var/lib/factory-install/stage/final ]; then
-        log_fatal "/var/lib/factory-install/stage/final does not exist. Ensure factory-install was successful."
+readonly EVENT_APISERVER_CERT_OK="apiserver_cert_ok"
+readonly EVENT_RENEW_FAIL_KUBECTL="renew_fail_kubectl"
+readonly EVENT_RENEW_FAIL_PODS="renew_fail_pods"
+readonly EVENT_LEAF_CERTS_RENEW_FAIL="leaf_certs_renew_fail"
+readonly EVENT_CERTMANAGER_CERTS_FAIL="certmanager_certs_fail"
+
+readonly EVENT_MANUAL_CAS_OK="k8s_frontproxy_etcd_certs_ok"
+readonly EVENT_MANUAL_CA_K8S_FP_FAIL="k8s_frontproxy_certs_fail"
+readonly EVENT_MANUAL_CA_ETCD_FAIL="etcd_cert_fail"
+readonly EVENT_MANUAL_CAS_BOTH_FAIL="k8s_frontproxy_etcd_certs_fail"
+
+readonly EVENT_SLOCAL_CA_OK="slocal_ca_cert_ok"
+readonly EVENT_SLOCAL_CA_FAIL="slocal_ca_cert_fail"
+
+readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="platform_cloudinit_update_complete"
+readonly EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED="platform_cloudinit_update_failed"
+
+# IPMI payloads (data bytes)
+readonly DATA_FACTORY_SETUP_COMPLETE="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE0 # \"Factory Setup Complete\""
+readonly DATA_FACTORY_SETUP_FAILED="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE1 # \"Factory Setup Failed\""
+
+readonly DATA_APISERVER_CERT_OK="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE2 # \"ApiServer Cert Valid\""
+readonly DATA_LEAF_CERTS_RENEW_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE3 # \"K8S Leaf Certs Renew Failed\""
+readonly DATA_RENEW_FAIL_PODS="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE4 # \"Pods Cert Renew Failed\""
+readonly DATA_CERTMANAGER_CERTS_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE5 # \"Cert-manager Secrets Renew Failed\""
+readonly DATA_RENEW_FAIL_KUBECTL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE6 # \"Kubectl Cert Renew Failed\""
+
+readonly DATA_MANUAL_CAS_OK="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE7 # \"Manual CA Certs Valid\""
+readonly DATA_MANUAL_CA_K8S_FP_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE8 # \"K8S/Front-proxy Cert Expired\""
+readonly DATA_MANUAL_CA_ETCD_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xE9 # \"ETCD CA Cert Expired\""
+readonly DATA_MANUAL_CAS_BOTH_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEA # \"ETCD CA and K8S/Front-proxy Certs Expired\""
+
+readonly DATA_SLOCAL_CA_OK="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEB # \"System-local-ca Cert Valid\""
+readonly DATA_SLOCAL_CA_FAIL="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEC # \"System-local-ca Cert Expired\""
+
+readonly DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE="0x04 0x12 0xCC 0x63 0xCC 0x10 0xED # \"Platform Cloud-init Update Complete\""
+readonly DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED="0x04 0x12 0xCC 0x63 0xCC 0x10 0xEE # \"Platform Cloud-init Update Failed\""
+
+# IPMI SEL event format reference:
+#   [EvM Revision] [Sensor Type] [Sensor Number] [Event Dir / Event Type Code]
+#                  [Event Data 1] [Event Data 2] [Event Data 3]
+#
+# Example: 0x04 0x12 0xCC 0x63 0xCC 0x10 0xE0
+#   0x04 = EvM Revision (IPMI v2.0)
+#   0x12 = Sensor Type (vendor-defined / OEM-specific)
+#   0xCC = Sensor Number (firmware-defined)
+#   0x63 = Event direction (vendor-specific encoding)
+#   0xCC 0x10 0xE0 = Event Data bytes (3 bytes, OEM-specific payload)
+#
+# For our usage:
+# - The third byte (Sensor Number) is set to 0x01, corresponding to a sensor type "Unknown".
+# - The last three bytes are the Event Data payload, used to encode success/failure/status.
+#
+# These values are read by enroll_init.yml playbook running on the System Controller,
+# triggered during subcloud enrollment. Any changes to these bytes require updating both
+# this definition and the playbook that interprets them.
+
+function send_ipmi_event {
+    local event_type="$1"
+    local event_data
+
+    case "$event_type" in
+        "$EVENT_FACTORY_SETUP_COMPLETE")            event_data="$DATA_FACTORY_SETUP_COMPLETE" ;;
+        "$EVENT_FACTORY_SETUP_FAILED")              event_data="$DATA_FACTORY_SETUP_FAILED" ;;
+
+        "$EVENT_APISERVER_CERT_OK")                 event_data="$DATA_APISERVER_CERT_OK" ;;
+        "$EVENT_RENEW_FAIL_KUBECTL")                event_data="$DATA_RENEW_FAIL_KUBECTL" ;;
+        "$EVENT_RENEW_FAIL_PODS")                   event_data="$DATA_RENEW_FAIL_PODS" ;;
+        "$EVENT_LEAF_CERTS_RENEW_FAIL")             event_data="$DATA_LEAF_CERTS_RENEW_FAIL" ;;
+        "$EVENT_CERTMANAGER_CERTS_FAIL")            event_data="$DATA_CERTMANAGER_CERTS_FAIL" ;;
+
+        "$EVENT_MANUAL_CAS_OK")                     event_data="$DATA_MANUAL_CAS_OK" ;;
+        "$EVENT_MANUAL_CA_K8S_FP_FAIL")             event_data="$DATA_MANUAL_CA_K8S_FP_FAIL" ;;
+        "$EVENT_MANUAL_CA_ETCD_FAIL")               event_data="$DATA_MANUAL_CA_ETCD_FAIL" ;;
+        "$EVENT_MANUAL_CAS_BOTH_FAIL")              event_data="$DATA_MANUAL_CAS_BOTH_FAIL" ;;
+
+        "$EVENT_SLOCAL_CA_OK")                      event_data="$DATA_SLOCAL_CA_OK" ;;
+        "$EVENT_SLOCAL_CA_FAIL")                    event_data="$DATA_SLOCAL_CA_FAIL" ;;
+
+        "$EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE") event_data="$DATA_PLATFORM_CLOUDINIT_UPDATE_COMPLETE" ;;
+        "$EVENT_PLATFORM_CLOUDINIT_UPDATE_FAILED")   event_data="$DATA_PLATFORM_CLOUDINIT_UPDATE_FAILED" ;;
+        *)
+            log_warn "Unknown IPMI event type: $event_type"
+            return 1
+            ;;
+    esac
+
+    local temp_file=$(mktemp /tmp/ipmi_event_XXXXXX.txt)
+    echo "$event_data" > "$temp_file"
+
+    if ipmitool sel add "$temp_file" 2>/dev/null; then
+        log_info "IPMI event sent successfully: $event_type"
+        rm -f "$temp_file"
+        return 0
+    else
+        log_warn "Failed to send IPMI event: $event_type"
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+update_time() {
+    if ! [[ "$ENROLL_TIMESTAMP" =~ ^[0-9]+$ ]]; then
+        log_warn "Invalid enroll-timestamp value: ${ENROLL_TIMESTAMP}"
+        return 0
     fi
 
-    log_info "factory-install check successfull."
+    # Add 20 seconds to compensate for transit/execution delay
+    ENROLL_TIMESTAMP=$((ENROLL_TIMESTAMP + 20))
+    local CURRENT_EPOCH
+    CURRENT_EPOCH=$(date +%s)
+    local DIFF=$((ENROLL_TIMESTAMP - CURRENT_EPOCH))
+    local ABS_DIFF=${DIFF#-}
+
+    # Only update if gap > 20 seconds
+    if (( ABS_DIFF > 20 )); then
+        log_info "Applying enroll-timestamp: ${ENROLL_TIMESTAMP} ($(date -d "@${ENROLL_TIMESTAMP}" '+%F %T'))"
+
+        if date -u -s "@${ENROLL_TIMESTAMP}" >/dev/null 2>&1; then
+            log_info "date -s applied epoch ${ENROLL_TIMESTAMP}"
+        else
+            log_warn "date -s failed for epoch ${ENROLL_TIMESTAMP}"
+        fi
+
+        if [ -e /sbin/hwclock ]; then
+            log_info "Aligning hwclock to system date"
+            /sbin/hwclock --systohc || log_warn "hwclock --systohc failed"
+        else
+            log_warn "/sbin/hwclock missing."
+        fi
+
+        log_info "System date is now: $(date), hwclock: $(hwclock)"
+    else
+        log_info "Clock difference (${ABS_DIFF}s) is within threshold; skipping time update."
+    fi
 }
 
 # The enroll-init reconfigure script runs during startup via cloud-init while
@@ -219,116 +353,6 @@ function display_network_info {
 }
 
 
-function do_network_cleanup {
-    local if_name=$1
-    local oam_if_label=$2
-
-    local ip_command='ip'
-    if is_ipv6 "${OAM_IP}"; then
-       ip_command='ip -6'
-    fi
-
-    display_network_info
-
-    # We need new OAM connection to complete oam-modify, so should not loose OAM connection
-    # established by cloud-init. "if_name" interface has new OAM IP configured by cloud-init.
-    #
-    # Scenario A: OAM reconfiguration with same vlan/interface cloud-init vs OAM
-    # oam-modify triggers puppet runtime 1) ifdown OAM-label, this deletes old OAM IP and default OAM route
-    # 2) changes ifcfg file and 3) ifup OAM-label, this fails as it has
-    # conflict to cloud-init provisioned OAM IP, and the default OAM route
-    # don't get reinstalled.
-    #
-    # To preserve the OAM route:
-    # Here we are forcing the OAM label-interface down, so that old OAM IP and default OAM route
-    # get cleaned up, and adding the default OAM route back again.
-    # With this oam-modify puppet runtime, do nothing on above step 1) ifdown, as the interface is
-    # already down, and won't delete exisiting OAM default route.
-    # As end result, after oam-modify, we will still have new IP and default OAM route.
-    #
-    # Scenario B: OAM reconfiguration with same/different vlan/interface cloud-init vs OAM
-    # There could be default route with old configuration. We always expect default route from cloud-init.
-    #
-    log_info "Forcing current OAM label interface:$oam_if_label down"
-    ifdown_results=$(ifdown ${oam_if_label} --force 2>&1)
-    log_info "ifdown errors: ${ifdown_results}"
-
-    # Add/Replace the cloud-init's default route back
-    ip_route_results=$(${ip_command} route replace default via ${OAM_GATEWAY_IP} dev ${if_name} 2>&1)
-    log_info "ip route add errors: ${ip_route_results}"
-
-    display_network_info
-    return 0
-}
-
-# Figure out OAM reconfiguration interface/vlan (cloud-init network-config's interface/vlan)
-# is same as factory installed OAM's interface/vlan or not. Returns 0 if it is same, with the
-# cloud-init's if-name value on CLOUD_INIT_OAM_IF_NAME variable.
-CLOUD_INIT_OAM_IF_NAME=""
-function check_oam_reconfiguration_on_same_interface {
-    local cfg=/etc/network/interfaces.d/50-cloud-init
-    local iface_line=''
-    local vlan_raw_device_line=''
-    local if_name=''
-    local vlan_raw_device=''
-    local vlan_id=''
-    if [ -f ${cfg} ]; then
-        iface_line=$( cat ${cfg} |grep ^iface | grep -v 'iface lo' )
-        if_name=$( echo "${iface_line}" | awk '{print $2}' )
-        CLOUD_INIT_OAM_IF_NAME=${if_name}
-        regex="(vlan[0-9]+)|(.*\..*)"
-        if [[ ${if_name} =~ ${regex} ]]; then
-           vlan_raw_device_line=$( grep vlan-raw-device ${cfg} )
-           vlan_raw_device=$( echo "${vlan_raw_device_line}" | awk '{print $2}' )
-           vlan_id=$( echo "${if_name}" | grep -o '[0-9]*')
-        fi
-    fi
-
-    log_info "${cfg} parameters: if_name:${if_name} vlan_raw_device:${vlan_raw_device} vlan_id:${vlan_id}"
-    if [[ ${if_name} == "" ]]; then
-         log_info "No cloud-init interface found, nothing to do."
-         return 1
-    fi
-
-    command="system interface-network-list controller-0 --nowrap"
-    if ! execute_with_retries "$command"; then
-        log_fatal "$command failed after mutiple attempts."
-    fi
-    oam_if=$($command | awk '$8 == "oam" { print $6 }')
-    check_rc_die $? "system interface-network-list failed"
-    #type, vlan id, ports, uses i/f
-
-    command="system host-if-list controller-0 --nowrap"
-    if ! execute_with_retries "$command"; then
-        log_fatal "$command failed after mutiple attempts."
-    fi
-    host_if_list_output=$($command)
-    oam_if_details=$(echo "$host_if_list_output" | awk -v oam_if="$oam_if" '$4 == oam_if { print $8 " " $10 " " $12 " " $14 }')
-    check_rc_die $? "OAM interface details parsing failed"
-    log_info "OAM type, vlan id, ports, uses i/f: ${oam_if_details}"
-    oam_if_type=$( echo "${oam_if_details}" | awk '{print $1}' )
-    # In case of existing OAM interface of ethernet type, check if OAM reconfiguration is on same physical interface without vlan-id
-    if [[ ${oam_if_type} == "ethernet" ]]; then
-       oam_if_port=$( echo "${oam_if_details}" | awk '{print $3}' | sed -E "s/^\['([^']+)'.*$/\1/" )
-       log_info "OAM is of ethernet type, port:${oam_if_port}"
-       if [[ ${oam_if_port} == ${if_name} ]] && [[ ${vlan_raw_device} == '' ]] && [[ ${vlan_id} == '' ]]; then
-           return 0
-       fi
-    # In case of existing OAM interface of vlan type, check if OAM reconfiguration is on same physical interface and vlan-id
-    elif [[ ${oam_if_type} == "vlan" ]]; then
-       oam_vlan_id=$( echo "${oam_if_details}" | awk '{print $2}' )
-       oam_vlan_uses_if=$( echo "${oam_if_details}" | awk '{print $4}' | sed -E "s/^\['([^']+)'.*$/\1/" )
-
-       oam_vlan_raw_device=$(echo "$host_if_list_output" | awk -v uses_if="$oam_vlan_uses_if" '$4 == uses_if { print $12 }' | sed -E "s/^\['([^']+)'.*$/\1/" )
-       check_rc_die $? "OAM vlan raw device parsing failed"
-       log_info "OAM is of VLAN type, vlan_raw_device:${oam_vlan_raw_device} vlan_id:${oam_vlan_id}"
-       if [[ ${oam_vlan_raw_device} == ${vlan_raw_device} ]] && [[ ${oam_vlan_id} == ${vlan_id} ]]; then
-           return 0
-       fi
-    fi
-    return 1
-}
-
 function reconfigure_OAM {
     system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
 
@@ -347,44 +371,7 @@ function reconfigure_OAM {
     log_info "Reconfiguring OAM: $args ..."
 
     if ! execute_with_retries "system oam-modify $args"; then
-        log_fatal "system oam-modify failed after mutiple attempts."
-    fi
-
-    # Apply manifest for duplex systems
-    if [ "$system_mode" = "duplex" ]; then
-        log_info "Applying manifest ..."
-        source /etc/build.info
-        OAM_CONFIG_DIR="/tmp/oam_config"
-        rm -rf $OAM_CONFIG_DIR
-        mkdir -p $OAM_CONFIG_DIR
-
-        # The applied manifest must align with sysinv update_oam_config()
-        cat > $OAM_CONFIG_DIR/oam_runtime.yml <<EOF
-classes: ['platform::network::runtime',
-'platform::kubernetes::certsans::runtime',
-'platform::firewall::runtime',
-'platform::smapi',
-'platform::sm::update_oam_config::runtime',
-'platform::nfv::webserver::runtime',
-'platform::haproxy::runtime',
-'openstack::keystone::endpoint::runtime::post',
-'platform::dockerdistribution::config',
-'platform::dockerdistribution::runtime']
-EOF
-        log_info "Wait 2m for system to settle and run puppet-manifest-apply ..."
-
-        sleep 120
-
-        /usr/local/bin/puppet-manifest-apply.sh \
-            /opt/platform/puppet/$SW_VERSION/hieradata/ \
-            controller-0 \
-            controller \
-            runtime \
-            $OAM_CONFIG_DIR/oam_runtime.yml
-
-        check_rc_die $? "puppet-manifest-apply failed"
-
-        rm -rf $OAM_CONFIG_DIR
+        log_fatal "system oam-modify failed after multiple attempts."
     fi
 }
 
@@ -394,6 +381,317 @@ function reconfigure_password {
     check_rc_die $? "chpasswd failed"
 }
 
+KUBECONFIG="/etc/kubernetes/admin.conf"
+KUBELET_CERT="/var/lib/kubelet/pki/kubelet-client-current.pem"
+RETRY_COUNT=60
+RETRY_SLEEP=5
+NAMESPACES=("kube-system" "cert-manager" "flux-helm")
+NODE_FILTER="controller-0"
+
+run_kube_cert_rotation() {
+    if [ -x /usr/bin/kube-cert-rotation.sh ]; then
+        log_info "Running /usr/bin/kube-cert-rotation.sh..."
+        bash -x /usr/bin/kube-cert-rotation.sh
+    else
+        log_info "/usr/bin/kube-cert-rotation.sh not present; skipping."
+    fi
+}
+
+recover_kubelet_cert() {
+    log_info "Recovering kubelet client certificate..."
+    WORKDIR="/home/sysadmin/kubelet"
+    mkdir -p "$WORKDIR"
+    cd "$WORKDIR" || return 1
+
+    cat <<'EOF' > controller-0_csr.conf
+[req]
+prompt = no
+x509_extensions = v3_req
+distinguished_name = dn
+[dn]
+O = system:nodes
+CN = system:node:controller-0
+[v3_req]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, Digital Signature, Key Encipherment
+extendedKeyUsage = TLS Web Client Authentication
+EOF
+
+    openssl genrsa -out controller-0.key 2048
+    openssl req -new -key controller-0.key -out controller-0.csr -config controller-0_csr.conf
+    openssl x509 -req -in controller-0.csr -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -out controller-0.crt -days 365 -extensions v3_req -extfile controller-0_csr.conf
+    cat controller-0.key controller-0.crt > kubelet-client-cert_with_key.pem
+    cp kubelet-client-cert_with_key.pem /var/lib/kubelet/pki
+    cd /var/lib/kubelet/pki/ || return 1
+    rm -f kubelet-client-current.pem
+    ln -s /var/lib/kubelet/pki/kubelet-client-cert_with_key.pem kubelet-client-current.pem
+    kill -s SIGHUP $(pidof kube-apiserver) || true
+    kill -s SIGHUP $(pidof kube-scheduler) || true
+    kill -s SIGHUP $(pidof kube-controller-manager) || true
+    systemctl restart kubelet
+    sm-restart-safe service sysinv-conductor || true
+    sm-restart-safe service cert-mon || true
+    cd /
+    rm -rf "$WORKDIR"
+}
+
+wait_for_kubectl() {
+    log_info "Waiting for kubectl to respond (retries=${RETRY_COUNT}, sleep=${RETRY_SLEEP}s)..."
+    local i=0
+    while [ $i -lt $RETRY_COUNT ]; do
+        if kubectl --kubeconfig "${KUBECONFIG}" get nodes >/dev/null 2>&1; then
+            log_info "kubectl responded."
+            return 0
+        fi
+        sleep "${RETRY_SLEEP}"
+        i=$((i+1))
+    done
+    return 1
+}
+
+delete_pods_on_node() {
+    for ns in "${NAMESPACES[@]}"; do
+        log_info "Deleting pods in '${ns}' on '${NODE_FILTER}'..."
+        pods=$(kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" get po -o wide 2>/dev/null | awk -v n="${NODE_FILTER}" 'NR>1 && $0 ~ n {print $1}')
+        if [ -n "${pods}" ]; then
+            echo "${pods}" | xargs -r kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" delete po
+        else
+            log_info "No pods to delete in ${ns}."
+        fi
+    done
+}
+
+wait_pods_running_on_node() {
+    log_info "Waiting for pods to be Running on '${NODE_FILTER}' (retries=${RETRY_COUNT}, sleep=${RETRY_SLEEP}s)..."
+    local i=0
+    while [ $i -lt $RETRY_COUNT ]; do
+        local all_ok=1
+        for ns in "${NAMESPACES[@]}"; do
+            mapfile -t lines < <(kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" get po -o wide 2>/dev/null | awk -v n="${NODE_FILTER}" 'NR>1 && $0 ~ n {print $1, $3}')
+            [ "${#lines[@]}" -eq 0 ] && continue
+            for l in "${lines[@]}"; do
+                state=$(echo "$l" | awk '{print $2}')
+                if [[ ! "$state" =~ ^(Running|Completed)$ ]]; then
+                    all_ok=0
+                    break
+                fi
+            done
+            [ $all_ok -eq 1 ] || break
+        done
+        [ $all_ok -eq 1 ] && { log_info "All target pods Running."; return 0; }
+        sleep "${RETRY_SLEEP}"
+        i=$((i+1))
+    done
+    return 1
+}
+
+# This checks etcd CA, Kubernetes Root CA, and Front Proxy CA expiration dates.
+function check_manual_ca_certs {
+    log_info "Checking manual CA certificates (threshold=${CERT_CHECKEND_DAYS} days)..."
+
+    local CERTS=(
+        "etcd:/etc/etcd/ca.crt"
+        "k8s_root:/etc/kubernetes/pki/ca.crt"
+        "front_proxy:/etc/kubernetes/pki/front-proxy-ca.crt"
+    )
+
+    local fail_etcd=false
+    local fail_k8s_fp=false
+
+    for entry in "${CERTS[@]}"; do
+        IFS=: read -r name path <<<"$entry"
+        if _cert_valid_for_threshold "$path"; then
+            log_info "Valid: ${name} CA (${path})"
+        else
+            log_warn "Missing/expired/expiring (<${CERT_CHECKEND_DAYS}d): ${name} CA (${path})"
+            if [ "$name" = "etcd" ]; then
+                fail_etcd=true
+            else
+                fail_k8s_fp=true
+            fi
+        fi
+    done
+
+    if $fail_etcd && $fail_k8s_fp; then
+        send_ipmi_event "$EVENT_MANUAL_CAS_BOTH_FAIL"
+        log_fatal "Manual CA certs failed: both ETCD and Kubernetes/Front-Proxy"
+    elif $fail_etcd; then
+        send_ipmi_event "$EVENT_MANUAL_CA_ETCD_FAIL"
+        log_fatal "Manual CA certs failed: ETCD"
+    elif $fail_k8s_fp; then
+        send_ipmi_event "$EVENT_MANUAL_CA_K8S_FP_FAIL"
+        log_fatal "Manual CA certs failed: Kubernetes/Front-Proxy"
+    else
+        send_ipmi_event "$EVENT_MANUAL_CAS_OK"
+        log_info "All manual CA certificates are valid"
+    fi
+}
+
+# Check system-local-ca from Kubernetes secret (tls.crt)
+function check_system_local_ca_cert {
+    log_info "Checking system-local-ca, threshold=${CERT_CHECKEND_DAYS} days..."
+
+    local crt_file
+    crt_file="$(mktemp)"
+    trap 'rm -f "${crt_file}"' RETURN
+
+    # Attempt to read the secret; fail immediately if not found
+    if ! kubectl --kubeconfig /etc/kubernetes/admin.conf -n "${SLOCAL_NS}" \
+        get secret "${SLOCAL_SECRET}" -o 'jsonpath={.data.tls\.crt}' \
+        | base64 -d > "${crt_file}" 2>/dev/null; then
+        send_ipmi_event "$EVENT_SLOCAL_CA_FAIL"
+        log_fatal "system-local-ca secret not found or unreadable: ${SLOCAL_NS}/${SLOCAL_SECRET}"
+    fi
+
+    if ! _cert_valid_for_threshold "${crt_file}"; then
+        send_ipmi_event "$EVENT_SLOCAL_CA_FAIL"
+        log_fatal "system-local-ca expired or expiring in < ${CERT_CHECKEND_DAYS} days."
+    fi
+
+    send_ipmi_event "$EVENT_SLOCAL_CA_OK"
+    log_info "OK: system-local-ca (${SLOCAL_NS}/${SLOCAL_SECRET})"
+}
+
+# Certificates managed by cert-manager
+RESTAPI_CERT="/etc/ssl/private/server-cert.pem"        # ssl (restapi/gui)
+REGISTRY_CERT="/etc/ssl/private/registry-cert.crt"     # docker_registry
+
+# Returns 0 if cert file exists and is valid >= CERT_CHECKEND_SECONDS
+_cert_valid_for_threshold() {
+    local f="$1"
+    [ -r "$f" ] && openssl x509 -in "$f" -noout -checkend "$CERT_CHECKEND_SECONDS" >/dev/null 2>&1
+}
+
+# Wait up to ~5 minutes for both RESTAPI and REGISTRY certs to be valid
+# for at least CERT_CHECKEND_SECONDS. Returns 0 on success, 1 on timeout.
+check_cert_manager_renewal() {
+    log_info "Waiting for cert-manager to refresh restapi/registry certs..."
+    local attempts="${1:-20}" sleep_s="${2:-15}" i=0
+    local restapi_done=false registry_done=false
+
+    while [ $i -lt $attempts ]; do
+        # Check RESTAPI only if not already validated
+        if ! $restapi_done; then
+            if _cert_valid_for_threshold "$RESTAPI_CERT"; then
+                restapi_done=true
+                log_info "RESTAPI cert renewed: $RESTAPI_CERT"
+            else
+                log_warn "RESTAPI cert not yet renewed: $RESTAPI_CERT"
+            fi
+        fi
+
+        # Check REGISTRY only if not already validated
+        if ! $registry_done; then
+            if _cert_valid_for_threshold "$REGISTRY_CERT"; then
+                registry_done=true
+                log_info "REGISTRY cert renewed: $REGISTRY_CERT"
+            else
+                log_warn "REGISTRY cert not yet renewed: $REGISTRY_CERT"
+            fi
+        fi
+
+        # If both are renewed, return successfully
+        if $restapi_done && $registry_done; then
+            return 0
+        fi
+
+        i=$((i+1))
+        sleep "$sleep_s"
+    done
+
+    # Timeout: report which ones are still pending
+    $restapi_done || log_warn "Timeout: RESTAPI cert never reached threshold."
+    $registry_done || log_warn "Timeout: REGISTRY cert never reached threshold."
+    return 1
+}
+
+# Wrapper that performs a single quick check first, then recovers pods and
+# waits for them before re-running the full renewal wait.
+check_and_recover_cert_manager() {
+    # Full-window attempts/sleep
+    local full_attempts="${1:-20}"
+    local full_sleep_s="${2:-15}"
+
+    log_info "Check RESTAPI/REGISTRY certs..."
+
+    if check_cert_manager_renewal 1 0; then
+        log_info "RESTAPI and REGISTRY certs are valid."
+        return 0
+    fi
+
+    log_warn "RESTAPI/REGISTRY certs not yet renewed. Initiating pod deletion on node ${NODE_FILTER} to force cert-manager reprocessing."
+
+    delete_pods_on_node
+
+    # Wait for pods running on node
+    if ! wait_pods_running_on_node; then
+        send_ipmi_event "$EVENT_RENEW_FAIL_PODS"
+        log_fatal "Pods did not reach Running state after deletion/restart. Aborting."
+    fi
+
+    # After pods are back, give cert-manager time to renew
+    log_info "Pods recovered. Now waiting up to ${full_attempts} attempts (sleep ${full_sleep_s}s) for cert-manager to refresh restapi/registry certs..."
+    if check_cert_manager_renewal "$full_attempts" "$full_sleep_s"; then
+        log_info "Cert-manager refreshed REST API and Docker registry certs successfully."
+        return 0
+    else
+        send_ipmi_event "$EVENT_CERTMANAGER_CERTS_FAIL"
+        log_fatal "REST API or Docker registry certs did not renew within timeout."
+    fi
+}
+
+# Check whether Kubernetes leaf certificates (apiserver, controller-manager,
+# scheduler, etc.) will expire within the specified number of days.
+#
+# This function relies on kubeadm's built-in certificate expiration inspection
+# to determine if any critical Kubernetes PKI certificates are close to
+# expiration. It returns:
+#
+#   0 (true)  – if ALL leaf certificates remain valid for at least N days
+#   1 (false) – if ANY certificate expires within N days or is already expired
+#   1 (false) – if kubeadm fails to run or its output cannot be parsed
+kubeadm_certs_expire_within_days() {
+  local n="${1:-}"
+  local now exp_epoch diff_days
+
+  local out
+  if ! out="$(sudo kubeadm certs check-expiration 2>/dev/null)"; then
+    # kubeadm failed: kubelet cert is expired or kubelet is unhealthy
+    return 1
+  fi
+
+  now="$(date -u +%s)"
+
+  # Parse only the CERTIFICATE table, extract the EXPIRES column, and check if any cert
+  # expires within N days, or already expired.
+  while IFS= read -r expires; do
+    # Convert EXPIRES date to epoch; if parsing fails treat as failure.
+    exp_epoch="$(date -u -d "$expires" +%s 2>/dev/null)" || return 1
+
+    if (( exp_epoch - now <= n * 86400 )); then
+      return 1
+    fi
+
+  done < <(
+    printf '%s\n' "$out" |
+    awk '
+      # Stop once CA table starts
+      $1=="CERTIFICATE" && $2=="AUTHORITY" { exit }
+
+      # Enable parsing when CERTIFICATE section appears
+      $1=="CERTIFICATE" { in_cert=1; next }
+
+      # Extract EXPIRES (cols 2-5) only for rows within CERTIFICATE table
+      in_cert && NF>=5 {
+        print $2, $3, $4, $5
+      }
+    '
+  )
+
+  return 0
+}
+
+
 # Declare required variables
 OAM_SUBNET=""
 OAM_GATEWAY_IP=""
@@ -401,6 +699,11 @@ OAM_IP=""
 OAM_C0_IP=""
 OAM_C1_IP=""
 NEW_PASSWORD=""
+ENROLL_TIMESTAMP=""
+CERT_CHECKEND_DAYS=3   # fail if cert expires in less than 3 days
+CERT_CHECKEND_SECONDS=$((CERT_CHECKEND_DAYS*24*3600))
+SLOCAL_NS="cert-manager"
+SLOCAL_SECRET="system-local-ca"
 
 log_info "Starting enroll-init reconfiguration..."
 
@@ -435,11 +738,17 @@ while [[ "$#" -gt 0 ]]; do
             NEW_PASSWORD="$2"
             shift 2
             ;;
+        --enroll-timestamp)
+            ENROLL_TIMESTAMP="$2"
+            shift 2
+            ;;
         *)
             log_fatal "Unexpected option: $1"
             ;;
     esac
 done
+
+# Main execution flow
 
 # Ensure all required arguments are provided
 if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z "$NEW_PASSWORD" ]; then
@@ -447,8 +756,54 @@ if [ -z "$OAM_SUBNET" ] || [ -z "$OAM_GATEWAY_IP" ] || [ -z "$OAM_IP" ] || [ -z 
     log_fatal "Missing required arguments"
 fi
 
-# Main execution flow
-verify_factory_install
+if [ -n "$ENROLL_TIMESTAMP" ]; then
+    update_time
+fi
+
+check_manual_ca_certs
+
+if kubeadm_certs_expire_within_days "$CERT_CHECKEND_DAYS"; then
+    log_info "Leaf certificates valid >= ${CERT_CHECKEND_DAYS} days."
+    if check_and_recover_cert_manager; then
+        send_ipmi_event "$EVENT_APISERVER_CERT_OK"
+    fi
+else
+    log_warn "Leaf certificates expired or near expiration; starting recovery..."
+    run_kube_cert_rotation
+    if ! _cert_valid_for_threshold "$KUBELET_CERT"; then
+        log_warn "Kubelet certificate expired or near expiration; recovering kubelet certificate..."
+        recover_kubelet_cert
+
+        # After recovery, kubelet needs time to reconnect before kubectl works
+        if ! wait_for_kubectl; then
+            send_ipmi_event "$EVENT_RENEW_FAIL_KUBECTL"
+            log_fatal "Kubectl did not recover after kubelet certificate regeneration."
+        fi
+    else
+        log_info "Kubelet certificate is valid for >= ${CERT_CHECKEND_DAYS} days."
+    fi
+
+    delete_pods_on_node
+
+    if ! wait_pods_running_on_node; then
+        send_ipmi_event "$EVENT_RENEW_FAIL_PODS"
+        log_fatal "Pods did not reach Running state after retries."
+    fi
+    if ! kubeadm_certs_expire_within_days "$CERT_CHECKEND_DAYS"; then
+        send_ipmi_event "$EVENT_LEAF_CERTS_RENEW_FAIL"
+        log_fatal "An error occurred when renewing the leaf certificates"
+    fi
+    if check_cert_manager_renewal; then
+        send_ipmi_event "$EVENT_APISERVER_CERT_OK"
+    else
+        send_ipmi_event "$EVENT_CERTMANAGER_CERTS_FAIL"
+        log_fatal "REST API or Docker registry certs did not renew within timeout."
+    fi
+    log_info "Leaf certificate recovery complete and healthy."
+fi
+
+check_system_local_ca_cert
+
 load_credentials
 check_services_status
 
@@ -462,29 +817,18 @@ if check_reconfigure_OAM; then
     # Check directly on ifcfg file, to figure out the label/alias, which works for both IPv4 and IPv6 addresses:
     current_oam_if_name_with_label=$(grep net:oam /etc/network/interfaces.d/ifcfg-* | grep -oP '(?<=interfaces.d/ifcfg-).*?(?=:stx-description )')
     log_info "Current OAM IF label (alias):$current_oam_if_name_with_label."
-
-    if check_oam_reconfiguration_on_same_interface; then
-        # OAM reconfiguration requested on same interface/vlan as factory-installed OAM interface
-
-        # Here, reconfiguration is only for address change, which is supported by oam-modify itself.
-        # We still need new OAM connection to complete oam-modify, so should not loose OAM connection
-        # established by cloud-init.
-        # This new IP provisioned by cloud-init collides with oam-modify triggered puppet oam network
-        # reconfiguration, causing default OAM route missing. To avoid this, we do some cleanup.
-        do_network_cleanup ${CLOUD_INIT_OAM_IF_NAME} ${current_oam_if_name_with_label}
-    else
-        if [[ ${CLOUD_INIT_OAM_IF_NAME} != "" ]]; then
-            # OAM reconfiguration requested on different interface/vlan than factory-installed OAM interface
-            # Here, we are forcing new cloud-init route to be default.
-            do_network_cleanup ${CLOUD_INIT_OAM_IF_NAME} ${current_oam_if_name_with_label}
-        fi
-    fi
-
     reconfigure_OAM
+else
+    # In cases where OAM reconfiguration is not required, the file 50-cloud-init
+    # should already be removed at this stage, since the OAM configuration puppet
+    # will not be executed and, consequently, neither will apply_network_config.
+    log_info "OAM reconfiguration not required. Removing 50-cloud-init file."
+    rm -f /etc/network/interfaces.d/50-cloud-init
 fi
 
 reconfigure_password
 
 touch /var/lib/factory-install/state/enroll-init
 
+send_ipmi_event "$EVENT_PLATFORM_CLOUDINIT_UPDATE_COMPLETE"
 log_info "Successfully completed reconfiguration for enrollment."
