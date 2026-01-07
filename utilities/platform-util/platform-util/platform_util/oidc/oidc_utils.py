@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2025 Wind River Systems, Inc.
+# Copyright (c) 2025-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -58,6 +58,96 @@ def get_oidc_token(username):
             return None
 
     return None
+
+
+def get_oidc_token_claims(oidc_token, token_cache):
+    """Validate OIDC token and return token dict & claims.
+    Args:
+        oidc_token (str): the oidc token to validate
+        token_cache (dict str:str): a cache of tokens:expire time
+
+    Returns: str of the dex token, or None if unable to get token
+    """
+
+    # Get oidc configs
+    try:
+        oidc_config = get_apiserver_oidc_args()
+    except Exception as e:
+        raise ValueError(str(e))
+
+    if not oidc_config:
+        msg = ('Failed to get OIDC config from kubernetes')
+        LOG.error(msg)
+        raise ValueError(msg)
+
+    issuer_url = oidc_config.get('oidc-issuer-url')
+    client_id = oidc_config.get('oidc-client-id')
+    username_claim = oidc_config.get('oidc-username-claim')
+    group_claim = oidc_config.get('oidc-groups-claim')
+
+    # Validate token
+    try:
+        oidc_token_dict = validate_oidc_token(
+            oidc_token,
+            token_cache,
+            issuer_url,
+            client_id
+        )
+    except Exception as e:
+        raise ValueError(str(e))
+
+    if not oidc_token_dict:
+        msg = ('Failed OIDC validation for token details')
+        LOG.error(msg)
+        raise ValueError(msg)
+
+    return {
+        'token_dict': oidc_token_dict,
+        'username_claim': username_claim,
+        'group_claim': group_claim}
+
+
+def parse_oidc_token_claims(claims, domain, project):
+    """Parse OIDC token claims and return username and roles.
+    Args:
+        claims (dict): the oidc token claims to parse
+        domain (str): the keystone domain
+        project (str): the keystone project
+    Returns: dict with 'username' and 'roles' keys
+    """
+    # Get username
+    try:
+        username = get_username_from_oidc_token(
+            claims['token_dict'], claims['username_claim'])
+    except Exception as e:
+        msg = ('Failed to extract username from OIDC token: %s') % e
+        LOG.error(msg)
+        raise ValueError(msg)
+
+    if not username:
+        msg = ('Invalid username for the OIDC token')
+        LOG.error(msg)
+        raise ValueError(msg)
+
+    # Get roles
+    try:
+        roles = get_keystone_roles_for_oidc_token(
+            claims['token_dict'],
+            claims['username_claim'], claims['group_claim'],
+            domain=domain, project=project)
+    except Exception as e:
+        msg = ('Failed to get roles from OIDC token: %s') % e
+        LOG.error(msg)
+        raise ValueError(msg)
+
+    if not roles:
+        msg = ('Invalid roles for the OIDC token')
+        LOG.error(msg)
+        raise ValueError(msg)
+
+    LOG.debug("OIDC authentication successful for user %s with roles %s",
+              username, roles)
+    return {'username': username, 'roles': roles}
 
 
 def validate_oidc_token(token, token_cache, issuer_url, client_id, cache_size=5000):
