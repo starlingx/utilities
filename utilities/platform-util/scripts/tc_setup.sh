@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #
-# Copyright (c) 2017-2023 Wind River Systems, Inc.
+# Copyright (c) 2017-2025 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -110,6 +110,15 @@ function test_valid_speed {
 function get_dev_speed {
     # If the link doesn't come up we won't go enabled, so here we can
     # afford to wait forever for the link.
+
+    # Use shorter sleep intervals on the initial attempts to avoid
+    # sleeping for too long when this script is called before the
+    # interface is up due to execution timing. Long sleep
+    # intervals can affect the timing of interface bring-up during
+    # system initialization.
+    local tries=10
+    local delay=1
+
     while true; do
         if [ -e /sys/class/net/$1/bonding ]; then
             for VAL in `cat /sys/class/net/$1/lower_*/speed`; do
@@ -122,7 +131,7 @@ function get_dev_speed {
                 fi
             done
             log all slaves for bond link $1 reported invalid speeds, \
-                will sleep 30 sec and try again
+                will sleep ${delay} sec and try again
         else
             VAL=`cat /sys/class/net/$1/speed`
             if test_valid_speed ${VAL}; then
@@ -131,10 +140,12 @@ function get_dev_speed {
                 return 0
             else
                 log link $1 returned invalid speed ${VAL}, \
-                    will sleep 30 sec and try again
+                    will sleep ${delay} sec and try again
             fi
         fi
-        sleep 30
+
+        sleep ${delay}
+        [ "${tries}" -gt 1 ] && tries=$((tries - 1)) || delay=30
     done
 }
 
