@@ -184,8 +184,13 @@ def validate_oidc_token(token, token_cache, issuer_url, client_id, cache_size=50
         id_token = IdToken().from_jwt(token, keyjar=keyjar, sender=issuer_url)
         token_claims = id_token.to_dict()
 
-        # adjust token cache
+        # Check if token is expired
         current_time_seconds = time.time()
+        if token_claims['exp'] < current_time_seconds:
+            LOG.warning("Token expired during validation")
+            return None
+
+        # adjust token cache
         oldest_exp_time = current_time_seconds
         oldest_token = None
         expired_tokens = []
