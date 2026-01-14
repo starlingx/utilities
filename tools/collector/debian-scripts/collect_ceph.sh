@@ -67,6 +67,23 @@ if [ "$nodetype" = "controller" ] ; then
     timeout 30 ceph health detail >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
     exit_if_timeout
 
+    delimiter ${LOGFILE} "ceph crash ls"
+    timeout 30 ceph crash ls >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+    exit_if_timeout
+
+    delimiter ${LOGFILE} "ceph crash info"
+    timeout 30 sh -c '
+        ceph crash ls |
+        awk "NR > 1 { print \$1 }" |
+        while read -r LINE; do
+            echo "=== ${LINE} ==="
+            ceph crash info "$LINE"
+            echo
+        done
+        ceph crash archive-all
+    ' >> "${LOGFILE}" 2>>"${COLLECT_ERROR_LOG}"
+    exit_if_timeout
+
 fi
 
 exit 0
