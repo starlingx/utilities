@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2013-2022 Wind River Systems, Inc.
+# Copyright (c) 2013-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -46,6 +46,12 @@ function collect_inventory {
     delimiter ${LOGFILE} "system network-list"
     system network-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
+    delimiter ${LOGFILE} "system network-addrpool-list"
+    system network-addrpool-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+
+    delimiter ${LOGFILE} "system addrpool-list"
+    system addrpool-list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+
     for host in ${HOSTNAMES}; do
         delimiter ${LOGFILE} "system host-show ${host}"
         system host-show 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
@@ -61,6 +67,12 @@ function collect_inventory {
 
         delimiter ${LOGFILE} "system host-ethernet-port-list ${host}"
         system host-ethernet-port-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+
+        delimiter ${LOGFILE} "system host-addr-list ${host}"
+        system host-addr-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+
+        delimiter ${LOGFILE} "system host-route-list ${host}"
+        system host-route-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
 
         delimiter ${LOGFILE} "system host-cpu-list ${host}"
         system host-cpu-list ${host} 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
