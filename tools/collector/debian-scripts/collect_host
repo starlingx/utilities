@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2016-2022, 2024 Wind River Systems, Inc.
+# Copyright (c) 2016-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -205,9 +205,9 @@ function collect_extra()
 
     run_command "cat /sys/devices/system/cpu/isolated" "${LOGFILE}"
 
-    run_command "ip addr show" "${LOGFILE}"
+    run_command "ip -br addr" "${LOGFILE}"
 
-    run_command "lspci -nn" "${LOGFILE}"
+    run_command "lspci -nnv" "${LOGFILE}"
 
     sleep ${COLLECT_RUNEXTRA_DELAY}
 
