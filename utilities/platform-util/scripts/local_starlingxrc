@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2023 Wind River Systems, Inc.
+# Copyright (c) 2023-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -7,6 +7,13 @@
 # It is assumed that the Keystone username is the same as the logged in
 # username.
 #
+
+# use keystone as default auth type
+export STX_AUTH_TYPE="keystone"
+# optional oidc auth mode instead of keystone
+if [ "$1" = "oidc" ]; then
+    export STX_AUTH_TYPE="oidc"
+fi
 
 # Check if openrc file exists.
 if [ -e "$HOME/$USER-openrc" ]; then
