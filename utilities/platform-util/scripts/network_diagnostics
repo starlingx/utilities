@@ -1,0 +1,1545 @@
+#!/usr/bin/env python3
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+"""
+Network Diagnostics Tool
+
+Comprehensive network validation tool that performs automated testing of:
+
+Layer 2:
+- Interface status validation (UP/DOWN state)
+- Physical interface link negotiation (speed/duplex)
+- Next-hop reachability via ARP/NDP (arping/ndisc6)
+- Bonding interface configuration
+
+Layer 3:
+- Configured IP addresses validation
+- IP address overlap detection between interfaces
+- Duplicated default routes with same metric
+- MTU validation and fragmentation testing to neighbors
+- DHCP client status verification for DHCP-enabled interfaces
+- DNS server reachability (ICMP + TCP/UDP port 53)
+- Host resolution and reachability via /etc/hosts
+- Host resolution and reachability via dnsmasq
+- Connectivity to dnsmasq host-records
+
+Layer 4:
+- Multicast heartbeat traffic validation
+
+Output:
+- Real-time console output with PASS/FAIL indicators and timestamps
+- Detailed report appended to /var/log/network_diag.log
+- Categorized failure summary with root cause analysis
+
+Usage:
+    network_diagnostics [--pause] [--log-file PATH]
+
+Options:
+    --pause              Pause between test categories (interactive mode)
+    --log-file PATH      Custom log file path (default: /var/log/network_diag.log)
+    -h, --help           Show this help message
+
+Examples:
+    # Run all diagnostics
+    network_diagnostics
+
+    # Interactive mode with pauses
+    network_diagnostics --pause
+
+    # Custom log location
+    network_diagnostics --log-file /tmp/netdiag.log
+
+Note:
+    This script must be run as root
+
+Important:
+    - Read-only operation: does not modify system configuration or restart services
+    - Network impact: runs connectivity tests (ping, arping, ndisc6, nc, tcpdump)
+      with minimal increase in network traffic and CPU usage
+    - Execution time: may take a few seconds to around a minute depending on
+      network health and number of detected issues
+"""
+
+import subprocess
+import os
+import re
+import sys
+import argparse
+from collections import defaultdict
+import ipaddress
+from datetime import datetime
+
+if os.geteuid() != 0:
+    sys.exit("Error: This script must be run as root")
+
+TCPDUMP_TIMEOUT = 10
+REPORT_FILE = "/var/log/network_diag.log"
+LOG_WIDTH = 90
+PAUSE_ENABLED = False
+
+LOG_BUFFER = []
+category_failures = defaultdict(list)
+category_warnings = defaultdict(list)
+current_category = None
+
+category_validations = {
+    "Test next-hop reachability": [],
+    "Test interfaces status": [],
+    "Test link negotiation": [],
+    "Test configured IP addresses": [],
+    "Test address overlap between interfaces": [],
+    "Test duplicated default routes": [],
+    "Test MTU to neighbors": [],
+    "Test DHCP client status": [],
+    "Test DNS server reachability": [],
+    "Test host resolution and reachability (/etc/hosts)": [],
+    "Test host resolution and reachability (dnsmasq)": [],
+    "Test host resolution and reachability (dnsmasq_dc)": [],
+    "Test connectivity to dnsmasq host-records": [],
+    "Multicast Heartbeat Traffic Test": []
+}
+
+
+def log_result(message, result):
+    dots = "." * max(1, LOG_WIDTH - len(message))
+    log(f"{message}{dots}{result}")
+
+
+def log(msg=""):
+    print(msg)
+    LOG_BUFFER.append(msg)
+
+
+def log_to_file_only(msg):
+    LOG_BUFFER.append(msg)
+
+
+def print_category(title, files=None, description=None):
+    global current_category
+    current_category = title
+
+    log("")
+    log("=" * 50)
+    log(title)
+    log("=" * 50)
+
+    if description:
+        log("[TEST DESCRIPTION]")
+        for line in description:
+            log(line)
+        log("")
+
+    if files:
+        for f in files:
+            if f:
+                log(f"Analyzing file: {f}")
+                print_file_content(f)
+
+
+def print_file_content(path):
+    if not os.path.exists(path):
+        log(f"[WARN] File not found: {path}")
+        return
+
+    log(f"[FILE CONTENT] {path}")
+    log("-" * 80)
+    try:
+        with open(path) as f:
+            for line in f:
+                log(line.rstrip())
+    except Exception as e:
+        log(f"[ERROR] Failed to read {path}: {e}")
+    log("-" * 80)
+
+
+def log_exec(cmd, rc, out, err):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    result = "PASS" if rc == 0 else "FAILED"
+    log_result(f"[{timestamp}] {cmd}", result)
+
+    if out:
+        log_to_file_only(f"stdout: {out}")
+
+    if rc != 0 and err:
+        log(f"error: {err.strip()}")
+        log_to_file_only(f"stderr: {err.strip()}")
+    elif err:
+        log_to_file_only(f"stderr: {err.strip()}")
+
+
+def run(cmd):
+    try:
+        process = subprocess.run(
+            cmd,
+            shell=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=15,
+        )
+        log_exec(cmd, process.returncode, process.stdout.strip(), process.stderr.strip())
+        return process.returncode, process.stdout.strip(), process.stderr.strip()
+    except Exception as error:
+        log_exec(cmd, 1, "", str(error))
+        return 1, "", str(error)
+
+
+def run_checked(cmd):
+    rc, out, err = run(cmd)
+    if rc != 0 and current_category:
+        category_failures[current_category].append(
+            f"command failed (rc={rc}): {cmd}"
+        )
+    return rc, out, err
+
+
+def is_ipv6(ip):
+    try:
+        return ipaddress.ip_address(ip).version == 6
+    except ValueError:
+        return False
+
+
+def is_physical(iface):
+    return os.path.exists(f"/sys/class/net/{iface}/device")
+
+
+def get_ipv4_iface(addr):
+    rc, out, _ = run(f"ip route get {addr}")
+    if rc != 0:
+        return None
+    m = re.search(r"dev (\S+)", out)
+    return m.group(1) if m else None
+
+
+def get_ipv6_iface(addr):
+    rc, out, _ = run(f"ip -6 route get {addr}")
+    if rc != 0:
+        return None
+    m = re.search(r"dev (\S+)", out)
+    return m.group(1) if m else None
+
+
+def detect_dnsmasq_file(filename):
+    base = "/opt/platform/config"
+    if not os.path.isdir(base):
+        return None
+
+    # Get version directories
+    version_dirs = [d for d in os.listdir(base) if re.match(r"\d{2}\.\d{2}", d)]
+
+    # Sort by version number (newest first)
+    def version_key(version_str):
+        major, minor = version_str.split(".")
+        return (int(major), int(minor))
+
+    sorted_versions = sorted(version_dirs, key=version_key, reverse=True)
+
+    for version in sorted_versions:
+        path = os.path.join(base, version, filename)
+        if os.path.exists(path):
+            return path
+
+    return None
+
+
+def find_iface_by_ip(ip):
+    if is_ipv6(ip):
+        cmd = f"ip -6 route get {ip}"
+    else:
+        cmd = f"ip route get {ip}"
+
+    rc, out, _ = run(cmd)
+    if rc != 0 or not out:
+        return None
+
+    m = re.search(r"\bdev (\S+)", out)
+    if not m:
+        return None
+
+    iface_raw = m.group(1)
+
+    return iface_raw.split("@")[0]
+
+
+def is_ip_onlink(ip, iface):
+    if is_ipv6(ip):
+        cmd = f"ip -6 addr show dev {iface}"
+        pattern = r"inet6 ([0-9a-f:]+/\d+)"
+    else:
+        cmd = f"ip addr show dev {iface}"
+        pattern = r"inet ([0-9.]+/\d+)"
+
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return False
+
+        target = ipaddress.ip_address(ip)
+        for line in result.stdout.splitlines():
+            match = re.search(pattern, line)
+            if match:
+                net = ipaddress.ip_network(match.group(1), strict=False)
+                if target in net:
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
+def get_controller_neighbors():
+    local_host = open("/etc/hostname").read().strip()
+    neighbors = []
+
+    with open("/etc/hosts") as f:
+        for line in f:
+            if not line.strip() or line.startswith("#"):
+                continue
+            parts = line.split()
+            ip = parts[0]
+            for name in parts[1:]:
+                if re.match(r"^controller-\d+$", name) and name != local_host:
+                    neighbors.append((name, ip))
+
+    return neighbors
+
+
+def get_interfaces_list():
+    interfaces_dir = "/etc/network/interfaces.d"
+    ifaces = []
+
+    if not os.path.isdir(interfaces_dir):
+        return ifaces
+
+    try:
+        for filename in os.listdir(interfaces_dir):
+            if not filename.startswith("ifcfg-"):
+                continue
+            filepath = os.path.join(interfaces_dir, filename)
+            try:
+                with open(filepath) as f:
+                    for line in f:
+                        line = line.strip()
+                        match = re.match(r"(?:auto|iface)\s+(\S+)", line)
+                        if match:
+                            iface = match.group(1).split(":")[0]
+                            if iface not in ifaces:
+                                ifaces.append(iface)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return ifaces
+
+
+def print_bonding_info():
+    bonding_dir = "/proc/net/bonding"
+
+    if not os.path.isdir(bonding_dir):
+        log("[INFO] No bonding interfaces found")
+        return
+
+    try:
+        bonding_ifaces = os.listdir(bonding_dir)
+        if not bonding_ifaces:
+            log("[INFO] No bonding interfaces found")
+            return
+
+        log("")
+        log("=" * 50)
+        log("Bonding Interfaces Information")
+        log("=" * 50)
+
+        for iface in bonding_ifaces:
+            bond_file = os.path.join(bonding_dir, iface)
+            log(f"\n[BONDING INTERFACE] {iface}")
+            log("-" * 80)
+            try:
+                with open(bond_file) as f:
+                    for line in f:
+                        log(line.rstrip())
+            except Exception as e:
+                log(f"[ERROR] Failed to read {bond_file}: {e}")
+            log("-" * 80)
+    except Exception as e:
+        log(f"[ERROR] Failed to list bonding interfaces: {e}")
+
+
+def print_system_info():
+    log("")
+    log("=" * 50)
+    log("System Information")
+    log("=" * 50)
+    log(f"Hostname: {os.uname().nodename}")
+    log(f"Kernel: {os.uname().release}")
+    log("")
+
+    print_bonding_info()
+
+
+def test_link_negotiation():
+    cat = "Test link negotiation"
+    desc = [
+        "1) Get interfaces list (auto file or ifcfg-* files)",
+        "2) Filter physical interfaces",
+        "3) Check link status with ethtool",
+        "4) Verify speed and duplex negotiation"
+    ]
+    print_category(cat, description=desc)
+
+    all_ifaces = get_interfaces_list()
+    if not all_ifaces:
+        log("[INFO] no interfaces found, skipping test")
+        return
+
+    # Filter only physical interfaces
+    auto_ifaces = [iface for iface in all_ifaces if is_physical(iface)]
+
+    if not auto_ifaces:
+        log("[INFO] no physical interfaces found")
+        return
+
+    for iface in auto_ifaces:
+        rc, out, _ = run_checked(f"ethtool {iface}")
+        if rc != 0:
+            category_failures[cat].append(
+                f"failed to get ethtool info for {iface}"
+            )
+            continue
+
+        # Check link detected
+        if "Link detected: no" in out:
+            category_failures[cat].append(
+                f"interface {iface} has no link detected"
+            )
+        else:
+            log_result(f"Link detected on {iface}", "PASS")
+
+        # Check speed and duplex
+        speed_match = re.search(r"Speed: (\S+)", out)
+        duplex_match = re.search(r"Duplex: (\S+)", out)
+
+        has_warning = False
+        if speed_match:
+            speed = speed_match.group(1)
+            if "Unknown" in speed or speed == "0Mb/s":
+                category_warnings[cat].append(
+                    f"interface {iface} has invalid speed: {speed}"
+                )
+                has_warning = True
+
+        if duplex_match:
+            duplex = duplex_match.group(1)
+            if "Unknown" in duplex or duplex == "Half":
+                category_warnings[cat].append(
+                    f"interface {iface} has invalid duplex: {duplex}"
+                )
+                has_warning = True
+
+        if has_warning:
+            log_result(f"Speed/Duplex on {iface}", "WARN")
+        elif speed_match and duplex_match:
+            log_result(f"Speed/Duplex on {iface}", "PASS")
+
+        log("")
+
+
+def test_next_hops():
+    cat = "Test next-hop reachability"
+    desc = [
+        "1) List IPv4 and IPv6 routing tables",
+        "2) Extract next-hop addresses from routes",
+        "3) Ping IPv4 next-hops using arping",
+        "4) Ping IPv6 next-hops using ndisc6"
+    ]
+    print_category(cat, description=desc)
+
+    for fam in ("-4", "-6"):
+        rc, out, _ = run_checked(f"ip {fam} route show")
+        if rc != 0 or not out:
+            continue
+
+        table_name = "IPv4 routing table" if fam == "-4" else "IPv6 routing table"
+        log(f"[TABLE CONTENT] {table_name}")
+        log("-" * 80)
+        for line in out.splitlines():
+            log(line)
+        log("-" * 80)
+
+        for nh in set(re.findall(r"via ([0-9a-fA-F:.]+)", out)):
+            if is_ipv6(nh):
+                iface = get_ipv6_iface(nh)
+                if iface and iface != "lo":
+                    run_checked(f"ndisc6 -r 2 {nh} {iface}")
+                else:
+                    category_failures[cat].append(
+                        f"unable to detect IPv6 interface for {nh}"
+                    )
+            else:
+                iface = get_ipv4_iface(nh)
+                if iface and iface != "lo":
+                    run_checked(f"arping -I {iface} -c 2 {nh}")
+                else:
+                    category_failures[cat].append(
+                        f"unable to detect IPv4 interface for {nh}"
+                    )
+            log("")
+
+
+def test_status_interfaces():
+    cat = "Test interfaces status"
+    desc = [
+        "1) Get interfaces list (auto file or ifcfg-* files)",
+        "2) Check if each interface exists",
+        "3) Check if each interface is administratively UP",
+        "4) Check if each interface is operationally UP"
+    ]
+    print_category(cat, description=desc)
+
+    auto_ifaces = get_interfaces_list()
+    if not auto_ifaces:
+        log("[INFO] no interfaces found, skipping test")
+        return
+
+    for iface in auto_ifaces:
+        # Skip loopback interface
+        if iface == "lo":
+            continue
+
+        rc, out, _ = run(f"ip link show {iface}")
+        if rc != 0:
+            category_failures[cat].append(
+                f"interface {iface} does not exist"
+            )
+            log_result(f"Interface {iface} status", "FAILED")
+            continue
+
+        is_up = "state UP" in out
+        is_lower_up = "LOWER_UP" in out
+
+        if not is_up:
+            category_failures[cat].append(
+                f"interface {iface} is not administratively UP"
+            )
+
+        if not is_lower_up:
+            category_failures[cat].append(
+                f"interface {iface} is not operationally UP"
+            )
+
+        if is_up and is_lower_up:
+            log_result(f"Interface {iface} status", "PASS")
+        else:
+            log_result(f"Interface {iface} status", "FAILED")
+
+
+def test_dns_servers():
+    category = "Test DNS server reachability"
+    resolv_conf_path = "/etc/resolv.conf"
+    desc = [
+        "1) Read /etc/resolv.conf",
+        "2) Extract DNS server addresses",
+        "3) Ping each DNS server (IPv4 or IPv6)",
+        "4) Test TCP port 53 connectivity",
+        "5) Test UDP port 53 connectivity"
+    ]
+
+    print_category(category, [resolv_conf_path], description=desc)
+
+    if not os.path.exists(resolv_conf_path):
+        category_failures[category].append("resolv.conf not found")
+        return
+
+    dns_servers = []
+    with open(resolv_conf_path) as resolv_conf_file:
+        for line in resolv_conf_file:
+            if not line.startswith("nameserver"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            dns_servers.append(parts[1])
+
+    for dns_server in dns_servers:
+        ip_family_flag = "-6" if is_ipv6(dns_server) else ""
+        run_checked(f"ping {ip_family_flag} -c 3 -i 0.2 {dns_server}")
+
+        # Test TCP port 53
+        run_checked(f"nc -vz -w 2 {dns_server} 53")
+
+        # Test UDP port 53
+        run_checked(f"nc -vzu -w 2 {dns_server} 53")
+
+        log("")
+
+
+def test_hosts_generic(cat, path):
+    desc = [
+        "1) Parse hosts file for IP and hostname entries",
+        "2) Resolve each hostname using getent",
+        "3) Verify resolved IP matches expected IP",
+        "4) Ping IPv4 addresses using arping and ping",
+        "5) Ping IPv6 addresses using ndisc6 and ping"
+    ]
+    print_category(cat, [path], description=desc)
+
+    if not path or not os.path.exists(path):
+        category_failures[cat].append("hosts file not found")
+        return
+
+    # Get local hostname to check if it's a compute node
+    try:
+        with open("/etc/hostname") as f:
+            local_hostname = f.read().strip()
+    except Exception:
+        local_hostname = ""
+
+    is_compute = local_hostname.startswith("compute")
+
+    # Get local IPs to skip ndisc6/arping for own addresses
+    rc, out, _ = run("ip -o addr show")
+    local_ips = set()
+    if rc == 0 and out:
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                addr = parts[3].split('/')[0]
+                local_ips.add(addr)
+
+    with open(path) as hosts_file:
+        hosts = []
+        for line in hosts_file:
+            if not line.strip() or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            ip = parts[0]
+            for host in parts[1:]:
+                hosts.append((ip, host))
+
+    for expected_ip, host in hosts:
+        # If compute node, skip cluster-host entries entirely
+        if is_compute and "cluster-host" in host:
+            continue
+
+        rc, out, _ = run(f"getent ahosts {host}")
+        if rc != 0 or not out:
+            ips = []
+        else:
+            ips = []
+            for line in out.splitlines():
+                ip = line.split()[0]
+                if ip not in ips:
+                    ips.append(ip)
+
+        if not ips:
+            category_failures[cat].append(
+                f"resolution failed for {host} (expected {expected_ip})"
+            )
+            continue
+
+        if expected_ip not in ips:
+            category_failures[cat].append(
+                f"hostname {host} resolved to {ips}, expected {expected_ip}"
+            )
+            continue
+
+        for ip in ips:
+            # If compute and host has oam, only do ping
+            if is_compute and "oam" in host:
+                if is_ipv6(ip):
+                    run_checked(f"ping -6 -c 3 -i 0.2 {ip}")
+                else:
+                    run_checked(f"ping -c 3 -i 0.2 {ip}")
+            elif is_ipv6(ip):
+                iface = get_ipv6_iface(ip)
+                if not iface:
+                    category_failures[cat].append(
+                        f"unable to detect IPv6 iface for {ip}"
+                    )
+                    continue
+
+                if iface != "lo" and ip not in local_ips and is_ip_onlink(ip, iface):
+                    run_checked(f"ndisc6 -r 2 {ip} {iface}")
+
+                run_checked(f"ping -6 -c 3 -i 0.2 {ip}")
+
+            else:
+                iface = get_ipv4_iface(ip)
+                if not iface:
+                    category_failures[cat].append(
+                        f"unable to detect IPv4 iface for {ip}"
+                    )
+                    continue
+
+                if iface != "lo" and ip not in local_ips and is_ip_onlink(ip, iface):
+                    run_checked(f"arping -I {iface} -c 1 {ip}")
+
+                run_checked(f"ping -c 3 -i 0.2 {ip}")
+        log("")
+
+
+def test_hosts_file():
+    test_hosts_generic(
+        "Test host resolution and reachability (/etc/hosts)",
+        "/etc/hosts",
+    )
+
+
+def test_dnsmasq_hosts():
+    test_hosts_generic(
+        "Test host resolution and reachability (dnsmasq)",
+        detect_dnsmasq_file("dnsmasq.addn_hosts"),
+    )
+    test_hosts_generic(
+        "Test host resolution and reachability (dnsmasq_dc)",
+        detect_dnsmasq_file("dnsmasq.addn_hosts_dc"),
+    )
+
+
+def test_ip_overlap_between_interfaces():
+    cat = "Test address overlap between interfaces"
+    desc = [
+        "1) List all interface addresses",
+        "2) Parse IP networks (excluding link-local)",
+        "3) Check for overlapping networks between interfaces",
+        "4) Report any overlaps detected"
+    ]
+    print_category(cat, description=desc)
+
+    rc, out, _ = run_checked("ip -o addr show")
+    if rc != 0 or not out:
+        category_failures[cat].append(
+            "failed to list interface addresses"
+        )
+        return
+
+    log("[TABLE CONTENT] Interface addresses")
+    log("-" * 80)
+    for line in out.splitlines():
+        log(line)
+    log("-" * 80)
+
+    iface_networks = defaultdict(list)
+
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+
+        iface = parts[1]
+        addr = parts[3]
+
+        try:
+            net = ipaddress.ip_network(addr, strict=False)
+        except ValueError:
+            continue
+
+        # Ignore IPv6 link-local (fe80::/10)
+        if net.version == 6 and net.is_link_local:
+            continue
+
+        # Ignore IPv4 link-local (169.254.0.0/16)
+        if net.version == 4 and net.is_link_local:
+            continue
+
+        # Ignore localhost addresses (::1/128 and 127.0.0.1)
+        if net.version == 6 and net == ipaddress.ip_network("::1/128"):
+            continue
+        if net.version == 4 and net.network_address.is_loopback:
+            continue
+
+        iface_networks[iface].append(net)
+
+    overlaps_found = False
+    interfaces = list(iface_networks.keys())
+
+    for i in range(len(interfaces)):
+        for j in range(i + 1, len(interfaces)):
+            iface1 = interfaces[i]
+            iface2 = interfaces[j]
+
+            for net1 in iface_networks[iface1]:
+                for net2 in iface_networks[iface2]:
+                    if net1.overlaps(net2):
+                        overlaps_found = True
+                        log_result(
+                            f"overlap: {iface1} {net1} <-> {iface2} {net2}",
+                            "FAILED"
+                        )
+                        category_failures[cat].append(
+                            f"overlap detected: {iface1} {net1} <-> "
+                            f"{iface2} {net2}"
+                        )
+
+    if not overlaps_found:
+        log_result(
+            "no overlapping IP networks detected across interfaces",
+            "PASS"
+        )
+
+
+def test_duplicated_default_routes():
+    cat = "Test duplicated default routes"
+    desc = [
+        "1) List IPv4 default routes",
+        "2) List IPv6 default routes",
+        "3) Parse route metrics",
+        "4) Detect duplicated routes with same metric"
+    ]
+    print_category(cat, description=desc)
+
+    default_routes = {
+        "ipv4": [],
+        "ipv6": [],
+    }
+
+    rc4, out4, _ = run_checked("ip -4 route show default")
+    if rc4 == 0 and out4:
+        for line in out4.splitlines():
+            default_routes["ipv4"].append(line.strip())
+
+    rc6, out6, _ = run_checked("ip -6 route show default")
+    if rc6 == 0 and out6:
+        for line in out6.splitlines():
+            default_routes["ipv6"].append(line.strip())
+
+    if default_routes["ipv4"]:
+        log("[TABLE CONTENT] IPv4 default routes")
+        log("-" * 80)
+        for line in default_routes["ipv4"]:
+            log(line)
+        log("-" * 80)
+
+    if default_routes["ipv6"]:
+        log("[TABLE CONTENT] IPv6 default routes")
+        log("-" * 80)
+        for line in default_routes["ipv6"]:
+            log(line)
+        log("-" * 80)
+
+    def parse_route(line):
+        """
+        Extract via, dev and metric from a route line
+        """
+        via = None
+        dev = None
+        metric = 0
+
+        match = re.search(r"via (\S+)", line)
+        if match:
+            via = match.group(1)
+
+        match = re.search(r"dev (\S+)", line)
+        if match:
+            dev = match.group(1)
+
+        match = re.search(r"metric (\d+)", line)
+        if match:
+            metric = int(match.group(1))
+
+        return via, dev, metric
+
+    duplicated = False
+
+    for family, routes in default_routes.items():
+        if len(routes) <= 1:
+            continue
+
+        metric_map = defaultdict(list)
+
+        for route in routes:
+            via, dev, metric = parse_route(route)
+
+            if via is None:
+                continue
+
+            metric_map[metric].append((via, dev, route))
+
+        for metric, entries in metric_map.items():
+            if len(entries) > 1:
+                duplicated = True
+                for via, dev, raw in entries:
+                    category_failures[cat].append(
+                        f"{family} duplicated default route "
+                        f"(metric {metric}): via {via} dev {dev}"
+                    )
+
+    if not duplicated:
+        log_result(
+            "no duplicated default routes detected",
+            "PASS"
+        )
+
+
+def test_mtu_to_controllers():
+    cat = "Test MTU to neighbors"
+    desc = [
+        "1) Detect local hostname",
+        "2) Parse /etc/hosts for controller targets",
+        "3) Parse dnsmasq.addn_hosts for compute/pxeboot targets",
+        "4) Detect interface and MTU for each target IP",
+        "5) Test Path MTU without fragmentation (DF bit set for IPv4)",
+        "6) Test with fragmentation enabled (both IPv4 and IPv6)",
+        "7) If failed, perform incremental MTU test (4000, 2000, 1500, 1280)"
+    ]
+    print_category(cat, description=desc)
+
+    def get_local_hostname():
+        try:
+            with open("/etc/hostname") as f:
+                return f.read().strip()
+        except Exception:
+            return None
+
+    def parse_hosts_for_targets():
+        """
+        Returns a dict with possible MTU test targets extracted from /etc/hosts.
+        """
+        targets = defaultdict(list)
+
+        try:
+            with open("/etc/hosts") as f:
+                for line in f:
+                    if not line.strip() or line.startswith("#"):
+                        continue
+
+                    parts = line.split()
+                    ip = parts[0]
+                    names = parts[1:]
+
+                    for name in names:
+                        if name in (
+                            "controller-0",
+                            "controller-1",
+                            "controller-cluster-host",
+                            "controller-0-cluster-host",
+                            "controller-1-cluster-host",
+                        ):
+                            targets[name].append(ip)
+        except Exception:
+            pass
+
+        return targets
+
+    def select_targets(local_host, targets_map):
+        targets = []
+
+        if local_host == "controller-0":
+            targets.extend(targets_map.get("controller-1", []))
+            targets.extend(targets_map.get("controller-1-cluster-host", []))
+
+        elif local_host == "controller-1":
+            targets.extend(targets_map.get("controller-0", []))
+            targets.extend(targets_map.get("controller-0-cluster-host", []))
+
+        else:
+            # workers / computes: only controllers
+            targets.extend(targets_map.get("controller-0", []))
+            targets.extend(targets_map.get("controller-1", []))
+
+        return list(dict.fromkeys(targets))
+
+    def get_latest_platform_config_dir(base="/opt/platform/config"):
+        try:
+            versions = []
+            for d in os.listdir(base):
+                if re.match(r"\d+\.\d+", d):
+                    versions.append(d)
+
+            if not versions:
+                return None
+
+            versions.sort(key=lambda v: [int(x) for x in v.split(".")])
+            return os.path.join(base, versions[-1])
+        except Exception:
+            return None
+
+    def parse_dnsmasq_addn_hosts():
+        entries = defaultdict(list)
+
+        base = get_latest_platform_config_dir()
+        if not base:
+            return entries
+
+        path = os.path.join(base, "dnsmasq.addn_hosts")
+        if not os.path.isfile(path):
+            return entries
+
+        try:
+            with open(path) as f:
+                for line in f:
+                    if not line.strip() or line.startswith("#"):
+                        continue
+
+                    parts = line.split()
+                    ip = parts[0]
+                    names = parts[1:]
+
+                    for name in names:
+                        entries[name].append(ip)
+        except Exception:
+            pass
+
+        return entries
+
+    def select_extra_targets_from_dnsmasq(local_host, dnsmasq_map):
+        targets = []
+
+        if local_host == "controller-0":
+            exclude = "pxeboot-1"
+        elif local_host == "controller-1":
+            exclude = "pxeboot-2"
+        else:
+            return targets
+
+        for name, ips in dnsmasq_map.items():
+            short = name.split(".")[0]
+
+            if short.startswith("compute-"):
+                targets.extend(ips)
+
+            elif short.startswith("pxeboot-") and short != exclude:
+                targets.extend(ips)
+
+        return list(dict.fromkeys(targets))
+
+    def get_iface_and_mtu_for_ip(ip):
+        if is_ipv6(ip):
+            iface = get_ipv6_iface(ip)
+        else:
+            iface = get_ipv4_iface(ip)
+
+        if not iface:
+            return None, None
+
+        rc, out, _ = run(f"ip link show dev {iface}")
+        if rc != 0:
+            return iface, None
+
+        m = re.search(r"mtu (\d+)", out)
+        mtu = int(m.group(1)) if m else None
+
+        return iface, mtu
+
+    def calc_payload(mtu, ipv6=False):
+        overhead = 48 if ipv6 else 28
+        return max(0, mtu - overhead)
+
+    def ping_mtu(ip, payload, allow_frag=False):
+        if is_ipv6(ip):
+            return run(f"ping -6 -s {payload} -c 3 -i 0.2 {ip}")
+        else:
+            frag_flag = "" if allow_frag else "-M do"
+            return run(f"ping {frag_flag} -s {payload} -c 3 -i 0.2 {ip}")
+
+    def incremental_mtu_test(ip, start_mtu):
+        steps = [start_mtu, 4000, 2000, 1500, 1280]
+
+        for mtu in steps:
+            payload = calc_payload(mtu, is_ipv6(ip))
+            rc, _, _ = ping_mtu(ip, payload)
+            if rc == 0:
+                return mtu
+
+        return None
+
+    local_host = get_local_hostname()
+    if not local_host:
+        log_result("MTU test (hostname detection)", "PASS")
+        return
+
+    targets_map = parse_hosts_for_targets()
+    targets = select_targets(local_host, targets_map)
+
+    dnsmasq_map = parse_dnsmasq_addn_hosts()
+    extra_targets = select_extra_targets_from_dnsmasq(local_host, dnsmasq_map)
+
+    targets.extend(extra_targets)
+    targets = list(dict.fromkeys(targets))
+
+    if not targets:
+        log_result("MTU test to neighbors", "PASS")
+        return
+
+    for ip in targets:
+        iface, mtu = get_iface_and_mtu_for_ip(ip)
+        if not iface or not mtu:
+            category_failures[cat].append(
+                f"unable to detect iface/mtu for {ip}"
+            )
+            log("")
+            continue
+
+        payload = calc_payload(mtu, is_ipv6(ip))
+
+        # Validate payload doesn't exceed interface MTU
+        if payload <= 0:
+            category_failures[cat].append(
+                f"invalid MTU configuration for {ip}: mtu={mtu}, calculated payload={payload}"
+            )
+            log("")
+            continue
+
+        # Without fragmentation
+        rc, _, _ = ping_mtu(ip, payload, allow_frag=False)
+        if rc == 0:
+            log_result(f"MTU {mtu} to {ip} (no fragmentation)", "PASS")
+        else:
+            detected = incremental_mtu_test(ip, mtu)
+            if detected:
+                category_failures[cat].append(
+                    f"MTU mismatch to {ip}: iface mtu={mtu}, path mtu={detected}"
+                )
+            else:
+                category_failures[cat].append(
+                    f"MTU test failed to {ip}: no working MTU >= 1280"
+                )
+
+        # With fragmentation
+        # Use large packet (9000 bytes) to force fragmentation
+        # IPv4: 9000 - 28 = 8972 bytes payload
+        # IPv6: 9000 - 48 = 8952 bytes payload
+        # This tests if the network path supports fragmentation/reassembly
+        # and if there are any MTU mismatches in switches/routers
+        is_ipv6_addr = is_ipv6(ip)
+        large_payload = 8952 if is_ipv6_addr else 8972
+        rc_frag, _, _ = ping_mtu(ip, large_payload, allow_frag=True)
+        if rc_frag == 0:
+            log_result(f"Fragmentation test to {ip} (payload={large_payload})", "PASS")
+        else:
+            protocol = "IPv6" if is_ipv6_addr else "IPv4"
+            category_failures[cat].append(
+                f"{protocol} fragmentation failed to {ip}: "
+                f"possible MTU mismatch in network path or fragmentation blocked"
+            )
+
+        log("")
+
+
+def test_dhcp_client_status():
+    cat = "Test DHCP client status"
+    desc = [
+        "1) Scan ifcfg-* files in /etc/network/interfaces.d/",
+        "2) Parse files for DHCP-enabled interfaces",
+        "3) Verify dhclient process is running for each DHCP interface"
+    ]
+    print_category(cat, description=desc)
+
+    interfaces_dir = "/etc/network/interfaces.d"
+    if not os.path.isdir(interfaces_dir):
+        log("[INFO] /etc/network/interfaces.d not found, skipping test")
+        return
+
+    dhcp_ifaces = []
+    try:
+        for filename in os.listdir(interfaces_dir):
+            if not filename.startswith("ifcfg-"):
+                continue
+
+            filepath = os.path.join(interfaces_dir, filename)
+            try:
+                with open(filepath) as f:
+                    content = f.read()
+                    if re.search(r"iface\s+\S+\s+inet\s+dhcp", content):
+                        match = re.search(r"iface\s+(\S+)\s+inet\s+dhcp", content)
+                        if match:
+                            dhcp_ifaces.append(match.group(1))
+            except Exception:
+                continue
+    except Exception:
+        category_failures[cat].append("failed to scan interfaces directory")
+        return
+
+    if not dhcp_ifaces:
+        log("[INFO] No DHCP-enabled interfaces found")
+        log_result("DHCP client status", "PASS")
+        return
+
+    log(f"[INFO] DHCP-enabled interfaces: {', '.join(dhcp_ifaces)}")
+    log("")
+
+    rc, out, _ = run_checked("ps -ef")
+    if rc != 0 or not out:
+        category_failures[cat].append("failed to list processes")
+        return
+
+    for iface in dhcp_ifaces:
+        pattern = f"dhclient.*{re.escape(iface)}\\b"
+        if re.search(pattern, out):
+            log_result(f"dhclient running for {iface}", "PASS")
+        else:
+            category_failures[cat].append(f"dhclient not running for {iface}")
+
+
+def test_multicast_heartbeat():
+    cat = "Multicast Heartbeat Traffic Test"
+    desc = [
+        "1) Detect local hostname and controller neighbors",
+        "2) Parse UDP sockets for hbsClient multicast ports",
+        "3) Resolve local and neighbor IPs using getent",
+        "4) Test RX/TX: Capture heartbeat traffic"
+    ]
+    print_category(cat, description=desc)
+
+    def resolve_ip(hostname, ipv6):
+        rc, out, _ = run(f"getent ahosts {hostname}")
+        if rc != 0 or not out:
+            return None
+        for line in out.splitlines():
+            ip = line.split()[0]
+            if is_ipv6(ip) == ipv6:
+                return ip
+        return None
+
+    def test_heartbeat_traffic(iface, port, src_ip, dst_addr, direction, label):
+        log(f"  Testing {direction} on port {port} {label}...")
+        cmd = (
+            f"timeout {TCPDUMP_TIMEOUT} tcpdump -i {iface} -vvv -nne "
+            f"'udp and dst {dst_addr} and dst port {port} and src {src_ip}' -c 1"
+        )
+        rc, _, _ = run(cmd)
+        if rc != 0:
+            category_failures[cat].append(
+                f"{direction}: no heartbeat from {src_ip} on {iface} port {port}"
+            )
+        else:
+            log_result(f"  {direction} {label} port {port}", "PASS")
+
+    try:
+        local_host = open("/etc/hostname").read().strip()
+    except Exception:
+        category_failures[cat].append("unable to read /etc/hostname")
+        return
+
+    if not re.match(r"^controller-\d+$", local_host):
+        log(f"[INFO] Local host '{local_host}' is not a controller, skipping test")
+        log_result("Multicast heartbeat test", "PASS")
+        return
+
+    neighbors = get_controller_neighbors()
+    if not neighbors:
+        log("[INFO] Standalone system detected, skipping test")
+        return
+
+    rc, out, _ = run_checked("ss -tupSnOl")
+    if rc != 0 or not out:
+        category_failures[cat].append("unable to read UDP sockets via ss")
+        return
+
+    # Test management heartbeat (port 2106)
+    hb_port = "2106"
+    mcast_addr = None
+    found = False
+    for line in out.splitlines():
+        if "hbsClient" in line and ("ff08::1:1:2" in line or "239.1.1.2" in line):
+            if f":{hb_port}" in line:
+                found = True
+                mcast_addr = "ff08::1:1:2" if "ff08::1:1:2" in line else "239.1.1.2"
+                break
+
+    if not found:
+        log_result(f"no multicast heartbeat socket detected (hbsClient port {hb_port})", "FAILED")
+        category_failures[cat].append(f"no multicast heartbeat socket detected (hbsClient port {hb_port})")
+        return
+
+    log(f"[INFO] Local hostname: {local_host}")
+    log(f"[INFO] Heartbeat port: {hb_port}")
+    log(f"[INFO] Multicast address: {mcast_addr}")
+
+    use_ipv6 = mcast_addr == "ff08::1:1:2"
+    local_ip = resolve_ip(local_host, use_ipv6)
+    if not local_ip:
+        protocol = "IPv6" if use_ipv6 else "IPv4"
+        category_failures[cat].append(f"no {protocol} address for {local_host}")
+        return
+
+    log(f"[INFO] Local IP: {local_ip}")
+    log("")
+
+    for neighbor_name, _ in neighbors:
+        log(f"[INFO] Testing heartbeat with neighbor: {neighbor_name}")
+
+        neighbor_ip = resolve_ip(neighbor_name, use_ipv6)
+        if not neighbor_ip:
+            protocol = "IPv6" if use_ipv6 else "IPv4"
+            category_failures[cat].append(f"no {protocol} address for {neighbor_name}")
+            continue
+
+        log(f"  Resolved IP: {neighbor_ip}")
+
+        iface = find_iface_by_ip(neighbor_ip)
+        if not iface:
+            category_failures[cat].append(f"unable to determine interface for {neighbor_name}")
+            continue
+
+        log(f"  Interface: {iface}")
+
+        test_heartbeat_traffic(iface, hb_port, neighbor_ip, mcast_addr, "RX", f"from {neighbor_name}")
+        test_heartbeat_traffic(iface, hb_port, local_ip, mcast_addr, "TX", f"from {local_ip}")
+
+        log("")
+
+    # Test SM heartbeat (ports 2222 and 2223)
+    sm_mcast_ipv6 = "ff08::1:1:1"
+    sm_mcast_ipv4 = "239.1.1.1"
+    sm_ports = ["2222", "2223"]
+
+    log(f"[INFO] Testing SM heartbeat on {sm_mcast_ipv6} and {sm_mcast_ipv4}")
+    local_ipv6 = resolve_ip(local_host, True)
+    local_ipv4 = resolve_ip(local_host, False)
+
+    for neighbor_name, _ in neighbors:
+        neighbor_ipv6 = resolve_ip(neighbor_name, True)
+        neighbor_ipv4 = resolve_ip(neighbor_name, False)
+
+        log(f"[INFO] Testing SM heartbeat with {neighbor_name}")
+
+        if neighbor_ipv6 and local_ipv6:
+            iface = find_iface_by_ip(neighbor_ipv6)
+            if iface:
+                for port in sm_ports:
+                    test_heartbeat_traffic(iface, port, neighbor_ipv6, sm_mcast_ipv6, "RX", f"from {neighbor_name}")
+                    test_heartbeat_traffic(iface, port, local_ipv6, sm_mcast_ipv6, "TX", f"from {local_host}")
+
+        if neighbor_ipv4 and local_ipv4:
+            iface = find_iface_by_ip(neighbor_ipv4)
+            if iface:
+                for port in sm_ports:
+                    test_heartbeat_traffic(iface, port, neighbor_ipv4, sm_mcast_ipv4, "RX", f"from {neighbor_name}")
+                    test_heartbeat_traffic(iface, port, local_ipv4, sm_mcast_ipv4, "TX", f"from {local_host}")
+
+        log("")
+
+
+def test_dnsmasq_host_records_connectivity():
+    cat = "Test connectivity to dnsmasq host-records"
+    conf_path = detect_dnsmasq_file("dnsmasq.addn_conf")
+    desc = [
+        "1) Locate dnsmasq.addn_conf file",
+        "2) Parse host-record entries",
+        "3) Extract hostname and IP addresses",
+        "4) Ping each IP address (IPv4 or IPv6)"
+    ]
+
+    print_category(cat, [conf_path], description=desc)
+
+    if not conf_path:
+        log("[INFO] dnsmasq.addn_conf not found, skipping test")
+        return
+
+    records = []
+
+    try:
+        with open(conf_path) as f:
+            for line in f:
+                line = line.strip()
+
+                if not line or line.startswith("#"):
+                    continue
+
+                if not line.startswith("host-record="):
+                    continue
+
+                value = line.split("=", 1)[1]
+                parts = [p.strip() for p in value.split(",")]
+
+                if len(parts) < 2:
+                    continue
+
+                hostname = parts[0]
+
+                for token in parts[1:]:
+                    try:
+                        ip = str(ipaddress.ip_address(token))
+                        records.append((hostname, ip))
+                    except ValueError:
+                        continue
+
+    except Exception as e:
+        category_failures[cat].append(
+            f"failed to read dnsmasq.addn_conf: {e}"
+        )
+        return
+
+    if not records:
+        log("[INFO] no valid IPs found in host-record entries, skipping test")
+        return
+
+    for hostname, ip in records:
+        if is_ipv6(ip):
+            rc, _, _ = run_checked(f"ping -6 -c 3 -i 0.2 {ip}")
+        else:
+            rc, _, _ = run_checked(f"ping -c 3 -i 0.2 {ip}")
+
+        if rc != 0:
+            category_failures[cat].append(
+                f"connectivity failed to host-record {hostname} ({ip})"
+            )
+
+
+def test_configured_ip_addresses():
+    cat = "Test configured IP addresses"
+    desc = [
+        "1) Scan ifcfg-* files in /etc/network/interfaces.d/",
+        "2) Parse configured IP addresses from each file",
+        "3) Verify each configured IP is actually assigned in Linux"
+    ]
+    print_category(cat, description=desc)
+
+    interfaces_dir = "/etc/network/interfaces.d"
+    if not os.path.isdir(interfaces_dir):
+        log("[INFO] /etc/network/interfaces.d not found, skipping test")
+        return
+
+    # Get all IP addresses currently assigned in the system
+    rc, out, _ = run("ip -o addr show")
+    if rc != 0 or not out:
+        category_failures[cat].append("failed to get system IP addresses")
+        return
+
+    # Build a set of all IPs assigned to any interface (regardless of UP/DOWN state)
+    system_ips = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 4:
+            # Extract IP address without prefix (e.g., "192.168.1.1" from "192.168.1.1/24")
+            addr = parts[3].split('/')[0]
+            system_ips.add(addr)
+
+    log(f"[INFO] Found {len(system_ips)} IP addresses in system")
+    log("")
+
+    total_files = 0
+    total_ips = 0
+
+    try:
+        # Process each ifcfg-* file in alphabetical order
+        for filename in sorted(os.listdir(interfaces_dir)):
+            if not filename.startswith("ifcfg-"):
+                continue
+
+            total_files += 1
+            filepath = os.path.join(interfaces_dir, filename)
+
+            try:
+                with open(filepath) as f:
+                    content = f.read()
+
+                    iface_match = re.search(r"iface\s+(\S+)", content)
+                    iface = iface_match.group(1) if iface_match else filename.replace("ifcfg-", "")
+
+                    # Find all "address <IP>" lines in the file
+                    # Matches both IPv4 (e.g., 192.168.1.1) and IPv6 (e.g., fd00::1)
+                    for match in re.finditer(r"address\s+([0-9a-fA-F:.]+)", content):
+                        configured_ip = match.group(1)
+                        total_ips += 1
+
+                        # Check if this IP is actually assigned in the system
+                        if configured_ip in system_ips:
+                            log_result(f"IP {configured_ip} on {iface}", "PASS")
+                        else:
+                            log_result(f"IP {configured_ip} on {iface}", "FAILED")
+                            category_failures[cat].append(
+                                f"IP {configured_ip} configured in {filename} but not assigned"
+                            )
+            except Exception as e:
+                category_failures[cat].append(f"failed to parse {filename}: {e}")
+                continue
+    except Exception as e:
+        category_failures[cat].append(f"failed to scan interfaces directory: {e}")
+
+    log("")
+    log(f"[INFO] Processed {total_files} ifcfg files, found {total_ips} configured IPs")
+
+
+def write_report():
+    col1, col2 = 50, 10
+
+    log("")
+    log("=" * 120)
+    log("Final Report")
+    log("=" * 120)
+    log(
+        f"{'TestCategory':{col1}} | "
+        f"{'Result':{col2}} | FailureReason"
+    )
+    log("=" * 120)
+
+    for cat in category_validations:
+        fails = list(dict.fromkeys(category_failures.get(cat, [])))
+        warns = list(dict.fromkeys(category_warnings.get(cat, [])))
+
+        if not fails and not warns:
+            log(f"{cat:{col1}} | {'PASS':{col2}} | -")
+        elif fails:
+            log(f"{cat:{col1}} | {'FAILED':{col2}} | - {fails[0]}")
+            for f in fails[1:]:
+                log(f"{'':{col1}} | {'':{col2}} | - {f}")
+        else:
+            log(f"{cat:{col1}} | {'WARN':{col2}} | - {warns[0]}")
+            for w in warns[1:]:
+                log(f"{'':{col1}} | {'':{col2}} | - {w}")
+        log("")
+
+    with open(REPORT_FILE, "a") as f:
+        for line in LOG_BUFFER:
+            f.write(line + "\n")
+
+    log(f"[INFO] Report appended to {REPORT_FILE}")
+
+
+def pause_between_categories():
+    if not PAUSE_ENABLED:
+        return
+    try:
+        input("\n[PAUSE] Press ENTER to continue...\n")
+    except KeyboardInterrupt:
+        log("\n[INFO] Execution interrupted by user")
+        exit(1)
+
+
+def run_tests():
+    tests = [
+        # L2 Tests
+        test_next_hops,
+        test_status_interfaces,
+        test_link_negotiation,
+        # L3 Tests
+        test_configured_ip_addresses,
+        test_ip_overlap_between_interfaces,
+        test_duplicated_default_routes,
+        test_mtu_to_controllers,
+        test_dhcp_client_status,
+        test_dns_servers,
+        test_hosts_file,
+        test_dnsmasq_hosts,
+        test_dnsmasq_host_records_connectivity,
+        # L4 Tests
+        test_multicast_heartbeat,
+    ]
+
+    for test in tests:
+        test()
+        pause_between_categories()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Network diagnostics tool")
+    parser.add_argument("--pause", action="store_true", help="Pause between test categories")
+    parser.add_argument("--log-file", type=str, default=REPORT_FILE,
+                        help=f"Path to the log file (default: {REPORT_FILE})")
+    args = parser.parse_args()
+
+    PAUSE_ENABLED = args.pause
+    REPORT_FILE = args.log_file
+
+    run_tests()
+    print_system_info()
+    write_report()
