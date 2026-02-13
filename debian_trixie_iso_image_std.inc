@@ -28,6 +28,9 @@ namespace-utils
 #nfscheck
 nfscheck
 
+#openbao-host
+openbao-host
+
 #platform-util
 platform-util-controller
 platform-util-noncontroller

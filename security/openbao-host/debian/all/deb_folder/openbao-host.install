@@ -1,0 +1,3 @@
+etc/openbao/openbao.env etc/openbao/
+usr/bin/bao usr/bin/
+usr/lib/systemd/system/openbao.service usr/lib/systemd/system/

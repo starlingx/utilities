@@ -1,0 +1,19 @@
+#!/bin/sh
+
+case "$1" in
+  purge)
+    # Remove openbao user if it exists
+    if getent passwd openbao >/dev/null; then
+        deluser --quiet openbao
+    fi
+
+    # Remove openbao group if it exists
+    if getent group openbao >/dev/null; then
+        delgroup --quiet openbao
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

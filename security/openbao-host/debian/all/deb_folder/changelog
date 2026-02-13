@@ -1,0 +1,5 @@
+openbao-host (2.4-4) unstable; urgency=medium
+
+  * Initial release.
+
+ -- Tae Park <tae.park@windriver.com>  Wed, 24 Dec 2025 04:24:26 -0400
