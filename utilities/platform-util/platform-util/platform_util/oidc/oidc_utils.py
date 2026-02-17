@@ -6,6 +6,7 @@
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 
@@ -229,7 +230,7 @@ def get_apiserver_oidc_args():
     """
     cmd = ['kubectl', '--kubeconfig', '/etc/kubernetes/admin.conf',
            'get', 'configmap', 'kubeadm-config',
-           '-n', 'kube-system', '-o', 'yaml'
+           '-n', 'kube-system', '-o', 'jsonpath={.data.ClusterConfiguration}'
            ]
 
     oidc_param_keys = ['oidc-issuer-url', 'oidc-client-id',
@@ -237,12 +238,48 @@ def get_apiserver_oidc_args():
     oidc_parameters = {}
 
     kubeadm_config_output = subprocess.run(cmd, capture_output=True)
-    kubeadm_config = yaml.safe_load(kubeadm_config_output.stdout)
 
     try:
-        kubeadm_config = yaml.safe_load(
-            kubeadm_config['data']['ClusterConfiguration']
-        )
+        yaml_content = kubeadm_config_output.stdout.decode('utf-8')
+
+        def quote_ipv6(match):
+            full_match = match.group(0)
+
+            # Skip if this is part of a URL - check if :// appears before [
+            match_start = match.start()
+            check_start = max(0, match_start - 10)
+            before_match = yaml_content[check_start:match_start]
+            if '://' in before_match:
+                return full_match
+
+            content = match.group(1)
+            items = []
+            current = ''
+            in_quotes = None
+            for char in content:
+                if char in ('"', "'") and (not in_quotes or in_quotes == char):
+                    in_quotes = None if in_quotes else char
+                    current += char
+                elif char == ',' and not in_quotes:
+                    if current.strip():
+                        items.append(current.strip())
+                    current = ''
+                else:
+                    current += char
+            if current.strip():
+                items.append(current.strip())
+
+            quoted = []
+            for item in items:
+                if ':' in item and not item.startswith('"') and not item.startswith("'"):
+                    quoted.append(f'"{item}"')
+                else:
+                    quoted.append(item)
+            return '[' + ', '.join(quoted) + ']'
+
+        # Find and modify all arrays containing colons
+        yaml_content = re.sub(r'\[([^\]]*:[^\]]*)\]', quote_ipv6, yaml_content)
+        kubeadm_config = yaml.safe_load(yaml_content)
         for extraArg in kubeadm_config['apiServer']['extraArgs']:
             if extraArg['name'] in oidc_param_keys:
                 oidc_parameters[extraArg['name']] = extraArg['value']
