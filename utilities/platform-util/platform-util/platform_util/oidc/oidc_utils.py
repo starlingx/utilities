@@ -350,7 +350,7 @@ def get_keystone_roles_for_oidc_token(token, username_claim, group_claim,
             # groups start with a %
             if (user_or_group[0] == '%' and groups is not None and
                user_or_group[1:] in groups):
-                roles.extend(current_rolebinding_roles)
+                roles.append(current_rolebinding_roles[-1])
             if user_or_group == username:
-                roles.extend(current_rolebinding_roles)
+                roles.append(current_rolebinding_roles[-1])
     return list(set([s.strip() for s in roles]))
