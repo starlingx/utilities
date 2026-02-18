@@ -1,0 +1,289 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   SM Service Shutdown Pair Model
+# Purpose: Measure duration of each SM service disable operation
+#          during shutdown using pair blocks (start/stop patterns)
+#          to time individual service disable actions in sm.log.
+#
+########################################################################
+#
+# Block Fields (trigger pattern block):
+#   label    - (required) block identifier
+#   file     - (required) log file glob pattern(s)
+#   patterns - list of sequential patterns to match
+#
+# Block Fields (pair blocks):
+#   label    - (required) block identifier
+#   file     - (required) log file glob pattern(s)
+#   start    - start pattern (regex) for duration measurement
+#   stop     - stop pattern (regex) for duration measurement
+#   optional - skip with warning if not found (default: false)
+#   present  - include if start pattern is present
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - r"regex \d+"             - regex match
+#
+########################################################################
+
+# Settings for pair mode
+settings:
+  optional: true
+  block_time_tolerance: 15  # time tolerance for out-of-order log entries
+
+blocks:
+  - label: "SH Service Shutdown Trigger"
+    file: ["sm.log*"]
+    patterns:
+      - ".*Node enable: blocked. node unhealthy file /var/run/.sm_node_unhealthy found"
+
+  - label: "cert-alarm"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(cert-alarm\)'
+    stop: 'Action \(disable\) completed.*for service \(cert-alarm\)'
+
+  - label: "device-image-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(device-image-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(device-image-fs\)'
+
+  - label: "cert-mon"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(cert-mon\)'
+    stop: 'Action \(disable\) completed.*for service \(cert-mon\)'
+
+  - label: "helmrepository-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(helmrepository-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(helmrepository-fs\)'
+
+  - label: "docker-distribution"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(docker-distribution\)'
+    stop: 'Action \(disable\) completed.*for service \(docker-distribution\)'
+
+  - label: "dcagent-api"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(dcagent-api\)'
+    stop: 'Action \(disable\) completed.*for service \(dcagent-api\)'
+
+  - label: "dcdbsync-api"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(dcdbsync-api\)'
+    stop: 'Action \(disable\) completed.*for service \(dcdbsync-api\)'
+
+    # not in IPV6
+  - label: "cluster-host-ipv4"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(cluster-host-ipv4\)'
+    stop: 'Action \(disable\) completed.*for service \(cluster-host-ipv4\)'
+
+    # not in IPV4 labs
+  - label: "cluster-host-ipv6"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(cluster-host-ipv6\)'
+    stop: 'Action \(disable\) completed.*for service \(cluster-host-ipv6\)'
+
+  - label: "barbican-keystone-listener"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(barbican-keystone-listener\)'
+    stop: 'Action \(disable\) completed.*for service \(barbican-keystone-listener\)'
+
+  - label: "etcd"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(etcd\)'
+    stop: 'Action \(disable\) completed.*for service \(etcd\)'
+
+  - label: "extension-export-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(extension-export-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(extension-export-fs\)'
+
+  - label: "pxeboot-ipv4"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(pxeboot-ipv4\)'
+    stop: 'Action \(disable\) completed.*for service \(pxeboot-ipv4\)'
+
+  - label: "haproxy"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(haproxy\)'
+    stop: 'Action \(disable\) completed.*for service \(haproxy\)'
+
+  - label: "vim-api"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(vim-api\)'
+    stop: 'Action \(disable\) completed.*for service \(vim-api\)'
+
+  - label: "ceph-manager"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(ceph-manager\)'
+    stop: 'Action \(disable\) completed.*for service \(ceph-manager\)'
+
+  - label: "patch-alarm-manager"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(patch-alarm-manager\)'
+    stop: 'Action \(disable\) completed.*for service \(patch-alarm-manager\)'
+
+  - label: "lighttpd"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(lighttpd\)'
+    stop: 'Action \(disable\) completed.*for service \(lighttpd\)'
+
+  - label: "hw-mon"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(hw-mon\)'
+    stop: 'Action \(disable\) completed.*for service \(hw-mon\)'
+
+  - label: "platform-export-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(platform-export-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(platform-export-fs\)'
+
+  - label: "registry-token-server"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(registry-token-server\)'
+    stop: 'Action \(disable\) completed.*for service \(registry-token-server\)'
+
+  - label: "dockerdistribution-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(dockerdistribution-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(dockerdistribution-fs\)'
+
+  - label: "etcd-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(etcd-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(etcd-fs\)'
+
+  - label: "extension-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(extension-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(extension-fs\)'
+
+  - label: "vim"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(vim\)'
+    stop: 'Action \(disable\) completed.*for service \(vim\)'
+
+  - label: "keystone"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(keystone\)'
+    stop: 'Action \(disable\) completed.*for service \(keystone\)'
+
+  - label: "barbican-worker"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(barbican-worker\)'
+    stop: 'Action \(disable\) completed.*for service \(barbican-worker\)'
+
+  - label: "mtc-agent"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(mtc-agent\)'
+    stop: 'Action \(disable\) completed.*for service \(mtc-agent\)'
+
+  - label: "drbd-dockerdistribution"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(drbd-dockerdistribution\)'
+    stop: 'Action \(disable\) completed.*for service \(drbd-dockerdistribution\)'
+
+  - label: "barbican-api"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(barbican-api\)'
+    stop: 'Action \(disable\) completed.*for service \(barbican-api\)'
+
+  - label: "drbd-etcd"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(drbd-etcd\)'
+    stop: 'Action \(disable\) completed.*for service \(drbd-etcd\)'
+
+  - label: "drbd-extension"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(drbd-extension\)'
+    stop: 'Action \(disable\) completed.*for service \(drbd-extension\)'
+
+  - label: "fm-mgr"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(fm-mgr\)'
+    stop: 'Action \(disable\) completed.*for service \(fm-mgr\)'
+
+  - label: "sysinv-inv"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(sysinv-inv\)'
+    stop: 'Action \(disable\) completed.*for service \(sysinv-inv\)'
+
+  - label: "rabbit"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(rabbit\)'
+    stop: 'Action \(disable\) completed.*for service \(rabbit\)'
+
+  - label: "dnsmasq"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(dnsmasq\)'
+    stop: 'Action \(disable\) completed.*for service \(dnsmasq\)'
+
+  - label: "sysinv-conductor"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(sysinv-conductor\)'
+    stop: 'Action \(disable\) completed.*for service \(sysinv-conductor\)'
+
+  - label: "mgr-restful-plugin"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(mgr-restful-plugin\)'
+    stop: 'Action \(disable\) completed.*for service \(mgr-restful-plugin\)'
+
+  - label: "platform-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(platform-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(platform-fs\)'
+
+  - label: "postgres"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(postgres\)'
+    stop: 'Action \(disable\) completed.*for service \(postgres\)'
+
+  - label: "pg-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(pg-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(pg-fs\)'
+
+  - label: "drbd-platform"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(drbd-platform\)'
+    stop: 'Action \(disable\) completed.*for service \(drbd-platform\)'
+
+  - label: "drbd-pg"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(drbd-pg\)'
+    stop: 'Action \(disable\) completed.*for service \(drbd-pg\)'
+
+  - label: "rabbit-fs"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(rabbit-fs\)'
+    stop: 'Action \(disable\) completed.*for service \(rabbit-fs\)'
+
+  - label: "management-ipv4"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(management-ipv4\)'
+    stop: 'Action \(disable\) completed.*for service \(management-ipv4\)'
+
+  - label: "management-ipv6"
+    file: ["sm.log*"]
+    present: true
+    start: 'Started disable action.*for service \(management-ipv6\)'
+    stop: 'Action \(disable\) completed.*for service \(management-ipv6\)'
+
+  - label: "drbd-rabbit"
+    file: ["sm.log*"]
+    start: 'Started disable action.*for service \(drbd-rabbit\)'
+    stop: 'Action \(disable\) completed.*for service \(drbd-rabbit\)'

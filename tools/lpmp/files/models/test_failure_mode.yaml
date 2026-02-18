@@ -1,0 +1,42 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Heartbeat Loss Failure Mode
+# Purpose: Profile heartbeat loss sequence from initial miss through
+#          loss declaration and cluster deletion.
+#
+# Variable Substitution:
+#   {host}  - replaced by --var host=<hostname> value
+#
+########################################################################
+
+blocks:
+  - label: "hbsAgent Loss Event"
+    file: ["hbsAgent.log*"]
+    max_time_delta: 300  # 5 minutes timeout
+    patterns:
+    - "{host} .* heartbeat miss 2"
+    - "{host} .* heartbeat miss 6"
+    - "{host} .* Heartbeat Loss"
+    - "{host} deleted from cluster"
+
+  - label: "mtcAgent Loss Event"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 300  # 5 minutes timeout
+    patterns:
+      - "Heartbeat Loss"
+
+  - label: "Heartbeat Loss Events"
+    file: ["mtcAgent.log*"]
+    present: true
+    max_time_delta: 300  # 5 minutes timeout
+    patterns:
+    - "{host} Mgmnt network heartbeat failure"
+    - "{host} Graceful Recovery"
+    - "{host} Loss Of Communication"
+    - "{host} Graceful Recovery Wait"

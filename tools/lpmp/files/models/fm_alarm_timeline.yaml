@@ -1,0 +1,35 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   FM Alarm Timeline
+# Purpose: Track alarm assert, delete, and suppression events from
+#          the Fault Management log.
+#
+# Variable Substitution:
+#   {alarm}  - replaced by --var alarm=<alarm_id> value
+#
+########################################################################
+
+blocks:
+  - label: "Assert {alarm}"
+    file: "fm-manager.log*"
+    controller: true
+    timeline:
+    - "Raising Alarm/Log, \\({alarm}\\)"
+
+  - label: "       {alarm} Delete"
+    file: "fm-manager.log*"
+    controller: true
+    timeline:
+    - "Deleted alarm: \\({alarm}\\)"
+
+  - label: "suppression"
+    file: "fm-manager.log*"
+    controller: true
+    timeline:
+    - "supp"

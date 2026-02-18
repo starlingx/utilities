@@ -1,0 +1,66 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Survivor Pattern Model
+# Purpose: Profile SM survivor/failover sequence from heartbeat loss
+#          through declared dead, fail pending, survived state,
+#          failure handling, and recovery.
+#
+########################################################################
+#
+# Block Fields:
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   patterns       - list of sequential patterns to match
+#   optional       - skip with warning if not found (default: false)
+#   present        - capture if found, silently skip if not (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#
+########################################################################
+
+blocks:
+  - label: "Heartbeat Period"
+    file: ["user.log*"]
+    patterns:
+      - "heartbeat_period"
+
+  - label: "Declared Dead"
+    file: ["sm.log*"]
+    max_time_delta: 300
+    patterns:
+      - "declared dead"
+
+  - label: "Fail Pending Timeout"
+    file: ["sm.log*"]
+    patterns:
+      - "Fail Pending Timeout"
+
+  - label: "Survived State"
+    file: ["sm.log*"]
+    optional: true
+    patterns:
+      - "Entering survived state"
+
+  - label: "Failure Handling"
+    file: ["sm.log*"]
+    present: true
+    patterns:
+      - "Uncontrolled swact starts. Host from active to failed"
+      - "Entering Failover Failed state"
+      - "Failover Failed state recovery"
+      - "Successfully read pending timeout"
+
+  - label: "Exiting Survivor"
+    file: ["sm.log*"]
+    max_time_delta: 1200  # wait for the node to recover
+    present: true
+    patterns:
+      - "Exiting survived state"
+
+settings:
+  controller: true

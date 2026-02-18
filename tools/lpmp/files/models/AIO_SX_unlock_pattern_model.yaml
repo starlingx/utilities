@@ -1,0 +1,214 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   AIO SX Unlock Pattern Model
+# Purpose: Profile 'AIO SX Unlock' timing from unlock action through
+#          reboot, service restart, and pod recovery.
+#
+########################################################################
+#
+# Variable Substitution:
+#   {hostname}  - replaced by --hostname value (default: controller-0)
+#   {varname}   - replaced by --var varname=value
+#
+# Block Fields:
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   patterns       - list of sequential patterns to match
+#   optional       - skip with warning if not found (default: false)
+#   present        - capture if found, silently skip if not (default: false)
+#   profile        - generate per-block profile file (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - ["a", "b"]               - OR match (first found wins)
+#   - r"regex \d+"             - regex match
+#
+########################################################################
+
+blocks:
+
+  - label: "Unlock Action Staged"
+    file: "sysinv.log*"
+    patterns:
+      - "{hostname} Action staged: unlock"
+
+  - label: "mtcAgent Unlock Action"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{hostname} Unlock Action"
+
+  - label: "Pod Drain Start"
+    file: "mtcAgent.log*"
+    optional: True
+    patterns:
+    - "force pod drain script launched"
+
+  - label: "Pod Drain Complete"
+    file: "mtcAgent.log*"
+    optional: True
+    profile: true
+    max_time_delta: 200
+    patterns:
+    - [ "pods drained", "pod drain timeout"]
+
+  - label: "SM Service Shutdown"
+    file: "sm.log*"
+    optional: true
+    patterns:
+    - "node unhealthy file /var/run/.sm_node_unhealthy found"
+
+  - label: "Lazy Reboot Start"
+    file: "mtcClient.log*"
+    patterns:
+    - "lazy reboot command received"
+
+#  - label: "mtcAgent Shutdown"
+#    file: "mtcAgent.log*"
+#    optional: true
+#    patterns:
+#      - ["Received SIGTERM", "Received SIGINT"]  # OR patterns - matches either
+
+  - label: "Lazy Reboot Now"
+    file: "mtcClient.log*"
+    optional: true
+    patterns:
+    - "failsafe reboot script launched"
+
+  - label: "Stopped Graphical"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      - "Stopped target Graphical Interface"
+
+  - label: "Stopped Kubelet Server"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      - "Stopped Kubernetes Kubelet Server"
+
+  - label: "containerd Stop Started"
+    file: "daemon.log*"
+    patterns:
+      - "Stopping containerd container"
+
+  - label: "mtcClient Shutdown"
+    file: "mtcClient.log*"
+    present: true
+    patterns:
+      - ["Received SIGTERM", "Received SIGINT"]  # OR patterns - matches either
+
+  - label: "mtcClient Stopped"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      - "Stopped StarlingX Maintenance Command Handler Client"
+
+  - label: "Stopped Containers Completed"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      - "Stopping all containers completed"
+
+  - label: "Stop Pods Completed"
+    file: "daemon.log*"
+    patterns:
+      - "Stopping all pods completed"
+
+  - label: "SM Shutdown Complete"
+    file: "sm.log*"
+    patterns:
+      - "sm: debug Shutdown complete"
+
+  - label: "Sysinv Agent Stopped"
+    file: "daemon.log*"
+    optional: true
+    max_time_delta: 60.0
+    patterns:
+      - "Stopped StarlingX System Inventory Agent"
+
+  - label: "Last Daemon Log"
+    file: "daemon.log*"
+    present: true
+    patterns:
+      - "Stopped target Network is Online"
+
+  - label: "Blackout"
+    file: "kern.log*"
+    max_time_delta: 600
+    profile: true
+    patterns:
+      - "Kernel command line:"
+
+  - label: "Systemd Startup"
+    file: "daemon.log*"
+    present: true
+    patterns:
+      - "Starting Create System Users"
+
+  - label: "mtcClient Start-Up"
+    file: "mtcClient.log*"
+    max_time_delta: 200
+    patterns:
+      - "Daemon Start-Up"
+
+  - label: "K8s CPU Plugin Start"
+    file: "daemon.log*"
+    max_time_delta: 200
+    patterns:
+      - "Started Kubernetes Isolated CPU Plugin Daemon"
+
+  - label: "mtcAgent Start-Up"
+    file: "mtcAgent.log*"
+    patterns:
+      - "Daemon Start-Up"
+
+  - label: "Network Online"
+    file: "daemon.log*"
+    present: true
+    max_time_delta: 60.0
+    patterns:
+      - "Reached target Network is Online"
+
+  - label: "Host Manufacturer"
+    file: "mtcAgent.log*"
+    present: true
+    patterns:
+      - "{hostname} manufacturer is"
+
+  - label: "Host Enable State"
+    file: "mtcAgent.log*"
+    patterns:
+      - ["{hostname} is DEGRADED", "{hostname} is ENABLED", "{hostname} is UNHEALTHY", "{hostname} is FAILED"]
+
+  - label: "Unlock KPI"
+    file: "mtcAgent.log*"
+    optional: true   # to handle unlock failure cases where there is no KPI
+    patterns:
+      - "{hostname} kpi:action: unlock start"
+
+  - label: "VIM Host State"
+    file: "nfv-vim.log*"
+    optional: true
+    patterns:
+      - ["nfvi_host_name={hostname}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=enabled, nfvi_host_avail_status=available",
+        "nfvi_host_name={hostname}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=enabled, nfvi_host_avail_status=degraded",
+        "nfvi_host_name={hostname}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=disabled, nfvi_host_avail_status=failed"]
+
+  - label: "K8s Pod Recovery Done"
+    file: "daemon.log*"
+    profile: true
+    max_time_delta: 300   # Pod recovery can be long
+    patterns:
+      - "k8s-pod-recovery.service: Succeeded"
+
+# Optional global settings
+settings:
+  max_log_length: 180
+  max_time_delta: 1000

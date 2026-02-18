@@ -19,6 +19,9 @@ k8s-coredump
 #logmgmt
 logmgmt
 
+# lpmp
+lpmp
+
 #namespace-utils
 namespace-utils
 

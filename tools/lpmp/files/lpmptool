@@ -1,0 +1,3398 @@
+#!/usr/bin/env python3
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+
+# Add the package directory to Python path
+import argparse
+import copy
+import csv
+from datetime import datetime
+from datetime import timedelta
+import os
+import sys
+import time
+
+# Optional psutil import for memory monitoring
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
+# Don't produce a __pycache__ dir
+sys.dont_write_bytecode = True  # _noqa: E402
+# cspell:ignore lpmp,lpmptool,sysinv
+
+# Allow the tool to find its support files
+sys.path.insert(0, '/usr/lib/python3/dist-packages/lpmp')
+
+from lpmp_engine import apply_variable_substitution          # noqa: E402
+from lpmp_engine import process_blocks_auto_detect           # noqa: E402
+from lpmp_output import create_pair_system_summary           # noqa: E402
+from lpmp_output import create_pattern_system_summary        # noqa: E402
+from lpmp_output import merge_timeline_profiles              # noqa: E402
+from lpmp_output import write_context_files                  # noqa: E402
+from lpmp_output import write_pair_block_profile             # noqa: E402
+from lpmp_output import write_pair_csv                       # noqa: E402
+from lpmp_output import write_pair_summary                   # noqa: E402
+from lpmp_output import write_pattern_block_profile          # noqa: E402
+from lpmp_output import write_pattern_csv                    # noqa: E402
+from lpmp_output import write_pattern_summary                # noqa: E402
+from lpmp_output import write_timeline_block_profile         # noqa: E402
+from lpmp_output import write_timeline_csv                   # noqa: E402
+from lpmp_utils import apply_settings_variable_substitution  # noqa: E402
+from lpmp_utils import auto_detect_time_range                # noqa: E402
+from lpmp_utils import ConsoleCapture                        # noqa: E402
+from lpmp_utils import create_output_directory               # noqa: E402
+from lpmp_utils import detect_bundle_hosts                   # noqa: E402
+from lpmp_utils import discover_window_files                 # noqa: E402
+from lpmp_utils import expand_wildcards_in_blocks            # noqa: E402
+from lpmp_utils import extract_model_info                    # noqa: E402
+from lpmp_utils import filter_hosts                          # noqa: E402
+from lpmp_utils import find_model_file                       # noqa: E402
+from lpmp_utils import find_no_timestamp_files               # noqa: E402
+from lpmp_utils import format_duration                       # noqa: E402
+from lpmp_utils import get_help_section                      # noqa: E402
+from lpmp_utils import get_models_search_paths               # noqa: E402
+from lpmp_utils import get_verbose_level                     # noqa: E402
+from lpmp_utils import interactive_host_selection            # noqa: E402
+from lpmp_utils import load_file_ignore_list                 # noqa: E402
+from lpmp_utils import load_model                            # noqa: E402
+from lpmp_utils import manage_peer_controller                # noqa: E402
+from lpmp_utils import ModelType                             # noqa: E402
+from lpmp_utils import print_output_files                    # noqa: E402
+from lpmp_utils import print_window_summary                  # noqa: E402
+from lpmp_utils import ProgressType                          # noqa: E402
+from lpmp_utils import set_verbose_level                     # noqa: E402
+from lpmp_utils import start_progress_indicator              # noqa: E402
+from lpmp_utils import stop_progress_indicator               # noqa: E402
+from lpmp_utils import validate_model_file                   # noqa: E402
+from lpmp_utils import verify_timeline_bounds                # noqa: E402
+from lpmp_utils import vlog1                                 # noqa: E402
+from lpmp_utils import vlog2                                 # noqa: E402
+
+
+"""
+Log Pattern Matching Profiler (LPMP)
+
+A log search and analysis tool that searches log files for specific patterns and
+analyzes time difference between pattern matches to produce timing profiles.
+
+Designed for KPI performance analysis, timing validation, and system
+operation profiling across multiple domains' log files.
+
+========================================================================
+COMMON USE CASES
+========================================================================
+
+Use this tool when you need to:
+• Search for and profile failure modes
+• Profile the timing of the steps involved in system boot, upgrade or other
+• Profile service startup sequences to identify performance bottlenecks
+• Validate timing requirements (e.g., service must start within 30 seconds)
+• Correlate events across multiple log files in chronological order
+• Measure duration of operations with start/stop pattern pairs
+• Analyze system startup or shutdown sequences and timing
+• Track time between specific events across all nodes in a collect bundle
+
+QUICK START EXAMPLE:
+
+    # Create a simple model file (boot_timing.yaml):
+    blocks:
+      - label: "Kernel Boot"
+        file: "kern.log*"
+        patterns:
+          - "Kernel command line:"
+
+      - label: "Network Ready"
+        file: "daemon.log*"
+        patterns:
+          - "network interface up"
+
+
+    Run the analysis: lpmptool
+    - defaults to model.yaml
+    - default output dir is ./lpmp_lab
+    - default search path is /var/log
+
+    Control the tool:  lpmptool -l /var/log -m boot_timing.yaml -o ./boot_results
+
+========================================================================
+
+# HELP_SECTION: ARCHITECTURE
+ARCHITECTURE:
+
+LPMP (lpmptool) is a log analysis tool that processes user-defined YAML
+models to extract timing information from log files. Th tool searches log
+files for the user defined patterns and analyzes time difference between
+pattern matches to produce timing profiles.
+
+Designed for KPI performance analysis, timing validation, and system
+operation profiling across multiple domains' log files.
+
+The tool operates through a pipeline architecture that
+transforms patterns into host and system level timing profiles.
+
+PROCESSING PIPELINE:
+1. Model Loading     : Parse YAML model files with pattern definitions
+2. Variable Expansion: Substitute {hostname} and custom variables in patterns
+3. File Discovery    : Expand wildcards and locate log files
+4. Pattern Matching  : Search logs using regex and literal string matching
+5. Timestamp Parsing : Extract timestamps in multiple formats (sysinv, ISO)
+6. Timing Analysis   : Calculate deltas and maintain chronological ordering
+7. Output Generation : Produce tab-separated and CSV format results
+
+CORE COMPONENTS:
+• Command Line Interface : Argument parsing and configuration management
+• YAML Model Loader      : Pattern definitions and settings validation
+• Variable Substitution  : Dynamic pattern customization with {hostname}, {custom_var}
+• Pattern Matching Engine: Regex and literal string matching with OR pattern support
+• Timestamp Parser       : Multi-format timestamp extraction and validation
+• File Position Tracker  : Chronological ordering maintenance across files
+• Timing Analysis Engine : Delta calculation, tolerance handling, reordering logic
+• Output Generator       : Dual format results (human-readable and CSV)
+
+MODEL DESIGN PHILOSOPHY:
+The YAML model system uses "blocks" as the fundamental unit of analysis. Each block
+represents a specific event or operation to be timed, with automatic type detection
+based on field presence. This design enables flexible modeling approaches from simple
+event detection to complex multi-host collect bundle analysis.
+
+PROCESSING MODES:
+LPMP supports three distinct block types, each optimized for different analysis needs:
+
+1. Pattern Blocks (Sequential Event Timing)
+   - Use 'patterns:' field for sequential event timing
+   - Patterns must be found in chronological order
+   - Ideal for: Boot sequences, initialization chains, shutdown procedures
+   - Performance: Stacking multiple patterns in a single block significantly improves
+     performance by reducing file I/O overhead. Real-world testing shows 42% runtime
+     reduction (31s → 18s for 5 loops) when consolidating 5 single-pattern blocks
+     into one multi-pattern block. This optimization is most effective when patterns
+     are found in the same log file and occur in chronological sequence.
+
+2. Pair Blocks (Duration Measurement)
+   - Use 'start:'/'stop:' fields for duration measurement
+   - Measures precise time between start and stop events
+   - Ideal for: Service startup timing, operation duration, performance analysis
+
+3. Timeline Blocks (Event Collection)
+   - Use 'timeline:' field for chronological event collection
+   - Collects all matches regardless of order, sorts chronologically
+   - Ideal for: Event correlation, maintenance timelines, multi-node bundle analysis
+
+FILE HANDLING SYSTEM:
+• Multi-file Support     : Search across multiple log files with fallback ordering
+• Compression Support    : Transparent handling of .gz compressed files
+• Wildcard Expansion     : Automatic pattern expansion (*.log, daemon.log*)
+• Date-proximity Sorting : Files sorted by relevance to start_date
+• Position Tracking      : Maintains chronological ordering within and across files
+• Cross-platform Paths   : Works on Unix/Linux/macOS systems
+
+MODEL FILE SEARCH PATH:
+Model files are searched in priority order for maximum flexibility:
+1. <tool_directory>/models/ - Highest priority (tool-relative)
+2. ./models/ - Local development models
+3. /etc/lpmp.d/ - User/developer models (writable in OSTree)
+4. /var/lib/lpmp_models/ - System-provided models (read-only)
+5. Explicit paths - Absolute or relative paths with separators
+
+Note: The 'include' directive follows the same search path for modular model design.
+# END_HELP_SECTION: ARCHITECTURE
+
+# HELP_SECTION: MAIN_LOOP
+MAIN LOOP DOCUMENTATION:
+
+Main execution function that orchestrates the log pattern matching and timing analysis.
+
+The Main Loop:
+
+INITIALIZATION PHASE:
+• Parse command line arguments and validate mutually exclusive options
+• Load YAML model configuration using prioritized search paths
+• Detect bundle hosts (multi-host) or prepare system logs (single-host)
+• Build variable substitution dictionary from --var options and hostname
+
+VALIDATION PHASE:
+• Validate logs directory existence and accessibility
+• Parse and validate start_date and stop_date with format checking
+• Apply variable substitution to patterns (hostname and custom variables)
+• Expand wildcard file patterns based on start_date proximity
+
+PROCESSING PHASE:
+• Process blocks using auto-detection (pattern/pair/timeline types)
+• Support loop iterations for multi-pass analysis
+• Maintain chronological ordering with time tolerance reordering
+• Calculate timing metrics (cumulative and delta times) with baseline
+• Handle progress indicators for timeline models during processing
+
+OUTPUT PHASE:
+• Generate output files (profile.timing, profile.timing.csv, per-block profiles)
+• Create output directory structure with timestamp and model organization
+• Write summary statistics and optional block warnings to summary.timing
+• Create merged system profile for multi-host bundles (controllers only)
+• Print completion status and output file locations
+
+OUTPUT FILES:
+- <lab>_profile.timing / .timeline: Main results (tab-separated)
+- <lab>_profile.timing.csv / .timeline.csv: CSV format results
+- <block_label>.timing: Per-block profiles (when profile: true)
+- summary.timing: Per-block statistics (non-timeline models)
+- <lab>_system_profile.timing: Merged multi-host timeline (bundle mode)
+# END_HELP_SECTION: MAIN_LOOP
+
+# HELP_SECTION: PROCESSING_AND_ANALYSIS
+PROCESSING AND ANALYSIS:
+
+LPMP provides comprehensive processing modes and analysis capabilities for different
+log analysis scenarios, from single-host on-system analysis to multi-host collect
+bundle correlation. On-system analysis is limited to the local host only; the tool
+does not SSH to remote hosts.
+
+PROCESSING MODES:
+- Pattern Blocks: Sequential event timing with optional max_time_delta constraints
+- Pair Blocks: Start/stop duration measurement with max_time_delta validation
+- Timeline Blocks: Chronological event collection across all matches
+- Mixed Models: Pattern and pair blocks freely interleaved for combined event timing
+
+TIMING ANALYSIS:
+- First match establishes baseline time (cumulative=0, delta=0)
+- Subsequent matches calculate:
+  * Cumulative time: seconds elapsed since first match
+  * Delta time: seconds elapsed since previous match
+- Time tolerance reordering handles out-of-order adjacent blocks
+- Block-level and pair-level tolerance settings for flexible matching
+- Chronological ordering maintained across files and hosts
+
+LOOP ITERATION TIME ADVANCEMENT:
+- When using multiple passes (loops > 1), the tool must advance the search start time
+  after each pass to avoid finding the same patterns repeatedly.
+- The tool advances by 500 milliseconds between iterations.
+- This can cause issues when:
+  - Log entries have timestamps with precision less than 500ms
+  - Multiple relevant events occur within the same 500ms window
+  - The tool may skip over valid patterns that fall within this advancement gap
+
+WORKAROUND:
+Use single-pass analysis (-n 1) when precise timing within 500ms windows is critical
+Ensure log timestamps have sufficient precision (millisecond level recommended)
+Design models with patterns that naturally progress beyond 500ms intervals
+
+FILE HANDLING:
+- Supports regular and gzipped (.gz) log files
+- Wildcard expansion with date-proximity sorting
+- Multi-file fallback search ordering
+- Cross-platform path handling (Unix/Linux/macOS)
+
+BUNDLE MODE (Multi-Host Analysis):
+- Detects hosts from <hostname>_YYYYMMDD.HHMMSS directory structure
+- Supports interactive (--hosts), include (--include), and exclude (--exclude) filtering
+- Processes each host independently with per-host output directories
+- Creates merged system profile from controller hosts only
+- Output structure: lpmp_<lab>/<timestamp>_<model>/<hostname>/
+- Automatic hostname variable substitution per host
+
+BUNDLE MODE HOSTNAME OVERRIDE FEATURE:
+- Block level 'override: <hostname>' for pattern search in override host logs dir
+- Allows cross-host pattern matching within bundle mode
+- Variables substituted using override hostname instead of current processing host
+- Enables correlation analysis across multiple hosts in single model
+- Example: Process controller-0 logs while also analyzing controller-1
+           patterns in the same timeline. Profile Swact soak.
+# END_HELP_SECTION: PROCESSING_AND_ANALYSIS
+
+# HELP_SECTION: PATTERN_BLOCKS
+PATTERN BLOCKS (Sequential Event Timing):
+
+Pattern blocks search for patterns sequentially.
+Each pattern must be found AFTER the previous pattern in the same block.
+All patterns in a block must be found for the block to succeed.
+
+BASIC SYNTAX:
+blocks:
+  - label: "System Boot"                  # Required: Description for output
+    file: "kern.log"                      # Required: Log file(s) to search
+    patterns:                             # Required: Sequential patterns list
+      - "Kernel command line:"
+    profile: true                         # Optional: Write per-block profile file (default: false)
+    max_time_delta: 300                   # Optional: Max seconds between sequential patterns
+
+MULTIPLE SEQUENTIAL PATTERNS:
+blocks:
+  - label: "System Initialization"
+    file: "daemon.log*"
+    patterns:
+      - "Starting system initialization"   # Pattern 1 (must be found first)
+      - "Loading kernel modules"           # Pattern 2 (must be found after pattern 1)
+      - "System initialization complete"   # Pattern 3 (must be found after pattern 2)
+    max_time_delta: 60                    # Allow up to 1 minute between sequential patterns
+
+OR PATTERNS (Alternative Matches):
+blocks:
+  - label: "System Shutdown"
+    file: ["daemon.log.1.gz", "daemon.log"] # Multiple files, searched in order
+    optional: true                          # Skip if patterns not found
+    patterns:
+      - ["SIGTERM", "SIGINT"]               # OR patterns - first match wins
+      - "Shutdown complete"                 # Sequential pattern after OR match
+
+VARIABLE SUBSTITUTION AND REGEX:
+blocks:
+  - label: "Host State Change"
+    file: "mtcAgent.log*"                   # Wildcard file pattern
+    patterns:
+      - "{hostname} Unlock Action"          # Variable substitution
+      - r"{hostname} is (ENABLED|DEGRADED)" # Regex pattern with variable
+
+KEY FEATURES:
+• Sequential processing: Patterns must be found in order
+• OR patterns: Use ["option1", "option2"] for alternatives
+• Variable substitution: Use {hostname} and custom variables
+• Full regex support: Use r"pattern" for regular expressions
+• File position tracking: Maintains chronological ordering
+• Optional blocks: Set optional: true to skip if patterns not found
+• Profile files: Set profile: true for per-block timing files
+• Timing constraints: Use max_time_delta for sequential pattern timing
+# END_HELP_SECTION: PATTERN_BLOCKS
+
+# HELP_SECTION: PAIR_BLOCKS
+PAIR BLOCKS (Duration Measurement):
+
+Pair blocks measure the time between start and stop patterns.
+They are designed for timing operations that have clear beginning and end events.
+
+BASIC SYNTAX:
+blocks:
+  - label: "Service Startup"             # Required: Description for output
+    file: "service.log*"                 # Required: Log file(s) to search
+    start: "Service starting"            # Required: Start pattern
+    stop: "Service ready"                # Required: Stop pattern
+    max_time_delta: 30                   # Optional: Block-specific max seconds between start->stop
+
+REGEX PATTERNS:
+blocks:
+  - label: "Service Disable"
+    file: "sm.log*"                      # Wildcard file patterns supported
+    optional: true                       # Override required default
+    start: r'Started.*for service \\(my-service\\)'                         # Regex start
+    stop: r'Action \\(disable\\) completed.*for service \\(my-service\\)'  # Regex stop
+    max_time_delta: 45                   # Custom timeout for this block
+
+OUTPUT FORMAT:
+Pair blocks generate detailed timing information:
+  Delta(HH:MM:SS)  Hostname      Block Label       Log File  Data
+  ---------------  ------------  ----------------  --------  --------
+  00:00:01.5       controller-0  cert-alarm        sm.log    2026-02-18T11:59:18.570: Start -> Stop: 2026-02-18T11:59:20.105:   1.5s  # noqa E501
+  00:00:01.3       controller-0  device-image-fs   sm.log    2026-02-18T11:59:20.105: Start -> Stop: 2026-02-18T11:59:21.417:   1.3s  # noqa E501
+
+TIMING CONSTRAINTS:
+• max_time_delta: Maximum seconds between start and stop patterns
+• Block-level setting overrides model-level setting
+• Prevents false matches from unrelated events
+• Default: 45 seconds (configurable)
+
+KEY FEATURES:
+• Duration measurement: Calculates precise timing between start/stop events
+• Timing validation: Enforces max_time_delta constraints
+• Chronological ordering: Start pattern must occur before stop pattern
+• Full regex support: Both start and stop patterns support regular expressions
+• Variable substitution: Use {hostname} and custom variables in patterns
+• Optional blocks: Set optional: true to skip if patterns not found
+• Profile files: Set profile: true for per-block timing files with statistics
+# END_HELP_SECTION: PAIR_BLOCKS
+
+# HELP_SECTION: TIMELINE_BLOCKS
+TIMELINE BLOCKS (Event Timeline):
+
+Timeline blocks collect ALL matches for ALL specified patterns and
+sort them chronologically.
+Unlike pattern blocks, timeline blocks search independently for each
+pattern with no order requirements.
+
+NAMED PATTERN REFERENCE:
+blocks:
+  - label: "Maintenance Timeline"         # Required: Description for output
+    file: "mtcAgent*"                     # Required: Log file(s) to search
+    timeline: "{maintenance}"             # Required: Named pattern reference
+
+# Named patterns defined in settings:
+settings:
+  timeline_patterns:
+    maintenance:
+      - "Host Add Completed"
+      - "*** Heartbeat Miss ***"
+      - "critical enable failure"
+    network:
+      - "Link Down"
+      - "Link Up"
+      - "Interface Error"
+
+DIRECT PATTERN LIST:
+blocks:
+  - label: "Direct Timeline"              # Timeline with direct patterns
+    file: "system.log"
+    timeline:                             # Direct list of patterns
+      - "System started"
+      - "Service ready"
+      - "System shutdown"
+    optional: true
+
+OUTPUT FORMAT:
+Timeline blocks generate chronologically ordered events:
+  Delta(HH:MM:SS)  Block Label       Log File      Data
+  ---------------  ---------------   ------------  --------
+  00:00:00.000     Maintenance       mtcAgent.log  <log line with matched pattern>
+  00:00:15.234     Maintenance       mtcAgent.log  <log line with different pattern>
+  00:00:17.333     Maintenance       mtcAgent.log  <log line chronologically ordered>
+
+KEY FEATURES:
+• Chronological collection: All matches collected and sorted by timestamp
+• No order requirements: Patterns can be found in any order
+• Named pattern sets: Reusable pattern definitions in settings
+• Direct pattern lists: Patterns can be defined directly in the block
+• Variable substitution: Full support for {hostname} and custom variables
+• Full regex support: All patterns support regular expressions
+• Multi-file support: Search across multiple log files with wildcards
+• No timing constraints: max_time_delta does not apply to timeline blocks
+• Profile files: Set profile: true for per-block timing files
+
+USE CASES:
+• Event correlation across multiple log sources
+• Maintenance event sequencing and analysis
+• Multi-controller event timeline generation
+• Chronological analysis of events across all nodes in a collect bundle
+# END_HELP_SECTION: TIMELINE_BLOCKS
+
+# HELP_SECTION: WINDOW_BLOCKS
+WINDOW BLOCKS (Time-Range Log Extraction):
+
+Window blocks collect ALL timestamped log lines from matching files
+within a time window. No pattern matching — pure time-range extraction.
+This is a timeline variant activated by setting window: true.
+
+BASIC SYNTAX:
+blocks:
+  - label: "All Logs"                    # Required: Description for output
+    file: "*.log*"                       # Required: Log file(s) to search
+    window: true                         # Required: Enables time-range extraction
+
+MULTIPLE FILE PATTERNS:
+blocks:
+  - label: "Mtce Logs"
+    file: ["mtcAgent.log*", "hbsAgent.log*", "pmond.log*"]
+    window: true
+
+  - label: "SM Logs"
+    file: "sm.log*"
+    window: true
+
+WITH TIME BOUNDS IN SETTINGS:
+settings:
+  start_date: "2026-01-06T19:00:00"     # Optional, overridden by -s
+  stop_date: "2026-01-06T20:00:00"      # Optional, overridden by -e
+
+blocks:
+  - label: "All Logs"
+    file: "*.log*"
+    window: true
+
+TIME BOUND PRECEDENCE:
+1. Command line -s / -e (highest)
+2. Model settings start_date / stop_date
+3. Auto-detected: 5 minutes before latest log timestamp
+
+FILE FILTERING:
+• Binary files skipped automatically (null bytes detected)
+• Known non-log files skipped (wtmp, btmp, lastlog, *.db, etc.)
+• Files with no parseable timestamps skipped
+• Files outside time window skipped
+• Files and directories in file_ignore_list_and_format_handling.yaml skipped
+• Subdirectories searched recursively for log files
+• Custom timestamp formats supported via file_ignore_list_and_format_handling.yaml
+
+PRE-SCAN SUMMARY:
+Before processing, shows time window and file classification:
+  Time window: 2026-01-06T19:00:00 .. 2026-01-06T20:00:00 (auto-detected)
+  Log files: 23 matched, 12 skipped
+    ✓ mtcAgent.log          2026-01-06T18:45:12 .. 2026-01-06T20:00:01
+    ✗ wtmp                  (binary/non-log)
+    ✗ kern.log.2.gz         (before time window)
+
+KEY FEATURES:
+• No pattern matching: Collects every timestamped line in the window
+• Recursive subdirectory discovery: Finds logs in nova/, sysinv/, ceph/, etc.
+• Auto time detection: Defaults to 5 minutes before latest log
+• Smart file filtering: Skips binary, non-log, ignored, and out-of-range files
+• File ignore list: Auto-loaded file_ignore_list_and_format_handling.yaml for directory pruning and file exclusion
+• Custom timestamp formats: Supports non-standard log formats via file_ignore_list_and_format_handling.yaml
+• Chronological sorting: All lines sorted by timestamp across all files and formats
+• Bundle mode: Per-host extraction with merged system view
+• Same output format as timeline models (.timeline.log)
+• Use --no-ts-files to discover files needing custom format entries
+# END_HELP_SECTION: WINDOW_BLOCKS
+
+# HELP_SECTION: MIXED_MODELS
+MIXED MODELS (Combining Block Types):
+
+Mixed models combine pattern blocks and pair blocks in any order.
+All blocks are processed sequentially — each searches after the previous
+block's timestamp. Timeline blocks cannot be mixed with any other block type.
+
+MIXED PATTERN AND PAIR BLOCKS:
+blocks:
+  - label: "Boot Trigger"                 # Pattern block
+    file: "kern.log"
+    patterns:
+      - "Kernel Command line:"
+
+  - label: "Service Timing"              # Pair block
+    file: "sm.log*"
+    start: "Service starting"
+    stop: "Service complete"
+    max_time_delta: 30
+
+  - label: "Network Ready"              # Pattern block
+    file: "daemon.log*"
+    patterns:
+      - "network interface up"
+
+  - label: "Network Timing"              # Pair block
+    file: "daemon.log*"
+    start: "network interface starting"
+    stop: "network interface up"
+
+TIMELINE MODELS:
+Note: Timeline blocks cannot be mixed with pattern or pair blocks.
+If any block has 'timeline', ALL blocks must have 'timeline'.
+
+blocks:
+  - label: "System Events"               # Timeline block
+    file: "system.log"
+    timeline: "{system_events}"
+
+  - label: "Network Events"              # Timeline block
+    file: "network.log"
+    timeline: "{network_events}"
+
+settings:
+  timeline_patterns:
+    system_events:
+      - "System started"
+      - "System ready"
+    network_events:
+      - "Link Up"
+      - "Link Down"
+
+OUTPUT FORMAT:
+Mixed models produce unified chronological output:
+  Delta(HH:MM:SS)  Block Label       Log File      Data
+  ---------------  ---------------   ------------  --------
+  00:00:00.000     Boot Trigger      kern.log      <kernel boot log line>
+  00:00:05.234     Service Timing    sm.log        10:15:20.100: Start -> Stop: 10:15:25.334: 5.234s
+  00:00:07.891     Network Ready     daemon.log    2024-01-06T10:15:27.991: network interface up
+  00:00:10.456     Network Timing    daemon.log    10:15:25.334: Start -> Stop: 10:15:30.456: 5.122s
+
+PROCESSING RULES:
+• Sequential processing: Blocks processed in order defined in model
+• Chronological output: Results sorted by actual log timestamps
+• Time tolerance reordering: Adjacent blocks reordered if within tolerance
+• Mixed constraints: Each block type uses its own timing rules
+
+REQUIREMENTS:
+• Pattern and pair blocks can be freely interleaved in any order
+• Timeline models: All blocks must be timeline blocks (no mixing with pattern/pair)
+
+KEY FEATURES:
+• Flexible ordering: Pattern and pair blocks in any combination
+• Unified timeline: Single chronological view across all block types
+• Type-specific processing: Each block uses appropriate timing rules
+• Automatic detection: Block type detected from field presence
+# END_HELP_SECTION: MIXED_MODELS
+
+# HELP_SECTION: FILE_SPECIFICATIONS
+FILE SPECIFICATIONS (Wildcards, Multiple Files, Compression):
+
+LPMP supports flexible file specifications including single files,
+multiple files, wildcards, and compressed files.
+
+SINGLE FILE:
+file: "single.log"                      # Single specific file
+
+MULTIPLE FILES (Search Order):
+file: ["file1.log", "file2.log"]        # Multiple files searched in order
+file: ["current.log", "service.log.1.gz", "syslog"] # Mixed regular/compressed with fallback
+
+WILDCARD PATTERNS:
+file: "daemon.log*"                     # Wildcard patterns - handles .gz automatically
+file: "mtcAgent.log*"                   # Expands to mtcAgent.log, mtcAgent.log.1.gz, etc.
+
+COMPRESSION SUPPORT:
+file: "service.log.1.gz"                # Direct compressed file specification
+file: ["current.log", "daemon.log.1.gz"] # Mixed regular and compressed files
+
+WILDCARD EXPANSION AND SORTING:
+Wildcard patterns are expanded and sorted by:
+• If start_date provided: Sort by closest modification time to start_date
+• Otherwise: Sort newest to oldest (current .log first, then .log.#.gz by number)
+
+EXAMPLES:
+# Single file - exact match required
+blocks:
+  - label: "Current Service Log"
+    file: "service.log"
+    patterns: ["Service started"]
+
+# Multiple files with fallback order
+blocks:
+  - label: "Service Events"
+    file: ["service.log", "service.log.1.gz", "syslog"]
+    patterns: ["Service event"]
+
+# Wildcard with automatic expansion
+blocks:
+  - label: "All Daemon Logs"
+    file: "daemon.log*"                 # Expands to all matching files
+    patterns: ["Daemon started"]
+
+# Mixed specifications
+blocks:
+  - label: "System Events"
+    file: ["system.log", "system.log*.gz"] # Current + all compressed
+    timeline: "{system_events}"
+
+FILE HANDLING FEATURES:
+• Automatic compression detection: .gz files handled transparently
+• Fallback search: Multiple files searched in specified order
+• Wildcard expansion: * patterns expanded to matching files
+• Date-proximity sorting: Files sorted by relevance to start_date
+• Position tracking: Chronological ordering maintained across files
+• Error handling: Missing files handled gracefully with warnings
+• Cross-platform paths: Works on Unix/Linux/macOS systems
+# END_HELP_SECTION: FILE_SPECIFICATIONS
+
+# HELP_SECTION: PATTERN_FORMATS
+PATTERN FORMATS (Literals, Regex, OR Patterns, Variables):
+
+LPMP supports multiple pattern formats for flexible log matching.
+
+LITERAL STRINGS:
+patterns:
+  - "Simple literal string"             # Exact string match
+  - "Service started successfully"       # Multi-word literal
+
+REGULAR EXPRESSIONS:
+patterns:
+  - r"Regex pattern \\d+"                # Regular expression with raw string
+  - r"Service \\w+ (started|stopped)"    # Regex with groups
+  - r"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}" # Timestamp pattern
+
+OR PATTERNS (Alternatives):
+patterns:
+  - ["Option A", "Option B"]            # OR patterns - first match wins
+  - ["SIGTERM", "SIGINT", "SIGKILL"]    # Multiple alternatives
+  - [r"Error \\d+", "Fatal error"]       # Mixed regex and literal in OR
+
+VARIABLE SUBSTITUTION:
+patterns:
+  - "{hostname} started"                # Variable substitution
+  - "{hostname} is {status}"            # Multiple variables
+  - r"{hostname} \\w+ (ENABLED|DISABLED)" # Variables with regex
+
+COMPLEX EXAMPLES:
+# Sequential patterns with mixed formats
+blocks:
+  - label: "Service Lifecycle"
+    file: "service.log"
+    patterns:
+      - r"Service \\w+ initializing"      # Regex pattern
+      - ["Ready", "Started", "Online"]    # OR pattern alternatives
+      - "{hostname} service active"       # Variable substitution
+
+# Pair block with regex patterns
+blocks:
+  - label: "Database Transaction"
+    file: "db.log"
+    start: r"BEGIN TRANSACTION \\d+"      # Regex start pattern
+    stop: r"COMMIT TRANSACTION \\d+"      # Regex stop pattern
+
+# Timeline with variable substitution
+blocks:
+  - label: "Host Events"
+    file: "system.log"
+    timeline:
+      - "{hostname} boot complete"
+      - "{hostname} shutdown initiated"
+      - r"{hostname} error: .*"
+
+VARIABLE TYPES:
+• Built-in variables:
+  - {hostname}: Default "controller-0", override with --hostname
+• Custom variables:
+  - Define with --var key=value
+  - Use as {key} in patterns
+  - Example: --var env=prod creates {env} variable
+
+PATTERN MATCHING RULES:
+• All patterns support full regular expressions
+• Variables substituted before pattern matching
+• OR patterns: First match wins, no further alternatives tried
+• Sequential patterns: Must be found in order (pattern blocks)
+• Case sensitive: All matching is case-sensitive
+• Regex errors: Fall back to literal string matching with warning
+
+BEST PRACTICES:
+• Use raw strings (r"") for regex patterns to avoid escaping issues
+• Test regex patterns with sample log data
+• Use OR patterns for alternative phrasings of the same event
+• Combine variables with regex for flexible hostname matching
+• Keep patterns specific enough to avoid false matches
+# END_HELP_SECTION: PATTERN_FORMATS
+
+# HELP_SECTION: GLOBAL_SETTINGS
+GLOBAL SETTINGS (Optional):
+settings:
+  start_date: "2024-01-06T20:00:00"        # Start analysis from timestamp
+  loops: 3                                 # Number of passes (0=until EOF)
+  max_log_length: 180                      # Truncate log lines in output
+  max_time_delta: {DEFAULT_MAX_TIME_DELTA} # Default max seconds for pair blocks
+  profile: true                            # Enable per-block profile files for all blocks (default: false)
+  graph: "Platform CPU"                    # Graph name for automatic graph generation (requires --var graph="name")
+  timeline_patterns:                       # Named timeline pattern sets
+    maintenance:
+      - "Host Add Completed"
+      - "*** Heartbeat Miss ***"
+      - "critical enable failure"
+    network:
+      - "Link Down"
+      - "Link Up"
+      - "Interface Error"
+  block_time_tolerance: 5.0                # Time tolerance for out-of-order log entries (model level only, default: 5.0s)
+  host: "worker-1"                         # Sets {host} variable for pattern substitution
+                                           # CLI --host or --var host= overrides this setting
+
+GRAPH FEATURE:
+The graph setting specifies the graph name for automatic generation of graph data files.
+When defined, the tool processes profile.timing files to create CSV and PNG graph outputs.
+
+Usage:
+  1. Add 'graph: "Graph Title"' to model settings
+  2. Run with --var graph="Graph Title" to enable graph generation
+  3. Graph files are automatically created in the same directory as profile results
+
+Example:
+  lpmptool -m collectd_overage_timeline.yaml --var graph="Platform CPU"
+
+Note: Currently only supported for collectd model profiles that produce properly formatted profile output
+# END_HELP_SECTION: GLOBAL_SETTINGS
+
+# HELP_SECTION: INCLUDE_SETTINGS
+INCLUDE SETTINGS FROM ANOTHER YAML (Optional):
+include: "wrcp_domains_patterns.yaml"     # Load settings from another YAML file
+
+Example:
+  include: "wrcp_domains_patterns.yaml"
+  blocks:
+    - label: "C0 Maintenance"
+      file: "/var/log/mtcAgent.log*"
+      timeline: "{maintenance}"
+
+INCLUDE LIMITATIONS:
+- include is only supported at the top level (not inside settings)
+- included files contribute only 'settings' (especially timeline_patterns)
+- blocks must be defined in the main model file
+- relative include paths are resolved relative to the model file
+- if the same timeline_patterns name exists in both, the model overrides the include
+- include can be a string or a list of strings
+# END_HELP_SECTION: INCLUDE_SETTINGS
+
+# HELP_SECTION: TIME_TOLERANCES
+MAX_TIME_DELTA CONFIGURATION:
+The max_time_delta setting controls timing constraints for pair blocks and pattern blocks.
+It specifies the maximum allowed time (in seconds) between related events.
+
+PRECEDENCE ORDER (highest to lowest):
+1. Command line --max-time-delta: Overrides model and default settings
+2. Block-level max_time_delta: Overrides model level setting for that specific block only
+3. Model settings max_time_delta: Overrides the default for all blocks in the model
+4. Default value: {DEFAULT_MAX_TIME_DELTA} seconds (hardcoded constant DEFAULT_MAX_TIME_DELTA)
+
+USAGE BY BLOCK TYPE:
+• Pair blocks: Maximum time between start and stop patterns
+• Pattern blocks: Maximum time between sequential patterns (when explicitly set)
+• Timeline blocks: Not applicable (timeline blocks collect all matches regardless of timing)
+
+BLOCK_TIME_TOLERANCE CONFIGURATION:
+Controls how far backwards in time the engine will search for the next
+pattern. Handles log entries that are slightly out of chronological order
+due to logging system timing variations, buffering, and write delays.
+
+Default: 5.0 seconds (model level only)
+
+PRACTICAL USAGE:
+• Handles system-level timing variations (1-15 seconds typical)
+• Higher values increase flexibility but may allow false matches
+• Lower values increase precision but may miss valid patterns
+
+PRECEDENCE ORDER (highest to lowest):
+1. Command line --block-time-tolerance: Overrides model settings
+2. Model settings block_time_tolerance: Overrides default
+3. Default value: 5.0 seconds
+
+SCOPE AND LIMITATIONS:
+• Model-level only        : Set by command line or model settings
+• No block-level override : Unlike max_time_delta, no block level support
+• Small values recommended: 1-15 seconds typical
+
+USAGE BY BLOCK TYPE:
+• Pattern blocks: Tolerance for sequential pattern matching
+• Pair blocks: Tolerance for start/stop pattern matching
+• Timeline blocks: Not applicable (collect all matches)
+
+TROUBLESHOOTING:
+• Patterns found out of order: Increase block_time_tolerance
+• False matches occurring: Decrease block_time_tolerance
+
+EXAMPLES:
+# Command line override (highest precedence)
+lpmptool --max-time-delta 60 --block-time-tolerance 2.0 -m model.yaml
+
+# Global setting affects all blocks in the model
+settings:
+  max_time_delta: 60
+  block_time_tolerance: 5.0
+
+# Block-level max_time_delta overrides global for that block only
+blocks:
+  - label: "Fast Service"
+    file: "service.log"
+    start: "Service starting"
+    stop: "Service ready"
+    max_time_delta: 10  # This block uses 10 seconds, others use global
+
+# Real-world example: High-load system with delayed logging
+settings:
+  block_time_tolerance: 10.0  # System under load, allow more tolerance
+# END_HELP_SECTION: TIME_TOLERANCES
+
+# HELP_SECTION: VARIABLES_AND_SCOPE
+VARIABLES AND VARIABLE SCOPE:
+
+CONTROL VARIABLES:
+Variable Name          | CLI | Model | Block | Pattern | Pair | Timeline | Default/Notes
+-----------------------|-----|-------|-------|---------|------|----------|---------------
+force                  | Y   |       |       | Y       | Y    |          | false
+max_time_delta         | Y   | Y     | Y     | Y       | Y    |          | 45 secs
+block_time_tolerance   | Y   | Y     |       | Y       | Y    | Y        | 5.0 secs
+start_date             | Y   | Y     |       | Y       | Y    | Y        | None
+loops                  | Y   | Y     |       | Y       | Y    |          | 1
+max_log_length         | Y   | Y     |       | Y       | Y    | Y        | 180
+optional               |     | Y     | Y     | Y       | Y    | Y        | false
+profile                |     | Y     | Y     | Y       | Y    | Y        | false
+controller             |     |       | Y     | Y       | Y    | Y        | false
+override               |     |       | Y     | Y       | Y    |          | None
+host                   | Y   | Y     |       | Y       | Y    | Y        | None
+
+SUBSTITUTION VARIABLES:
+Variable Name          | CLI | Model | Block | Pattern | Pair | Timeline | Default/Notes
+-----------------------|-----|-------|-------|---------|------|----------|---------------
+{hostname}             | Y   |       | Y     | Y       | Y    | Y        | controller-0
+{peer_controller}      | Y   |       | Y     | Y       | Y    | Y        | always opposite
+{custom_var}           | Y   |       | Y     | Y       | Y    | Y        | --var key=value
+
+OUTPUT CONTROL:
+Variable Name          | CLI | Model | Block | Pattern | Pair | Timeline | Default/Notes
+-----------------------|-----|-------|-------|---------|------|----------|---------------
+output                 | Y   |       |       | Y       | Y    | Y        | auto-generated
+lab                    | Y   |       |       | Y       | Y    | Y        | lab
+verbose                | Y   |       |       | Y       | Y    | Y        | 0
+
+BUNDLE MODE:
+Variable Name          | CLI | Model | Block | Pattern | Pair | Timeline | Default/Notes
+-----------------------|-----|-------|-------|---------|------|----------|---------------
+bundle                 | Y   |       |       | Y       | Y    | Y        | /
+hosts                  | Y   |       |       | Y       | Y    | Y        | false
+include hosts          | Y   |       |       | Y       | Y    | Y        | None
+exclude hosts          | Y   |       |       | Y       | Y    | Y        | None
+
+PRECEDENCE RULES:
+1. Command line (highest)
+2. Block level (block-specific only)
+3. Model settings (model-wide)
+4. Default values (lowest)
+
+MIXED MODELS:
+- Pattern + Pair blocks: All control variables apply
+- Timeline only models: loops, max_time_delta not applicable
+- Cannot mix timeline with pattern/pair blocks
+
+VARIABLE SUBSTITUTION SCOPE:
+- {hostname}: Available in all pattern fields, file paths, labels
+- {peer_controller}: Available in all pattern fields, file paths, labels
+- {custom_var}: Available in all pattern fields, file paths, labels
+- Bundle mode: {hostname} auto-updated per host
+- Override blocks: Variables substituted with override hostname context
+
+FORMAT REQUIREMENTS:
+- Variables: {varname} syntax only
+- CLI format: --var KEY=VALUE (no spaces around =)
+- Case-sensitive variable names
+- No environment variable import/expansion (ie: $HOME)
+# END_HELP_SECTION: VARIABLES_AND_SCOPE
+
+# HELP_SECTION: BLOCK_LEVEL_SETTINGS
+BLOCK-LEVEL VS MODEL-LEVEL SETTINGS:
+Block-level settings override model-level settings for that specific block only.
+Model-level settings apply to all blocks unless overridden at the block level.
+
+Supported at both levels:
+- optional: Skip if patterns not found
+- profile: Write per-block profile files
+- max_time_delta: Maximum time between patterns (pair/pattern blocks only)
+
+Model-level only:
+- block_time_tolerance: Block sequencing tolerance
+- timeline_patterns: Named pattern sets
+# END_HELP_SECTION: BLOCK_LEVEL_SETTINGS
+
+# HELP_SECTION: PRECEDENCE_RULES
+SETTING PRECEDENCE RULES:
+1. Command line arguments (highest precedence)
+2. Block-level settings (for that block only)
+3. Model-level settings (applies to all blocks)
+4. Default values (lowest precedence)
+
+Example precedence chain for max_time_delta:
+Command line --max-time-delta > Block max_time_delta > Model settings max_time_delta > DEFAULT_MAX_TIME_DELTA
+# END_HELP_SECTION: PRECEDENCE_RULES
+
+# HELP_SECTION: EXAMPLE_MODELS
+EXAMPLE MODEL FILES:
+
+1. Simple Pattern Model:
+blocks:
+  - label: "System Boot"
+    file: "kern.log"
+    patterns:
+      - "Kernel command line:"
+
+2. Pair Timing Model:
+blocks:
+  - label: "Service Duration"
+    file: "service.log"
+    start: "Service starting"
+    stop: "Service ready"
+
+3. Timeline Model:
+settings:
+  timeline_patterns:
+    events:
+      - "System started"
+      - "Service ready"
+blocks:
+  - label: "System Events"
+    file: "system.log"
+    timeline: "{events}"
+
+Note: See models/examples for more details
+
+# END_HELP_SECTION: EXAMPLE_MODELS
+
+1.  IDENTIFICATION:
+    - label: Description for output
+    - file: Target log file(s) with wildcard and compression support
+
+2.  PATTERN DEFINITION:
+    - patterns   : Sequential patterns for event timing (pattern blocks)
+    - start/stop : Paired patterns for duration measurement (pair blocks)
+    - timeline   : Event timeline patterns for chronological analysis (timeline blocks)
+    - OR patterns: Alternative matches using array syntax
+
+    Block type is automatically detected based on presence of the following
+    block labels:
+    - 'timeline' field      = timeline block
+    - 'start'/'stop' fields = pair block
+    - 'patterns' field      = pattern block (default)
+
+    Notes:
+    - A model typically specifies a number of blocks.
+    - Mixed models can contain a combination of ‘pattern’ and ‘pair’ blocks.
+    - Timeline models cannot have ‘pair’ or ‘pattern’ labels.
+    - All blocks are processed chronologically regardless of type, producing
+        a unified timeline with event markers (pattern blocks), duration
+        measurements (pair blocks), and chronological event sequences
+        (timeline blocks) in temporal order.
+
+
+3.  BEHAVIOR CONTROLS:
+    - optional    : Skip if patterns not found (block or model level, default: false)
+    - profile     : Write per-block profile file (block or model level, default: false)
+    - max_time_delta : Max seconds between patterns (block or model level, default: 45)
+    - controller  : Controller-only block flag (block level only, default: false)
+
+    BLOCK-LEVEL LABELS REFERENCE:
+    All blocks support the following labels:
+
+    REQUIRED LABELS:
+    • label       : Description for output (string, required)
+    • file        : Log file(s) to search (string or list, required)
+    • Pattern definition (one required):
+      - patterns  : Sequential patterns list (pattern blocks)
+      - start/stop: Start and stop patterns (pair blocks)
+      - timeline  : Timeline patterns (timeline blocks)
+
+    OPTIONAL LABELS:
+    • optional       : Skip if not found (boolean, default: false)
+                       Supports model-level default, block-level override
+    • profile        : Write per-block profile file (boolean, default: false)
+                       Supports model-level default, block-level override
+    • max_time_delta : Max seconds between patterns (integer, default: 45)
+                       Supports model-level default, block-level override
+    • controller     : Controller-only block flag (boolean, default: false)
+                       Block-level only, no model-level support
+
+    PRECEDENCE FOR OVERRIDABLE LABELS:
+    Block-level setting > Model-level setting > Default value
+
+4.  GLOBAL SETTINGS:
+    - timing constraints: max_time_delta, block_time_tolerance
+    - output control    : max_log_length, loops, start_date
+    - timeline patterns : named pattern sets for timeline blocks
+    - block defaults    : profile, optional
+
+    MODEL-LEVEL SETTINGS REFERENCE:
+    All settings are optional and specified in the 'settings:' section:
+
+    TIMING CONSTRAINTS:
+    • max_time_delta         : Max seconds between patterns (integer, default: 45)
+                              Command line > model settings > default
+                              Block-level can override for individual blocks
+    • block_time_tolerance   : Time tolerance for out-of-order log entries (float, default: 5.0)
+                              Command line > model settings > default
+                              Model-level only, no block-level override
+                              Command line > model settings > default
+                              Model-level only, no block-level override
+
+    OUTPUT CONTROL:
+    • start_date             : Start timestamp filter (string, no default)
+                              Command line > model settings
+                              Format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS
+    • loops                  : Number of analysis passes (integer, default: 1)
+                              Command line > model settings > default
+                              Timeline models ignore this setting
+    • max_log_length         : Max log line length in output (integer, default: 180)
+                              Command line > model settings > default
+
+    BLOCK DEFAULTS:
+    • profile                : Enable per-block profile files (boolean, default: false)
+                              Block-level can override for individual blocks
+    • optional               : Make all blocks optional (boolean, default: false)
+                              Block-level can override for individual blocks
+
+    TIMELINE PATTERNS:
+    • timeline_patterns      : Named pattern sets for timeline blocks (dict)
+                              Format: {name: [pattern1, pattern2, ...]}
+                              Referenced in blocks as: timeline: "{name}"
+
+    PRECEDENCE RULES:
+    Command line > Model settings > Block-level > Default value
+
+    COMPLETE EXAMPLES:
+    See example_complete_model.yaml for a model demonstrating all settings and labels.
+
+# HELP_SECTION: MIXED_MODE_EXAMPLE
+CREATING A MIXED MODE EXAMPLE COMBINING PATTERN AND PAIR BLOCKS FOR COMPREHENSIVE SYSTEM ANALYSIS:
+
+This example demonstrates a comprehensive system analysis model that combines pattern blocks
+for event detection and pair blocks for duration measurement, providing both event timing and
+performance metrics. Pattern and pair blocks can be freely interleaved.
+
+# Complete mixed mode model: system_analysis.yaml
+settings:
+  max_time_delta: 120           # Allow up to 2 minutes between patterns
+  block_time_tolerance: 5.0     # Allow 5 second tolerance for block reordering
+  max_log_length: 200           # Longer log lines for detailed analysis
+  profile: true                 # Enable per-block profile files
+
+blocks:
+  # Pattern block: System boot anchor
+  - label: "System Boot Trigger"
+    file: "kern.log*"
+    patterns:
+      - "Kernel command line:"
+    profile: true
+
+  # Pair block: Service startup timing
+  - label: "Critical Service Startup"
+    file: "sm.log*"
+    start: r"Started.*service \\(critical-service\\)"
+    stop: r"Action \\(enable\\) completed.*service \\(critical-service\\)"
+    max_time_delta: 60           # Override global setting for this block
+    profile: true
+
+  # Pattern block: Network initialization
+  - label: "Network Interface Ready"
+    file: "daemon.log*"
+    patterns:
+      - ["network interface up", "interface ready", "link established"]
+    optional: true               # Network timing may vary
+
+  # Pair block: Database initialization timing
+  - label: "Database Initialization"
+    file: "postgres.log*"
+    start: "database system is starting up"
+    stop: "database system is ready to accept connections"
+    max_time_delta: 180          # Database may take longer
+    profile: true
+
+  # Pattern block: Application readiness
+  - label: "Application Ready"
+    file: "app.log*"
+    patterns:
+      - "Application initialized"
+      - ["Ready to serve requests", "Server listening", "Service available"]
+
+  # Pair block: Health check timing
+  - label: "Health Check Cycle"
+    file: "health.log*"
+    start: "Starting health check"
+    stop: "Health check completed"
+    max_time_delta: 30           # Health checks should be fast
+    optional: true               # May not always be present
+
+KEY FEATURES DEMONSTRATED:
+• Mixed block types: Combines pattern blocks (event detection) with pair blocks (duration measurement) in any order
+• Sequential processing: Pattern blocks establish timing baseline, pair blocks measure durations
+• Flexible timing: Different max_time_delta values for different operations
+• Error handling: Optional blocks for non-critical components
+• Performance profiling: Per-block profile files enabled for detailed analysis
+• Regex patterns: Complex service matching with escaped parentheses
+• OR patterns: Alternative success indicators for robust matching
+• Wildcard files: Automatic log rotation handling
+
+EXPECTED OUTPUT FORMAT:
+Delta(HH:MM:SS)  Block Label               Log File      Data
+---------------  -------------------------  ------------ --------
+00:00:00.000     System Boot Trigger       kern.log     2024-01-06T10:15:20.100: Kernel command line: ...
+00:00:05.234     Critical Service Startup  sm.log       10:15:20.100: Start -> Stop: 10:15:25.334: 5.234s
+00:00:07.891     Network Interface Ready   daemon.log   2024-01-06T10:15:27.991: network interface up
+00:00:12.456     Database Initialization   postgres.log 10:15:25.334: Start -> Stop: 10:15:37.790: 12.456s
+00:00:15.123     Application Ready         app.log      2024-01-06T10:15:35.223: Application initialized
+00:00:17.890     Application Ready         app.log      2024-01-06T10:15:37.990: Ready to serve requests
+00:00:20.345     Health Check Cycle        health.log   10:15:37.790: Start -> Stop: 10:15:40.135: 2.345s
+
+USAGE EXAMPLES:
+# Basic mixed mode analysis
+lpmptool -l /var/log -m system_analysis.yaml -o ./analysis_results
+
+# With custom timing constraints
+lpmptool -l /var/log -m system_analysis.yaml --max-time-delta 180 --block-time-tolerance 10.0
+
+# Bundle mode for multi-host analysis
+lpmptool -b /path/to/bundle -l var/log -m system_analysis.yaml --lab production
+
+# With variable substitution for different environments
+lpmptool -l /var/log -m system_analysis.yaml --var env=staging --hostname worker-1
+
+ANALYSIS BENEFITS:
+• Comprehensive view: Both event timing and duration measurements in single analysis
+• Performance insights: Identify bottlenecks through pair block duration measurements
+• System correlation: See how different components interact chronologically
+• Flexible monitoring: Optional blocks prevent analysis failure for non-critical components
+• Detailed profiling: Per-block profile files provide statistical summaries
+• Multi-environment: Variable substitution supports different deployment scenarios
+
+TROUBLESHOoting TIPS:
+• If required patterns fail: Check log file paths and pattern syntax
+• For timing gaps: Adjust max_time_delta and tolerance settings
+• Missing optional blocks: Review optional: true settings for non-critical components
+• Performance issues: Use profile files to identify slow operations
+• Pattern matching: Use -vvv verbosity to debug pattern matching issues
+# END_HELP_SECTION: MIXED_MODE_EXAMPLE
+
+# HELP_SECTION: LIMITATIONS
+LIMITATIONS:
+
+The Log Pattern Matching Profiler has the following known limitations:
+
+1. SAME-TIMESTAMP PATTERN REPETITION:
+   When multiple patterns exist at the exact same timestamp in the same log file,
+   the tool may find the same pattern repeatedly across loop iterations (-n > 1).
+   This occurs because the tool uses timestamp-based search advancement and cannot
+   distinguish between patterns that share identical timestamps.
+
+   WORKAROUND:
+   - Use -n 1 (single pass) for models with same-timestamp patterns
+   - Design models with patterns that naturally progress chronologically
+   - Add blocks with longer time intervals to ensure timestamp progression
+
+   TECHNICAL DETAILS:
+   - The tool advances search time by 1 millisecond after each loop
+   - If log timestamps only have millisecond precision and multiple patterns
+     exist within the same millisecond, the search may not advance properly
+   - This limitation affects pattern and pair blocks; timeline blocks are unaffected
+
+2. COMPRESSED FILE POSITION TRACKING:
+   File position tracking is not available for compressed (.gz) files.
+   The tool relies on timestamp-based search progression for all file types.
+
+3. CROSS-FILE PAIR BLOCK COORDINATION:
+   Pair blocks spanning multiple files depend on timestamp synchronization
+   between log files. Clock skew or logging delays may affect accuracy.
+
+4. MEMORY USAGE:
+   Large log files or high loop counts may consume significant memory,
+   especially when processing multiple hosts in bundle mode.
+
+5. REGEX PERFORMANCE:
+   Complex regular expressions may impact performance on large log files.
+   The tool falls back to literal string matching if regex compilation fails.
+
+For questions or to report issues, consult the tool documentation or
+contact the development team.
+# END_HELP_SECTION: LIMITATIONS
+
+5.  INCLUDE SETTINGS:
+    - include: "filename.yaml" at top level
+    - included files contribute only 'settings' (especially timeline_patterns)
+    - include files follow the same search path as model files:
+      * Explicit paths (absolute or relative with separator) have highest priority
+      * Then searches: ./models/, /etc/lpmp.d/, /var/lib/lpmp_models/, ./
+    - model-local settings override included settings by key
+
+KEY FEATURES:
+• Multi-file Support: Search across multiple log files with fallback ordering
+• Compressed File Support: Handles both regular and gzipped (.gz) log files
+• Chronological Ordering: Maintains temporal sequence across file searches
+• Flexible Pattern Matching: Supports single patterns and OR pattern groups
+• Multiple Timestamp Formats: Parses sysinv and ISO timestamp formats
+• Configurable Loops: Run analysis multiple times or until EOF
+• Time Filtering: Start analysis from specific timestamps
+• Output Customization: Configurable log line truncation and dual format output
+• Error Handling: Graceful failure with clear error messages
+• Multi-Level Verbosity: 5 levels of debug output (-v to -vvvvv)
+• Position Tracking: Ensures chronological ordering within and across files
+• Dual Output: Tab-separated (.timing) and CSV (.csv) formats
+• Timeline Mode: Chronological event analysis across multiple log sources
+• Named Pattern Sets: Reusable pattern definitions for timeline blocks
+• Pair Mode: Measure time between start/stop pattern pairs
+• Regex Support: Full regular expression pattern matching
+• Time Delta Validation: Configurable max_time_delta at model and block level
+• Per-Block Profile Files: Optional per-block timing files with summary headers
+• Test Head: Automated testing of features, failure detection and edge cases
+
+TIMESTAMP FORMATS SUPPORTED:
+• sysinv format: "sysinv 2024-01-06 12:30:45.123 message"
+• ISO format   : "2024-01-06T12:30:45.123 message"
+
+USAGE:
+    python lpmptool --logs-dir /path/to/logs --model-file model.yaml
+    python lpmptool -l var/log -m timing.yaml -o ./results -v
+    python lpmptool --start-date "2024-01-06T10:00:00" --loops 0 -vv
+    python lpmptool --max-time-delta 60 -m model.yaml  # Override timing constraints
+    python lpmptool -b /path/to/bundle -l var/log --lab mylab -m model.yaml
+    python lpmptool -m mixed_model.yaml -vvv  # Mixed pattern, pair and timeline blocks
+    python lpmptool -m model.yaml -vvvvv      # Full debug output
+    python lpmptool -m model.yaml --stats     # Enable memory usage monitoring
+
+BUNDLE MODE:
+    Bundle mode enables processing logs from multiple hosts in a collect bundle.
+
+    DIRECTORY STRUCTURE:
+    <bundle_dir>/
+    ├── controller-0_20251218.082339/
+    │   └── var/log/
+    ├── controller-1_20251218.082339/
+    │   └── var/log/
+    └── worker-0_20251218.082339/
+        └── var/log/
+
+    REQUIREMENTS:
+    • Host directories must follow format: <hostname>_YYYYMMDD.HHMMSS
+    • All host dirs names must have the same date
+    • Tool iterates over all detected hosts automatically
+
+
+    HOST SELECTION:
+    • --hosts: Interactive mode with prompts
+    • --include: Process only specified hosts (non-interactive)
+    • --exclude: Process all except specified hosts (non-interactive)
+    • Options are mutually exclusive
+    • All host names are validated against detected bundle hosts
+
+    USAGE: (mutually exclusive)
+    python lpmptool -b /path/to/bundle -l var/log -m model.yaml
+
+    Filter: in or out Hosts
+    python lpmptool -b /path/to/bundle --include controller-0 -m model.yaml
+    python lpmptool -b /path/to/bundle --exclude worker-10 worker-11 -m model.yaml
+
+    Go Interactive:
+    python lpmptool -b /path/to/bundle --hosts -m model.yaml
+
+    OUTPUT FILES:
+    profile.timing              Main timing results (tab-separated, mirrors console output)
+    profile.timing.csv          CSV format results
+    <block_label>.timing        Per-block profile file when profile: true
+
+    OUTPUT STRUCTURE:
+    Bundle mode creates organized output within the bundle directory:
+
+    <bundle_dir>/
+    ├── lpmp_<lab>/
+    │   └── <timestamp>_<model>/
+    │       ├── controller-0/
+    │       │   ├── <lab>_controller-0_profile.timing
+    │       │   ├── <lab>_controller-0_profile.timing.csv
+    │       │   └── [individual block profiles if enabled]
+    │       ├── controller-1/
+    │       │   ├── <lab>_controller-1_profile.timing
+    │       │   ├── <lab>_controller-1_profile.timing.csv
+    │       │   └── [individual block profiles if enabled]
+    │       ├── <hostname>
+    │       │   ├── <lab>_<hostname>_profile.timing
+    │       │   ├── <lab>_<hostname>_profile.timing.csv
+    │       │   └── [individual block profiles if enabled]
+    │       └── <lab>_system_profile.timing    # Merged multi-host timeline
+    │
+    ├── controller-0_20251218.082339/          # Original bundle structure
+    │   └── var/log/
+    └── controller-1_20251218.082339/
+    │   └── var/log/
+    └── <hostname>_20251218.082339/
+        └── var/log/
+
+    FEATURES:
+    • Multi-host processing   : Automatically processes all detected hosts (enhanced hostname substitution)
+    • Chronological merging   : System profile combines all hosts in timestamp order
+    • Hostname identification : Each entry prefixed with originating hostname
+    • File extension logic    : .timing for sequential/pair, .timeline for timeline models
+    • Individual host profiles: Separate detailed analysis per host
+    • Consolidated system view: Single file showing cross-host event timeline
+
+COMMAND LINE OPTIONS:
+    -f, --force                     Force past block failures after the first block by treating them as warnings
+    -l, --logs-dir DIR              Directory containing log files (default: var/log, relative to bundle)
+    -m, --model-file FILE           YAML model file with search patterns (default: model.yaml)
+    -o, --output DIR                Output directory path (default: ./lpmp_<lab_name>/<start_time>_<model_file_name>)
+    -s, --start-date DATE           Start date filter (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+    -e, --stop-date DATE            Stop date filter (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+    -n, --loops COUNT               Number of analysis passes (default: 1, 0=until EOF)
+    -x, --max-log-length NUM        Maximum log line length in output (default: 180)
+    -v, --verbose                   Multi-level verbosity (use -v, -vv, -vvv, -vvvv, or -vvvvv)
+    --block-time-tolerance NUM      Time tolerance in seconds for out-of-order log entries (default: 5.0)
+    --max-time-delta NUM            Maximum secs between start and stop patterns for pair blocks (default: 45)
+    --hostname HOST                 Hostname for {hostname} variable substitution (default: controller-0)
+    --var KEY=VALUE                 Additional variable substitution (can be used multiple times)
+    --lab NAME                      Lab name for identification (default: lab)
+    --bundle, -b PATH               Full path to collect bundle directory (default: / for system)
+    --hosts                         Interactive host selection for bundle mode (only with --bundle)
+    --include HOST [HOST ...]       Include only specified hosts (only with --bundle)
+    --exclude HOST [HOST ...]       Exclude specified hosts (only with --bundle)
+    --progress, -p                  Progress indicator type for timeline models (none, dots, classic, circles, modern)
+    --stats                         Enable memory and performance statistics monitoring of self
+    --no-ts-files                    List log files with no parseable timestamps and exit
+    --help-model                    Show detailed model file format information and examples
+    --help                          Show this help message and exit
+
+    Note: --hosts, --include, and --exclude are mutually exclusive
+    Note: --stats requires psutil package
+
+VERBOSITY LEVELS:
+    (no -v)     Silent operation - only results, errors, and warnings
+    -v          Basic progress   - pair mode status, blocks loaded, pass completion, results written
+    -vv         Configuration    - model settings, file operations, block patterns, wildcard expansion
+    -vvv        Pattern matching - found patterns, file read errors, literal fallback warnings
+    -vvvv       Operation detail - timestamp validation, regex errors, gap analysis, gz file warnings
+    -vvvvv      Full debug       - sample log lines (first 5 lines of each file during search)
+
+MODEL FILE FORMAT (YAML):
+
+    # PATTERN BLOCKS (Sequential Event Timing):
+    # ----------------
+    blocks:
+      # Simple single pattern block
+      - label: "Kernel Boot"
+        file: "kern.log*"                     # Single file
+        profile: true                        # Write per-block profile file
+        patterns:
+          - "Kernel command line:"           # Single pattern
+
+
+      # Multiple sequential patterns in one block
+      - label: "System Initialization"
+        file: "daemon.log*"
+        max_time_delta: 60                    # Allow up to 1 minute between sequential patterns
+        patterns:
+          - "Starting system initialization"  # Pattern 1 (must be found first)
+          - "Loading kernel modules"          # Pattern 2 (must be found after pattern 1)
+          - "System initialization complete"  # Pattern 3 (must be found after pattern 2)
+
+      # OR patterns using array syntax
+      - label: "System Shutdown"
+        file: ["daemon.log.1.gz", "daemon.log"] # Multiple files, searched in order
+        optional: true                          # Skip if patterns not found
+        patterns:
+          - ["SIGTERM", "SIGINT"]               # OR patterns - first match wins
+          - "Shutdown complete"                 # Sequential pattern after OR match
+
+      # Complex pattern block with variable substitution and regex
+      - label: "Host State Change"
+        file: "mtcAgent.log*"                   # Wildcard file pattern
+        profile: true
+        patterns:
+          - "{hostname} Unlock Action"          # Variable substitution
+          - r"{hostname} is (ENABLED|DEGRADED)" # Regex pattern with variable
+
+
+      # Multi-file pattern block with fallback
+      - label: "Service Status"
+        file: ["service.log", "service.log.1.gz", "syslog"] # Try files in order
+        patterns:
+          - ["Service ready", "Service active"] # OR pattern for completion
+
+    # PAIR BLOCKS:
+    # ----------------
+    blocks:
+      - label: Simple Pair Block
+        file: "sm.log*"                      # specify file with wildcard (includes rotation)
+        max_time_delta: 30                   # Block-specific max seconds between start->stop
+        - start: "Service starting"          # Start pattern
+        - stop: "Service ready"              # Stop pattern
+
+      - label: "Service Disable"             # with regex support
+        file: ["sm.log*"]                    # Wildcard file patterns   # supported
+        optional: true                       # override required default
+        start: r'Started*for service \\(my-service\\)'                         # Regex start
+        stop: r'Action \\(disable\\) completed.*for service \\(my-service\\)'  # Regex stop
+
+    # TIMELINE BLOCKS:
+    # ----------------
+    blocks:
+      - label: "Maintenance Events"
+        file: ["mtcAgent*"]                  # Wildcard file patterns
+        timeline: "{maintenance}"            # included named pattern reference
+        optional: false                      # Requiredt for first match
+
+      - label: "Direct Timeline"
+        file: "system.log"
+        timeline:                            # Direct pattern list
+          - "System started"
+          - "Service ready"
+          - "System shutdown"
+        optional: true
+
+    # MIXED MODEL (Pattern + Pair blocks):
+    # ------------------------------------
+    blocks:
+      - label: "Boot Trigger"               # Pattern block
+        file: "kern.log"
+        patterns:
+          - "Kernel Command line:"
+
+      - label: "Service Timing"            # Pair block
+        file: "sm.log*"
+        start: "Service starting"
+        stop: "Service ready"
+
+    # Optional global settings - blocks or command line can override
+    # --------------------------------------------------------------
+    settings:
+      start_date: "2026-01-06T20:00:00"         # Start analysis from this timestamp
+      loops: 3                                  # Number of passes (0=until EOF)
+      max_log_length: 180                       # Truncate long log lines in output
+      max_time_delta: {DEFAULT_MAX_TIME_DELTA}  # See MAX_TIME_DELTA CONFIGURATION section
+                                                # - start->stop (pair blocks)
+                                                # - sequential patterns (pattern blocks, when specified)
+                                                # - not applicable to timeline blocks
+      block_time_tolerance: 5.0                 # Time tolerance for out-of-order log entries (model level, default: 5s)
+
+    VARIABLE SUBSTITUTION:
+    • Use {hostname} in patterns for hostname substitution (default: controller-0)
+    • Use {varname} for custom variables defined with --var varname=value
+    • Example: "{hostname} Unlock Action" becomes "controller-0 Unlock Action"
+    • Variables are substituted before pattern matching occurs
+
+    PATTERN MATCHING RULES:
+    • All patterns support full regular expressions (.*+?^$[]{}()|\\ etc.)
+    • Pattern blocks: Multiple patterns in a block are processed SEQUENTIALLY
+      - Each pattern must be found AFTER the previous pattern in the same block
+      - All patterns in a block must be found for the block to succeed
+      - Use OR patterns ["option1", "option2"] when you need alternatives
+    • Pair blocks: Start pattern must be found before stop pattern
+    • Timeline blocks: All patterns searched independently, results sorted chronologically
+    • For OR patterns (arrays with [...,...]), first match is used
+    • File position tracking ensures chronological ordering
+    • Optional blocks show "??:??:??" delta when patterns not found
+    • Block type is automatically detected based on 'timeline', 'start'/'stop' vs 'patterns' fields
+    • Mixed models process all blocks chronologically regardless of type
+    • Timeline patterns have NO order requirements - all matches collected and sorted by timestamp
+
+
+    MAX_TIME_DELTA CONFIGURATION:
+    The max_time_delta setting controls timing constraints for pair blocks and pattern blocks.
+    It specifies the maximum allowed time (in seconds) between related events.
+
+    MAX_TIME_DELTA PURPOSE:
+    The max_time_delta setting prevents false triggers and maintains
+    accurate profile timing for pair and pattern blocks. Without it,
+    or with an excessively long value, patterns might match out of context
+    (e.g., finding a "stop" pattern from a far into the future) which can
+    lead to invalid profile timing from that point forward. This setting
+    ensures patterns are found within reasonable time windows relative to
+    their context or Warn the user if that block is optional or Error out
+    otherwise.
+
+    PRECEDENCE ORDER (highest to lowest):
+    1. Block-level max_time_delta: Overrides model level setting for that specific block only
+    2. Model settings max_time_delta: Overrides the default for all blocks in the model
+    3. Default value: {DEFAULT_MAX_TIME_DELTA} seconds (hardcoded constant DEFAULT_MAX_TIME_DELTA)
+
+    SCOPE AND APPLICATION:
+    • Block-level settings apply ONLY to that specific block
+    • Model settings apply to ALL blocks in the model (unless overridden at block level)
+    • Default applies when no other setting is specified
+    • Block-level settings do NOT change the model-wide or default values
+
+    USAGE BY BLOCK TYPE:
+    • Pair blocks     : Maximum time between start and stop patterns
+    • Pattern blocks  : Maximum time between sequential patterns
+                        when explicitly set
+    • Timeline blocks : Not applicable. timeline blocks collect all
+                        matches regardless of timing.
+
+    EXAMPLES:
+    # Model-wide setting affects all pair blocks
+    settings:
+      max_time_delta: 60  # All pair blocks use 60 seconds unless overridden
+
+    blocks:
+      - label: "Fast Service"
+        file: "service.log"
+        start: "Service starting"
+        stop: "Service ready"
+        max_time_delta: 10  # This block uses 10 seconds, others use 60
+
+      - label: "Normal Service"
+        file: "service.log"
+        start: "Normal service starting"
+        stop: "Normal service ready"
+        # This block uses model setting (60 seconds)
+
+      - label: "Default Service"
+        file: "service.log"
+        start: "Default service starting"
+        stop: "Default service ready"
+        # If no model setting exists, uses DEFAULT_MAX_TIME_DELTA ({DEFAULT_MAX_TIME_DELTA} seconds)
+
+    BLOCK_TIME_TOLERANCE CONFIGURATION:
+    Controls how far backwards in time the engine will search for the next
+    pattern. Handles log entries that are slightly out of chronological order
+    due to logging system timing variations, buffering, and write delays.
+
+    Default: 5.0 seconds (model level only)
+
+    PRECEDENCE ORDER (highest to lowest):
+    1. Command line --block-time-tolerance: Overrides model settings
+    2. Model settings block_time_tolerance: Overrides default
+    3. Default value: 5.0 seconds
+
+    USAGE BY BLOCK TYPE:
+    * Pattern blocks: Tolerance for sequential pattern matching
+    * Pair blocks: Tolerance for start/stop pattern matching
+    * Timeline blocks: Not applicable (collect all matches)
+
+    TROUBLESHOOTING:
+    * Patterns found out of order: Increase block_time_tolerance
+    * False matches occurring: Decrease block_time_tolerance
+
+OUTPUT FORMAT:
+
+    PATTERN BLOCKS:
+    Delta(HH:MM:SS)  Block Label       Log File      Data
+    ---------------  ---------------   ------------  --------
+    00:00:00.000     mtcAgent Unlock   mtcAgent.log  <log line>
+    00:00:05.234     System Ready      sys.log       <log line>
+
+    PAIR BLOCKS:
+    Delta(HH:MM:SS)  Block Label       Log File      Data
+    ---------------  ---------------   ------------  --------
+    00:00:01.535     cert-alarm        sm.log        11:59:18.570: Start -> Stop: 11:59:20.105: 1.535s
+    00:00:01.312     device-image-fs   sm.log        11:59:20.105: Start -> Stop: 11:59:21.417: 1.312s
+
+    TIMELINE BLOCKS:
+    Delta(HH:MM:SS)  Block Label       Log File      Data
+    ---------------  ---------------   ------------  --------
+    00:00:00.000     Maintenance       mtcAgent.log  <log line with matched pattern>
+    00:00:15.234     Maintenance       mtcAgent.log  <log line with different pattern>
+    00:00:17.333     Maintenance       mtcAgent.log  <log line chronologically ordered>
+
+    MIXED MODEL OUTPUT:
+    Pattern and pair blocks produce a unified timeline with event markers
+    (pattern blocks) and duration measurements (pair blocks) in temporal order.
+
+ERROR HANDLING:
+• File not found    : Continues with next file in list
+• Pattern not found : Exits with clear error message indicating failed block
+• Invalid timestamps: Skips lines with invalid timestamp format
+• YAML errors       : Reports specific parsing issues
+• Compressed files  : Handles gzip decompression failures
+• Regex errors      : Falls back to literal string matching with warning
+
+USE CASES:
+• System boot/shutdown timing analysis
+• Service startup sequence profiling
+• Performance bottleneck identification
+• Log correlation across multiple services
+• Automated timing regression testing
+• Start/stop operation duration measurement (pair mode)
+• Service disable/enable timing validation
+• Chronological event timeline analysis across multiple controllers
+• Maintenance event correlation and sequencing
+• Multi-source log event timeline generation
+
+TESTING:
+The tool includes a comprehensive automated test suite located
+in the test directory. See docs/ARCHITECTURE.md
+"""
+
+
+# Version information
+__version__ = "1.1"
+
+# Default timing constraints
+DEFAULT_MAX_TIME_DELTA = 45   # Default max seconds for pair blocks
+MIN_TIME_DELTA_MSECS = 1      # minimum time between successive block logs (1ms)
+
+# Help paging constants
+HELP_PAGE_THRESHOLD = 38      # Lines per page for help content paging
+
+# Progress indicator constants
+# PROGRESS_DOT_INTERVAL = 1.0   # Show progress dot every 1 seconds
+
+# Output formatting constants
+HOSTNAME_COLUMN_WIDTH = 12    # Width for hostname column (controller-x)
+LOG_FILE_COLUMN_WIDTH = 30    # Width for log file column
+# TIMELINE_CAT_MAX_LINES now controlled by --max-lines argument
+
+
+class MemoryMonitor:
+    """Memory usage monitoring class using psutil."""
+
+    def __init__(self):
+        self.stats_printed = False
+        if not PSUTIL_AVAILABLE:
+            self.enabled = False
+            return
+
+        self.enabled = True
+        self.process = psutil.Process(os.getpid())
+        self.start_memory = self.process.memory_info().rss
+        self.peak_memory = self.start_memory
+        self.start_time = time.time()
+        self.phase_memories = {}
+
+    def update_peak(self, phase=None):
+        """Update peak memory and optionally record phase memory."""
+        if not self.enabled:
+            return 0
+
+        current = self.process.memory_info().rss
+        self.peak_memory = max(self.peak_memory, current)
+
+        if phase:
+            self.phase_memories[phase] = current
+
+        return current
+
+    def get_stats(self):
+        """Get comprehensive memory statistics."""
+        if not self.enabled:
+            return None
+
+        current = self.process.memory_info().rss
+        runtime = time.time() - self.start_time
+
+        return {
+            'start_mb': self.start_memory / (1024 * 1024),
+            'current_mb': current / (1024 * 1024),
+            'peak_mb': self.peak_memory / (1024 * 1024),
+            'growth_mb': (self.peak_memory - self.start_memory) / (1024 * 1024),
+            'runtime_seconds': runtime,
+            'phases': {k: v / (1024 * 1024) for k, v in self.phase_memories.items()}
+        }
+
+    def print_stats(self):
+        """Print memory usage statistics."""
+        if self.stats_printed:  # Prevent duplicate printing
+            return
+
+        stats = self.get_stats()
+        if not stats:
+            print("Memory monitoring not available (psutil not installed)")
+            return
+
+        print("\n" + "=" * 50)
+        print("MEMORY USAGE STATISTICS")
+        print("=" * 50)
+        print(f"Initial Memory:  {stats['start_mb']:.1f} MB")
+        print(f"Peak Memory:     {stats['peak_mb']:.1f} MB")
+        print(f"Final Memory:    {stats['current_mb']:.1f} MB")
+        print(f"Memory Growth:   {stats['growth_mb']:.1f} MB")
+        print(f"Runtime:         {stats['runtime_seconds']:.1f} seconds")
+
+        if stats['phases']:
+            print("\nMemory by Phase:")
+            for phase, memory in stats['phases'].items():
+                print(f"  {phase:<20}: {memory:.1f} MB")
+        print("=" * 50)
+
+        self.stats_printed = True  # Mark as printed
+
+
+def main():
+    """Main execution function that orchestrates the log pattern matching and timing analysis."""
+    # Initialize memory monitor if stats requested
+    memory_monitor = None
+
+    # Print banner
+    print(f"Log Pattern Matching Profiler (ver {__version__})")
+    # print()
+    # Set up command line argument parsing
+    parser = argparse.ArgumentParser(
+        description='Log Pattern Matching Profiler - Requires YAML model file',
+        epilog='Use --help-model for detailed model file format and examples '
+               'with help creating a sample model file.',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('--block-time-tolerance', type=float, default=5.0,
+                        help='Time tolerance in seconds for out-of-order log entries (default: 5.0)')
+    parser.add_argument('--bundle', '-b', default='/',
+                        help='Full path to collect bundle directory (default: / for system)')
+    parser.add_argument('--exclude', nargs='+', metavar='HOST',
+                        help='Exclude specified hosts (space-separated, only with --bundle)')
+    parser.add_argument('--file-position-tracking', '-fpt', action='store_true',
+                        help='[EXPERIMENTAL] Enable file position caching for better performance with expanded stacked patterns')  # noqa E501
+    parser.add_argument('--force', '-f', action='store_true',
+                        help='Force past block failures after the first block by treating them as warnings')
+    parser.add_argument('--help-model', '-hm', nargs='?', const=True, default=None,
+                        help='Show detailed model file format and examples (optional: topic number 1-15)')
+    parser.add_argument('--hostname', default='controller-0',
+                        help='Hostname for {hostname} variable substitution (default: controller-0)')
+    parser.add_argument('--host', default=None,
+                        help='Set {host} variable for pattern substitution (shorthand for --var host=<value>)')
+    parser.add_argument('--hosts', action='store_true',
+                        help='Interactive host selection for bundle mode (only with --bundle)')
+    parser.add_argument('--include', nargs='+', metavar='HOST',
+                        help='Include only specified hosts (space-separated, only with --bundle)')
+    parser.add_argument('--lab', default='lab',
+                        help='Lab name for identification (default: lab)')
+    parser.add_argument('--list-models', '-lm', action='store_true',
+                        help='List available functional and example model files')
+    parser.add_argument('--logs-dir', '-l', default='var/log',
+                        help='Directory containing log files (default: var/log, relative to bundle)')
+    parser.add_argument('--no-ts-files', action='store_true',
+                        help='List log files with no parseable timestamps and exit')
+    parser.add_argument('--loops', '-n', type=int, default=1,
+                        help='Number of times to run through the model (default: 1)')
+    parser.add_argument('--max-lines', type=int, default=20,
+                        help='Maximum lines to display timeline output to console (default: 20, 0=show all)')
+    parser.add_argument('--max-log-length', '-x', type=int, default=180,
+                        help='Maximum length of log line in output (default: 180)')
+    parser.add_argument('--max-time-delta', type=int, default=45,
+                        help='Maximum time in seconds between start and stop patterns for pair blocks (default: 45)')
+    parser.add_argument('--model-file', '-m', default='model.yaml',
+                        help='YAML model file with search patterns (default: model.yaml)')
+    parser.add_argument('--output', '-o', default=None,
+                        help='Output directory path (default: ./lpmp_<lab_name>/<start_time>_<model_file_name>)')
+    parser.add_argument('--progress', '-p',
+                        choices=['none', 'dots', 'classic', 'circles', 'modern'], default='dots',
+                        help='[EXPERIMENTAL] Progress indicator type for timeline models (default: dots)')
+    parser.add_argument('--start-date', '-s',
+                        help='Start date for first search (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)')
+    parser.add_argument('--sort', action='store_true',
+                        help='Sort --list-models output alphabetically by name')
+    parser.add_argument('--stats', action='store_true',
+                        help='Enable memory and performance statistics monitoring')
+    parser.add_argument('--stop-date', '-e',
+                        help='Stop date for analysis (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)')
+    parser.add_argument('--var', action='append', dest='variables',
+                        help='Additional variable substitution in KEY=VALUE format (can be used multiple times)')
+    parser.add_argument('--verbose', '-v', action='count', default=0,
+                        help='Increase verbosity level (use -v, -vv, -vvv, -vvvv, or -vvvvv)')
+    parser.add_argument('--version', action='version', version=f'LPMP {__version__}')
+    args = parser.parse_args()
+
+    # Initialize memory monitor if stats requested
+    if args.stats:
+        memory_monitor = MemoryMonitor()
+        if not memory_monitor.enabled:
+            print("Warning: --stats requires psutil package. Install with: pip install psutil")
+            memory_monitor = None
+        else:
+            memory_monitor.update_peak('initialization')
+
+    # Set verbose level for vlog function
+    set_verbose_level(args.verbose)
+
+    # Validate loops value
+    if args.loops < 0:
+        print("Error: --loops must be 0 or greater (0=until EOF)", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate max_lines value
+    if args.max_lines < 0:
+        print("Error: --max-lines must be 0 or greater", file=sys.stderr)
+        sys.exit(1)
+
+    # Initialize file position cache if enabled
+    if args.file_position_tracking:
+        args._file_position_cache = {}
+        vlog2("File position tracking enabled")
+
+    # Initialize models search paths and show verbosity info if requested
+    search_paths = get_models_search_paths(get_verbose_level())
+
+    # Auto-load file ignore list from model search paths
+    load_file_ignore_list(search_paths)
+
+    def collect_model_files(search_paths):
+        """Collect and categorize model files from search paths.
+        Returns: (functional_models, example_models) as lists of
+                 (filename, path, status) tuples where status is
+                 model type string or None for yaml errors
+        """
+        functional_models = []
+        example_models = []
+        helper_models = []
+
+        for search_path in search_paths:
+            if os.path.exists(search_path):
+                try:
+                    # Check main directory
+                    for file in os.listdir(search_path):
+                        if file.endswith(('.yaml', '.yml')):
+                            full_path = os.path.join(search_path, file)
+                            if os.path.isfile(full_path):
+                                valid, status = validate_model_file(full_path)
+                                if not valid:
+                                    continue
+                                if 'example' in file.lower():
+                                    example_models.append((file, full_path, status))
+                                else:
+                                    functional_models.append((file, full_path, status))
+
+                    # Check examples subdirectory
+                    examples_dir = os.path.join(search_path, 'examples')
+                    if os.path.exists(examples_dir) and os.path.isdir(examples_dir):
+                        for file in os.listdir(examples_dir):
+                            if file.endswith(('.yaml', '.yml')):
+                                full_path = os.path.join(examples_dir, file)
+                                if os.path.isfile(full_path):
+                                    valid, status = validate_model_file(full_path)
+                                    if not valid:
+                                        continue
+                                    example_models.append((file, full_path, status))
+
+                    # Check helpers subdirectory
+                    helpers_dir = os.path.join(search_path, 'helpers')
+                    if os.path.exists(helpers_dir) and os.path.isdir(helpers_dir):
+                        for file in os.listdir(helpers_dir):
+                            if file.endswith(('.yaml', '.yml')):
+                                full_path = os.path.join(helpers_dir, file)
+                                if os.path.isfile(full_path):
+                                    helper_models.append((file, full_path, 'helper'))
+                except PermissionError:
+                    continue
+
+        # Remove duplicates
+        seen = set()
+        unique_functional = []
+        for name, path, status in functional_models:
+            if name not in seen:
+                seen.add(name)
+                unique_functional.append((name, path, status))
+
+        unique_examples = []
+        for name, path, status in example_models:
+            if name not in seen:
+                seen.add(name)
+                unique_examples.append((name, path, status))
+
+        unique_helpers = []
+        for name, path, status in helper_models:
+            if name not in seen:
+                seen.add(name)
+                unique_helpers.append((name, path, status))
+
+        return unique_functional, unique_examples, unique_helpers
+
+    # Define separator functions for use throughout the program
+    SEP_LEN = 50
+
+    def print_separator(width=SEP_LEN):
+        print("\n" + "=" * width)
+
+    def print_separator_nocr(width=SEP_LEN):
+        print("=" * width)
+
+    # Handle --help-model after argument parsing
+    if args.help_model:
+        HELP_MENU_PROMPT = "\nPress Enter for main menu or 'q' to quit: "
+        HELP_SECTIONS = {
+            '1': 'ARCHITECTURE',
+            '2': 'MAIN_LOOP',
+            '3': 'PROCESSING_AND_ANALYSIS',
+            '4': 'PATTERN_BLOCKS',
+            '5': 'PAIR_BLOCKS',
+            '6': 'TIMELINE_BLOCKS',
+            '7': 'FILE_SPECIFICATIONS',
+            '8': 'PATTERN_FORMATS',
+            '9': 'GLOBAL_SETTINGS',
+            '10': 'TIME_TOLERANCES',
+            '11': 'INCLUDE_SETTINGS',
+            '12': 'VARIABLES_AND_SCOPE',
+            '13': 'BLOCK_LEVEL_SETTINGS',
+            '14': 'PRECEDENCE_RULES',
+            '15': 'WINDOW_BLOCKS',
+            '16': 'LIMITATIONS',
+        }
+
+        # Direct topic selection: print content without paging and exit
+        if args.help_model is not True:
+            topic = str(args.help_model)
+            if topic in HELP_SECTIONS:
+                content = get_help_section(HELP_SECTIONS[topic])
+                print(content)
+                sys.exit(0)
+            elif topic.upper() in HELP_SECTIONS.values():
+                content = get_help_section(topic.upper())
+                print(content)
+                sys.exit(0)
+            else:
+                print(f"Error: Unknown help topic '{topic}'. Use 1-16.", file=sys.stderr)
+                sys.exit(1)
+
+        def show_paged_help(section_key):
+            content = get_help_section(section_key)
+            lines = content.split('\n')
+            if len(lines) <= HELP_PAGE_THRESHOLD:
+                print()
+                print(content)
+            else:
+                print_separator(SEP_LEN)
+                print(f"{section_key.replace('_', ' ').title()}")
+                print_separator_nocr(SEP_LEN)
+
+                for i in range(0, len(lines), HELP_PAGE_THRESHOLD):
+                    page_lines = lines[i:i + HELP_PAGE_THRESHOLD]
+                    print('\n'.join(page_lines))
+
+                    if i + HELP_PAGE_THRESHOLD < len(lines):
+                        response = input("Press Enter to continue or 'q' to quit: ").strip().lower()
+                        if response == 'q':
+                            break
+
+        def show_interactive_menu():
+            while True:
+                print_separator(SEP_LEN)
+                print("LPMP Model File Help - Interactive Menu")
+                print_separator_nocr(SEP_LEN)
+                print("Select a topic to view detailed information:")
+                print()
+                print("ARCHITECTURE:")
+                print(" 1. Architecture Overview (Core Components, Processing Modes)")
+                print(" 2. Main Loop Documentation (Execution Phases, Control Mechanisms)")
+                print(" 3. Processing and Analysis (Bundle Mode, Hostname Override, Timing Analysis)")
+                print()
+                print("PROCESSING MODES:")
+                print(" 4. Pattern Blocks (Sequential Event Timing)")
+                print(" 5. Pair Blocks (Duration Measurement)")
+                print(" 6. Timeline Blocks (Event Timeline)")
+                print()
+                print("CONFIGURATION:")
+                print(" 7. File Specifications (Wildcards, Multiple Files, Compression)")
+                print(" 8. Pattern Formats (Literals, Regex, OR Patterns, Variables)")
+                print(" 9. Global Settings (Timing, Loops, Output Control)")
+                print("10. Time Tolerances (max_time_delta, block_time_tolerance)")
+                print()
+                print("ADVANCED:")
+                print("11. Include Settings (External YAML Files)")
+                print("12. Variables and Variable Scope (Control, Substitution, Custom)")
+                print("13. Block-Level vs Model-Level Settings")
+                print("14. Setting Precedence Rules")
+                print("15. Window Blocks (Time-Range Log Extraction)")
+                print("16. Known Limitations")
+                print()
+                print("17. Show Existing Models")
+                print("18. Show Example Models")
+                print("19. Show Helper Files")
+                print("Q. Quit (or press Enter)")
+                print()
+
+                try:
+                    choice = input("Enter selection (1-19 or Q): ").strip().upper()
+
+                    if choice == 'Q' or choice == '':
+                        break
+                    elif choice in HELP_SECTIONS:
+                        show_paged_help(HELP_SECTIONS[choice])
+                        key = input(HELP_MENU_PROMPT).strip().lower()
+                        if key == 'q':
+                            break
+                    elif choice == '2':
+                        show_paged_help('MAIN_LOOP')
+                    elif choice == '17':
+                        # Show Existing Models (exclude examples)
+                        def show_existing_models():
+                            while True:
+                                functional_models, example_models, helper_models = collect_model_files(search_paths)
+                                model_files = functional_models
+
+                                if not model_files:
+                                    print("\nNo existing model files found (excluding examples).")
+                                    input("\nPress Enter to return...")
+                                    return
+
+                                # print_separator(SEP_LEN)
+                                print("Existing Model Files (excluding examples)")
+                                print_separator_nocr(SEP_LEN)
+
+                                for i, (name, path, status) in enumerate(model_files, 1):
+                                    print(f"{i:2d}. {name}")
+
+                                print("\nPress 'Enter' to go back to main menu")
+                                print()
+
+                                try:
+                                    choice = input("Select model file to view (number or B): ").strip().upper()
+                                    if choice == '':
+                                        return
+
+                                    try:
+                                        file_index = int(choice) - 1
+                                        if 0 <= file_index < len(model_files):
+                                            name, path, status = model_files[file_index]
+                                            print_separator(SEP_LEN)
+                                            print(f"Model File: {name}")
+                                            print_separator_nocr(SEP_LEN)
+
+                                            try:
+                                                with open(path, 'r') as f:
+                                                    content = f.read()
+                                                print(content)
+                                            except IOError as e:
+                                                print(f"Error reading file: {e}")
+
+                                            input("\nPress Enter to return to model list...")
+                                        else:
+                                            print(f"\nInvalid selection: {choice}")
+                                            input("Press Enter to continue...")
+                                    except ValueError:
+                                        print(f"\nInvalid selection: {choice}")
+                                        input("Press Enter to continue...")
+
+                                except (KeyboardInterrupt, EOFError):
+                                    return
+
+                        show_existing_models()
+                    elif choice == '18':
+                        # Show Example Models
+                        def show_example_models():
+                            while True:
+                                functional_models, example_models, helper_models = collect_model_files(search_paths)
+                                model_files = example_models
+
+                                if not model_files:
+                                    print("\nNo example model files found.")
+                                    input("\nPress Enter to return...")
+                                    return
+
+                                print_separator(SEP_LEN)
+                                print("Example Model Files")
+                                print_separator_nocr(SEP_LEN)
+
+                                for i, (name, path, status) in enumerate(model_files, 1):
+                                    print(f"{i:2d}. {name}")
+
+                                print("\nPress 'Enter' to go back to main menu")
+                                print()
+
+                                try:
+                                    choice = input("Select model file to view (number): ").strip().upper()
+                                    if choice == '':
+                                        return
+
+                                    try:
+                                        file_index = int(choice) - 1
+                                        if 0 <= file_index < len(model_files):
+                                            name, path, status = model_files[file_index]
+                                            print_separator(SEP_LEN)
+                                            print(f"Model File: {name}")
+                                            print_separator_nocr(SEP_LEN)
+
+                                            try:
+                                                with open(path, 'r') as f:
+                                                    content = f.read()
+                                                print(content)
+                                            except IOError as e:
+                                                print(f"Error reading file: {e}")
+
+                                            input("\nPress Enter to return to model list...")
+                                        else:
+                                            print(f"\nInvalid selection: {choice}")
+                                            input("Press Enter to continue...")
+                                    except ValueError:
+                                        print(f"\nInvalid selection: {choice}")
+                                        input("Press Enter to continue...")
+
+                                except (KeyboardInterrupt, EOFError):
+                                    return
+
+                        show_example_models()
+                    elif choice == '19':
+                        # Show Helper Files
+                        def show_helper_files():
+                            while True:
+                                functional_models, example_models, helper_models = collect_model_files(search_paths)
+                                helper_models.sort(key=lambda x: x[0])
+
+                                if not helper_models:
+                                    print("\nNo helper files found.")
+                                    input("\nPress Enter to return...")
+                                    return
+
+                                print_separator(SEP_LEN)
+                                print("Helper Files (include files, tool config)")
+                                print_separator_nocr(SEP_LEN)
+
+                                for i, (name, path, status) in enumerate(helper_models, 1):
+                                    print(f"{i:2d}. {name}")
+
+                                print("\nPress 'Enter' to go back to main menu")
+                                print()
+
+                                try:
+                                    choice = input("Select helper file to view (number): ").strip().upper()
+                                    if choice == '':
+                                        return
+
+                                    try:
+                                        file_index = int(choice) - 1
+                                        if 0 <= file_index < len(helper_models):
+                                            name, path, status = helper_models[file_index]
+                                            print_separator(SEP_LEN)
+                                            print(f"Helper File: {name}")
+                                            print_separator_nocr(SEP_LEN)
+
+                                            try:
+                                                with open(path, 'r') as f:
+                                                    content = f.read()
+                                                print(content)
+                                            except IOError as e:
+                                                print(f"Error reading file: {e}")
+
+                                            input("\nPress Enter to return to helper list...")
+                                        else:
+                                            print(f"\nInvalid selection: {choice}")
+                                            input("Press Enter to continue...")
+                                    except ValueError:
+                                        print(f"\nInvalid selection: {choice}")
+                                        input("Press Enter to continue...")
+
+                                except (KeyboardInterrupt, EOFError):
+                                    return
+
+                        show_helper_files()
+                    else:
+                        print(f"\nInvalid selection: {choice}")
+                        input("Press Enter to continue...")
+
+                except (KeyboardInterrupt, EOFError):
+                    print("\n\nExiting help menu...")
+                    break
+
+        show_interactive_menu()
+        sys.exit(0)
+
+    # Handle --list-models after argument parsing
+    if args.list_models:
+        def list_available_models():
+            functional_models, example_models, helper_models = collect_model_files(search_paths)
+
+            # Sort order: timeline, pattern, pair, then yaml errors last
+            type_order = {'timeline': 0, 'pattern': 1, 'pair': 2}
+
+            def _is_error(status):
+                return status.startswith('yaml') or status.startswith('format')
+
+            def sort_key(item):
+                status = item[2]
+                return (1, 0, item[0]) if _is_error(status) else (0, type_order.get(status, 99), item[0])
+
+            if args.sort:
+                # Alphabetical by name, errors last
+                functional_models.sort(key=lambda x: (1 if _is_error(x[2]) else 0, x[0]))
+                example_models.sort(key=lambda x: (1 if _is_error(x[2]) else 0, x[0]))
+            else:
+                functional_models.sort(key=sort_key)
+                example_models.sort(key=sort_key)
+
+            # Find max name length (without extension) for aligned columns
+            all_models = functional_models + example_models + helper_models
+            max_len = max((len(os.path.splitext(n)[0]) for n, _, _ in all_models), default=0)
+
+            # Sort helpers alphabetically
+            helper_models.sort(key=lambda x: x[0])
+
+            # Display results
+            print("Available Model Files:")
+            print("=" * 50)
+
+            def print_models(models, heading):
+                print(f"\n{heading}:")
+                if models:
+                    for name, path, status in models:
+                        display_name = os.path.splitext(name)[0]
+                        tag = f"\u274c {status}" if _is_error(status) else f"\u2705 {status}"
+                        print(f" - {display_name:<{max_len}}  {tag}")
+                        vlog2(f"      Path: {path}")
+                else:
+                    print(f"  No {heading.lower()} found.")
+
+            print_models(functional_models, "FUNCTIONAL MODELS")
+            print_models(example_models, "EXAMPLE MODELS")
+
+            # Show helpers with simple listing (no model type validation)
+            print("\nHELPER FILES:")
+            if helper_models:
+                for name, path, status in helper_models:
+                    display_name = os.path.splitext(name)[0]
+                    print(f" - {display_name}")
+                    vlog2(f"      Path: {path}")
+            else:
+                print("  No helper files found.")
+
+            print(f"\nTotal: {len(functional_models)} functional, "
+                  f"{len(example_models)} example, {len(helper_models)} helper files")
+
+        list_available_models()
+        sys.exit(0)
+
+    # Validate mutually exclusive options
+    if args.hosts and args.include:
+        print("Error: --hosts and --include are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+    if args.hosts and args.exclude:
+        print("Error: --hosts and --exclude are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+    if args.include and args.exclude:
+        print("Error: --include and --exclude are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+
+    # Set bundle and lab names
+    args.bundle_name = args.bundle
+    args.lab_name = args.lab
+
+    # Detect bundle hosts if bundle path is not system root.
+    if args.bundle_name != '/':
+        # Validate bundle path exists
+        if not os.path.isdir(args.bundle_name):
+            print(f"Error: Bundle path '{args.bundle_name}' not found or is not a directory", file=sys.stderr)
+            print("Use --help for usage information", file=sys.stderr)
+            sys.exit(1)
+
+        bundle_host_list, bundle_host_list_dated = detect_bundle_hosts(args.bundle_name)
+
+        # Handle host filtering options
+        if args.hosts:
+            bundle_host_list, bundle_host_list_dated = interactive_host_selection(
+                bundle_host_list, bundle_host_list_dated)
+        elif args.include:
+            bundle_host_list, bundle_host_list_dated = filter_hosts(
+                bundle_host_list, bundle_host_list_dated, args.include, mode='include')
+        elif args.exclude:
+            bundle_host_list, bundle_host_list_dated = filter_hosts(
+                bundle_host_list, bundle_host_list_dated, args.exclude, mode='exclude')
+        elif args.host:
+            # --host without explicit filtering: default to processing only
+            # the --hostname host (controller-0 by default). The {host}
+            # variable is available for override blocks to reach into
+            # the target host's logs.
+            if args.hostname in bundle_host_list:
+                bundle_host_list, bundle_host_list_dated = filter_hosts(
+                    bundle_host_list, bundle_host_list_dated,
+                    [args.hostname], mode='include')
+    else:
+        bundle_host_list = []
+        bundle_host_list_dated = []
+        # Make logs_dir absolute for system root
+        if not os.path.isabs(args.logs_dir):
+            args.logs_dir = os.path.join('/', args.logs_dir)
+
+        # Error if host options used without --bundle
+        if args.hosts:
+            print("Error: --hosts option only applies to --bundle mode", file=sys.stderr)
+            print("Use --help for usage information", file=sys.stderr)
+            sys.exit(1)
+        if args.include:
+            print("Error: --include option only applies to --bundle mode", file=sys.stderr)
+            print("Use --help for usage information", file=sys.stderr)
+            sys.exit(1)
+        if args.exclude:
+            print("Error: --exclude option only applies to --bundle mode", file=sys.stderr)
+            print("Use --help for usage information", file=sys.stderr)
+            sys.exit(1)
+
+    # Build variable substitution dictionary
+    variables = {'hostname': args.hostname}
+    manage_peer_controller(variables)
+    if args.host:
+        variables['host'] = args.host
+    if args.variables:
+        for var_pair in args.variables:
+            if '=' not in var_pair:
+                print(f"Error: Invalid --var format '{var_pair}'. Use KEY=VALUE", file=sys.stderr)
+                print("Use --help for usage information", file=sys.stderr)
+                sys.exit(1)
+            key, value = var_pair.split('=', 1)
+            variables[key] = value
+    # Store original hostname for restoration
+    original_hostname = args.hostname
+
+    # Validate logs directory only for system root mode
+    if not bundle_host_list:
+        if not os.path.exists(args.logs_dir):
+            print(f"Error: logs-dir: {args.logs_dir} not found", file=sys.stderr)
+            print("Use --help for usage information", file=sys.stderr)
+            sys.exit(1)
+
+        if not os.path.isdir(args.logs_dir):
+            print(f"Error: logs-dir: {args.logs_dir} is not a directory", file=sys.stderr)
+            print("Use --help for usage information", file=sys.stderr)
+            sys.exit(1)
+
+    # Handle --no-ts-files: list files with no parseable timestamps and exit
+    if args.no_ts_files:
+        if bundle_host_list:
+            for hostname, dated_dir in zip(bundle_host_list, bundle_host_list_dated):
+                host_dir = os.path.join(args.bundle_name, dated_dir, args.logs_dir)
+                if not os.path.exists(host_dir):
+                    continue
+                no_ts = find_no_timestamp_files(host_dir)
+                if no_ts:
+                    print(f"{hostname}: {len(no_ts)} files with no parseable timestamps")
+                    for f in no_ts:
+                        print(f"  {f}")
+                else:
+                    print(f"{hostname}: all files have parseable timestamps")
+        else:
+            no_ts = find_no_timestamp_files(args.logs_dir)
+            if no_ts:
+                print(f"{len(no_ts)} files with no parseable timestamps in {args.logs_dir}")
+                for f in no_ts:
+                    print(f"  {f}")
+            else:
+                print(f"All files have parseable timestamps in {args.logs_dir}")
+        sys.exit(0)
+
+    # Log all argument values when verbose mode is enabled
+    vlog1("Arguments parsed:")
+    vlog1(f"  lab-name: {args.lab_name}")
+    vlog1(f"  bundle-name: {args.bundle_name}")
+    vlog1(f"  logs-dir: {args.logs_dir}")
+    vlog1(f"  model-file: {args.model_file}")
+    vlog1(f"  output: {args.output}")
+    vlog1(f"  start-date: {args.start_date}")
+    vlog1(f"  stop-date: {args.stop_date}")
+    vlog1(f"  loops: {args.loops}")
+    vlog1(f"  max-log-length: {args.max_log_length}")
+    vlog1(f"  max-lines: {args.max_lines}")
+    vlog1(f"  max-time-delta: {args.max_time_delta}")
+    vlog1(f"  block-time-tolerance: {args.block_time_tolerance}")
+    vlog1(f"  hostname: {args.hostname}")
+    vlog1(f"  variables: {variables}")
+    vlog1(f"  verbose: {args.verbose}")
+    # Parse start date if provided
+    start_date = None
+    if args.start_date:
+        try:
+            date_input = args.start_date
+            # Normalize separator at position 10 to 'T' (accept space or any char)
+            if len(date_input) > 10 and date_input[10] != 'T':
+                date_input = date_input[:10] + 'T' + date_input[11:]
+            start_date = datetime.fromisoformat(date_input)
+            # Date-only input: default to start of day
+            if 'T' not in date_input:
+                start_date = start_date.replace(hour=0, minute=0, second=0)
+            vlog2(f"  parsed start-date: {start_date}")
+        except ValueError:
+            print(
+                f"Error: Invalid start date '{args.start_date}'. "
+                "Accepted formats: YYYY-MM-DD, YYYY-MM-DDTHH, "
+                "YYYY-MM-DDTHH:MM, YYYY-MM-DDTHH:MM:SS", file=sys.stderr)
+            sys.exit(1)
+
+    # Parse stop date if provided
+    stop_date = None
+    if args.stop_date:
+        try:
+            date_input = args.stop_date
+            # Normalize separator at position 10 to 'T' (accept space or any char)
+            if len(date_input) > 10 and date_input[10] != 'T':
+                date_input = date_input[:10] + 'T' + date_input[11:]
+            stop_date = datetime.fromisoformat(date_input)
+            # Date-only input: default to end of day
+            if 'T' not in date_input:
+                stop_date = stop_date.replace(hour=23, minute=59, second=59)
+            vlog2(f"  parsed stop-date: {stop_date}")
+        except ValueError:
+            print(
+                f"Error: Invalid stop date '{args.stop_date}'. "
+                "Accepted formats: YYYY-MM-DD, YYYY-MM-DDTHH, "
+                "YYYY-MM-DDTHH:MM, YYYY-MM-DDTHH:MM:SS", file=sys.stderr)
+            sys.exit(1)
+
+    # Validate stop_date > start_date if both provided
+    if start_date and stop_date and stop_date <= start_date:
+        print("Error: Stop date must be after start date", file=sys.stderr)
+        sys.exit(1)
+
+    # Store stop_date in args for access by engine functions
+    args.stop_date_parsed = stop_date
+
+    run_start_time = datetime.now()
+
+    # Find model file using prioritized search path
+    resolved_model_file = find_model_file(args.model_file)
+    if resolved_model_file is None:
+        print(f"Error: Model file '{args.model_file}' not found in search paths:", file=sys.stderr)
+        print(f"  1. ./models/{args.model_file}", file=sys.stderr)
+        print(f"  2. /etc/lpmp.d/{args.model_file}", file=sys.stderr)
+        print(f"  3. /var/lib/lpmp_models/{args.model_file}", file=sys.stderr)
+        print(f"  4. {args.model_file} (relative/absolute path)", file=sys.stderr)
+        print("Use --help-model for model file format information", file=sys.stderr)
+        sys.exit(1)
+
+    # Use resolved path for all subsequent operations
+    args.model_file = resolved_model_file
+
+    # Guard: example models are for syntax reference only, not for running
+    resolved_real = os.path.realpath(resolved_model_file)
+    if '/examples/' in resolved_real or '/examples/' in resolved_model_file:
+        model_name = os.path.basename(resolved_model_file)
+        print(f"Note: '{model_name}' is an example model for syntax reference only.")
+        print("Example models are not functional. Copy and adapt for your use case.")
+        print("")
+        print("  cp <example_model> my_model.yaml   # copy and edit")
+        print("  lpmptool -m my_model.yaml          # run your model")
+        print("  lpmptool --help-model              # block type documentation")
+        print("  lpmptool --list-models             # list available models")
+        print("  lpmptool --list-models --sort       # list models sorted by name")
+        sys.exit(0)
+
+    # Load search configuration from model file
+    original_blocks, settings, model_type = load_model(args.model_file)
+    args.model_type = model_type
+
+    # Update memory monitor after model loading
+    if memory_monitor:
+        memory_monitor.update_peak('model_loading')
+
+    # Check if model has graph setting but no graph variable defined
+    if 'graph' in settings and 'graph' not in variables:
+        print(
+            "Warning: Model has graph setting but no graph variable defined.\n"
+            "         Use --var graph=\"graph name\" .. to enable graph data file creation.",
+            file=sys.stderr
+        )
+
+    # Use block_time_tolerance from model if not explicitly set on command line
+    if '--block-time-tolerance' not in sys.argv and 'block_time_tolerance' in settings:
+        args.block_time_tolerance = settings['block_time_tolerance']
+        vlog2(f"Using block_time_tolerance from model: {args.block_time_tolerance}")
+
+    # Use controller setting from model if present
+    if 'controller' in settings:
+        args.controller_setting = settings['controller']
+        vlog2(f"Using controller setting from model: {args.controller_setting}")
+
+    # Use optional setting from model if present
+    if 'optional' in settings:
+        args.optional_setting = settings['optional']
+        vlog2(f"Using optional setting from model: {args.optional_setting}")
+
+    # Handle 'host' setting: inject {host} variable for pattern substitution
+    # CLI --var host= or --host overrides settings.host
+    if 'host' not in variables and 'host' in settings:
+        variables['host'] = settings['host']
+
+    # Apply variable substitution to all patterns (for system mode)
+    # Keep original blocks unchanged for bundle mode
+    if not bundle_host_list:
+        blocks = [block.copy() for block in original_blocks]  # Create copies
+        apply_variable_substitution(blocks, variables)
+        # Apply settings variable substitution
+        apply_settings_variable_substitution(settings, variables)
+
+    # Set default output filename based on block types if user didn't specify -o
+    if args.output is None:
+        has_timeline = (args.model_type == ModelType.TIMELINE)
+        has_non_timeline = any(
+            ('patterns' in block) or ('start' in block and 'stop' in block)
+            for block in original_blocks
+        )
+        # Output directory will be created later based on start time
+        vlog2("Will create default output directory based on lab name and start time")
+
+    # Use settings from model file if command line args not provided
+    if not args.start_date and 'start_date' in settings:
+        args.start_date = settings['start_date']
+        start_date = (
+            datetime.fromisoformat(args.start_date)
+            if 'T' in args.start_date
+            else datetime.fromisoformat(args.start_date + 'T00:00:00')
+        )
+        vlog2(f"Using start_date from model: {args.start_date}")
+
+    # Use stop_date from model settings if command line -e not provided
+    if not args.stop_date and 'stop_date' in settings:
+        args.stop_date = settings['stop_date']
+        date_input = args.stop_date
+        if len(date_input) > 10 and date_input[10] != 'T':
+            date_input = date_input[:10] + 'T' + date_input[11:]
+        stop_date = datetime.fromisoformat(date_input)
+        if 'T' not in date_input:
+            stop_date = stop_date.replace(hour=23, minute=59, second=59)
+        args.stop_date_parsed = stop_date
+        vlog2(f"Using stop_date from model: {args.stop_date}")
+
+    # Detect window model (any block with window: true)
+    is_window_model = any(block.get('window') for block in original_blocks)
+
+    # Store original logs_dir for bundle mode (needed by window auto-detect and later)
+    original_logs_dir = args.logs_dir
+
+    # Auto-detect time range for window models when no start_date provided
+    if is_window_model and not start_date:
+        # Collect file patterns from all window blocks
+        window_file_patterns = []
+        for block in original_blocks:
+            if block.get('window'):
+                f = block['file']
+                if isinstance(f, list):
+                    window_file_patterns.extend(f)
+                else:
+                    window_file_patterns.append(f)
+
+        # Determine logs dir for auto-detection — scan ALL hosts in bundle
+        if bundle_host_list:
+            auto_start = None
+            auto_end = None
+            for dated_dir in bundle_host_list_dated:
+                host_dir = os.path.join(
+                    args.bundle_name, dated_dir, original_logs_dir
+                )
+                h_start, h_end = auto_detect_time_range(
+                    host_dir, window_file_patterns
+                )
+                if h_end and (auto_end is None or h_end > auto_end):
+                    auto_end = h_end
+                if h_start and (auto_start is None or h_start < auto_start):
+                    auto_start = h_start
+        else:
+            auto_start, auto_end = auto_detect_time_range(
+                args.logs_dir, window_file_patterns
+            )
+
+        if auto_start and auto_end:
+            start_date = auto_start
+            args.start_date = auto_start.isoformat()
+            if not stop_date:
+                stop_date = auto_end
+                args.stop_date = auto_end.isoformat()
+                args.stop_date_parsed = auto_end
+            vlog1(f"Window auto-detected time range: {auto_start} .. {auto_end}")
+        else:
+            print("Error: No timestamps found in log files for window model",
+                  file=sys.stderr)
+            sys.exit(1)
+
+    # Get max_time_delta setting - command line overrides model, model overrides default
+    # Check if --max-time-delta was explicitly provided by user
+    max_time_delta_from_cmdline = '--max-time-delta' in sys.argv
+    if max_time_delta_from_cmdline:
+        max_time_delta = args.max_time_delta
+        vlog2(f"Using max_time_delta from command line: {max_time_delta}")
+    else:
+        max_time_delta = settings.get('max_time_delta', DEFAULT_MAX_TIME_DELTA)
+        vlog2(f"Using max_time_delta from model/default: {max_time_delta}")
+
+    # Store original start_date for bundle mode (each host should start from the same date)
+    original_start_date = start_date
+
+    # Define header and banner for all models
+    header = (f"Delta(HH:MM:SS)\tHostname{' ' * (HOSTNAME_COLUMN_WIDTH - 8)}\tBlock Label               \t"
+              f"Log File{' ' * (LOG_FILE_COLUMN_WIDTH - 8)}\tData")
+    banner = (f"-------------\t{'-' * HOSTNAME_COLUMN_WIDTH}\t---------------------------\t"
+              f"{'-' * LOG_FILE_COLUMN_WIDTH}\t--------")
+
+    # Window model pre-scan summary
+    if is_window_model:
+        # Collect file patterns from window blocks
+        window_file_patterns = []
+        for block in original_blocks:
+            if block.get('window'):
+                f = block['file']
+                if isinstance(f, list):
+                    window_file_patterns.extend(f)
+                else:
+                    window_file_patterns.append(f)
+
+        if bundle_host_list:
+            print("\nWindow Model:")
+            # Track per-file: hosts, earliest first_ts, latest last_ts
+            file_info = {}   # fname -> {'first': ts, 'last': ts}
+            file_hosts = {}  # fname -> [hostname, ...]
+            skip_info = {}   # fname -> reason
+            skip_hosts = {}  # fname -> [hostname, ...]
+            total_matched = 0
+            total_skipped = 0
+            for hostname, dated_dir in zip(bundle_host_list, bundle_host_list_dated):
+                host_dir = os.path.join(
+                    args.bundle_name, dated_dir, original_logs_dir
+                )
+                matched, skipped = discover_window_files(
+                    host_dir, window_file_patterns, start_date, stop_date
+                )
+                total_matched += len(matched)
+                total_skipped += len(skipped)
+                print(f"  {hostname}: {len(matched)} matched"
+                      f", {len(skipped)} skipped")
+                for fname, first_ts, last_ts in matched:
+                    if fname in file_info:
+                        if first_ts < file_info[fname]['first']:
+                            file_info[fname]['first'] = first_ts
+                        if last_ts > file_info[fname]['last']:
+                            file_info[fname]['last'] = last_ts
+                        file_hosts[fname].append(hostname)
+                    else:
+                        file_info[fname] = {'first': first_ts, 'last': last_ts}
+                        file_hosts[fname] = [hostname]
+                for fname, reason in skipped:
+                    if fname not in skip_info:
+                        skip_info[fname] = reason
+                        skip_hosts[fname] = [hostname]
+                    else:
+                        skip_hosts[fname].append(hostname)
+
+            # Build deduplicated lists sorted by first timestamp
+            all_matched = sorted(
+                [(f, info['first'], info['last']) for f, info in file_info.items()],
+                key=lambda x: x[1]
+            )
+            # Only show skipped files that were NOT matched on any host
+            all_skipped = [
+                (f, reason) for f, reason in skip_info.items()
+                if f not in file_info
+            ]
+            # Merge host lists for skipped files into file_hosts
+            for fname, hosts in skip_hosts.items():
+                if fname not in file_hosts:
+                    file_hosts[fname] = hosts
+
+            print()
+            print_window_summary(
+                all_matched, all_skipped, start_date, stop_date,
+                auto_detected=(original_start_date == start_date
+                               and '--start-date' not in sys.argv
+                               and '-s' not in sys.argv),
+                file_hosts=file_hosts
+            )
+        else:
+            print("\nWindow Model:")
+            matched, skipped = discover_window_files(
+                args.logs_dir, window_file_patterns, start_date, stop_date
+            )
+            print_window_summary(
+                matched, skipped, start_date, stop_date,
+                auto_detected=(original_start_date == start_date
+                               and '--start-date' not in sys.argv
+                               and '-s' not in sys.argv)
+            )
+        print()
+
+    # Track whether any required block failed (for exit code)
+    any_host_failed = False
+
+    # Main processing loop - iterate over bundle hosts if in bundle mode
+    if bundle_host_list:
+        # Bundle mode - different processing approaches based on model type
+        for hostname, dated_dir in zip(bundle_host_list, bundle_host_list_dated):
+            # Set logs_dir for this host
+            args.logs_dir = os.path.join(args.bundle_name, dated_dir, original_logs_dir)
+
+            # Always show host processing for timeline models, only with verbose for others
+            is_timeline_model = (args.model_type == ModelType.TIMELINE)
+            if is_timeline_model or get_verbose_level() >= 1:
+                print(f"Scanning {hostname} : {args.logs_dir} ", end='', flush=True)
+
+                # Add progress indicator for timeline models
+                if is_timeline_model:
+                    progress_type = ProgressType(args.progress)
+                    progress_active = start_progress_indicator(progress_type)
+                else:
+                    print()  # New line for non-timeline models
+
+            # Validate logs directory exists for this host
+            if not os.path.exists(args.logs_dir):
+                print(f"Warning: logs-dir {args.logs_dir} not found for {hostname}, skipping", file=sys.stderr)
+                continue
+
+            # Store bundle information for cross-host access
+            args.bundle_host_list = bundle_host_list
+            args.bundle_host_list_dated = bundle_host_list_dated
+            args.original_logs_dir = original_logs_dir
+
+            # Create fresh copies of blocks for this host (deep copy to preserve original patterns)
+            blocks = copy.deepcopy(original_blocks)
+
+            # Update hostname variable in bundle mode
+            variables['hostname'] = hostname
+            # Set current processing hostname for output formatting
+            args.current_processing_hostname = hostname
+
+            # Reapply variable substitution with updated hostname
+            apply_variable_substitution(blocks, variables)
+            # Apply settings variable substitution
+            apply_settings_variable_substitution(settings, variables)
+
+            # Timeline models: use original_start_date for consistent processing across hosts
+            # Pattern/Pair models: use start_date which may have been advanced from previous processing
+            expand_start_date = original_start_date if is_timeline_model else start_date
+            expand_wildcards_in_blocks(blocks, args.logs_dir, expand_start_date,
+                                       getattr(args, 'stop_date_parsed', None))
+
+            # Update memory monitor for bundle processing
+            if memory_monitor:
+                memory_monitor.update_peak(f'bundle_host_{hostname}')
+
+            # Reset per-host state
+            all_structured_results = []
+            pass_summaries = []
+            csv_pass_summaries = []
+            args.all_optional_warnings = []  # Initialize warnings collection
+
+            # Timeline models: each host processes independently from original start date
+            # Pattern/Pair models: preserve loop-based processing with state advancement
+            if is_timeline_model:
+                host_start_date = original_start_date  # Clean start for timeline models
+            else:
+                host_start_date = original_start_date  # Use original start_date for each host
+
+            # Initialize console capture for this host
+            console_capture = ConsoleCapture(silent_mode=is_timeline_model)
+            console_capture.start_capture()
+
+            # Process this host with loop support (skip loops for timeline models)
+            loop_count = 0
+            while True:
+                loop_count += 1
+
+                # Add model start message for each loop
+                model_name = os.path.splitext(os.path.basename(args.model_file))[0]
+                if not is_timeline_model:
+                    if loop_count > 1:
+                        print("\n" + "-" * 70)
+                    print()
+                    if host_start_date:
+                        start_time_str = host_start_date.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        print(f"{hostname} {model_name} Start: {start_time_str}\n")
+                    else:
+                        print(f"{hostname} {model_name} Start: (beginning of log)\n")
+
+                    # Print header and banner after model start message
+                    if loop_count == 1:
+                        print(header)
+                        print(banner)
+
+                # Timeline models don't use loops - process all data in one pass
+                if is_timeline_model or (args.loops > 0 and loop_count > args.loops):
+                    if not is_timeline_model and args.loops > 0 and loop_count > args.loops:
+                        break
+
+                (
+                    success,
+                    start_time,
+                    end_time,
+                    patterns_found,
+                    optional_warnings,
+                    structured_results
+                ) = process_blocks_auto_detect(
+                    args,
+                    blocks,
+                    host_start_date,
+                    max_time_delta,
+                    variables,
+                    settings,
+                )
+
+                current_pass_patterns = patterns_found if success else 0
+
+                # Accumulate structured results for output writing
+                all_structured_results.extend(structured_results)
+
+                # Stop progress indicator for timeline models
+                if is_timeline_model and 'progress_active' in locals() and progress_active is not None:
+                    stop_progress_indicator(progress_active)
+
+                # Collect optional warnings from this pass
+                if optional_warnings:
+                    args.all_optional_warnings.extend(optional_warnings)
+
+                if not success:
+                    # Calculate duration even for failed runs
+                    total_duration = (
+                        format_duration((end_time - start_time).total_seconds())
+                        if start_time and end_time
+                        else "00:00:00.000"
+                    )
+
+                    model_info = ""
+                    for block in blocks:
+                        filenames = block['file'] if isinstance(block['file'], list) else [block['file']]
+                        if any(f.startswith('mtcAgent.log') for f in filenames):
+                            model_info = extract_model_info(args.logs_dir)
+                            break
+                    model_suffix = f" for {model_info}" if model_info else ""
+
+                    summary_line = (
+                        f"Pass {loop_count:<3}     "
+                        f"{total_duration} "
+                        f"{hostname:<15} timing profile - "
+                        f"found {current_pass_patterns} patterns"
+                        f"{model_suffix}"
+                    )
+                    if current_pass_patterns > 0:
+                        print(f"\033[91m❌ {summary_line} <-----------------------------\033[0m")
+                    pass_summaries.append("❌ " + summary_line)
+
+                    if get_verbose_level() >= 1 and not is_timeline_model:
+                        print(f"Pass {loop_count} ended - no patterns found")
+                    if args.loops != 0 or loop_count == 1:
+                        any_host_failed = True
+                    break
+
+                # Only show timing summary for non-timeline models
+                if not is_timeline_model:
+                    total_duration = (
+                        format_duration((end_time - start_time).total_seconds())
+                        if start_time and end_time
+                        else "00:00:00.000"
+                    )
+
+                    model_info = ""
+                    for block in blocks:
+                        filenames = block['file'] if isinstance(block['file'], list) else [block['file']]
+                        if any(f.startswith('mtcAgent.log') for f in filenames):
+                            model_info = extract_model_info(args.logs_dir)
+                            break
+                    model_suffix = f" for {model_info}" if model_info else ""
+
+                    summary_line = (
+                        f"Pass {loop_count:<3}     "
+                        f"{total_duration} "
+                        f"{hostname:<15} timing profile - "
+                        f"found {current_pass_patterns} patterns"
+                        f"{model_suffix}"
+                    )
+                    print(f"\033[92m✅ {summary_line} <-----------------------------\033[0m")
+
+                    pass_summaries.append("✅ " + summary_line)
+                    csv_pass_summaries.append(
+                        [
+                            f"Pass {loop_count}",
+                            total_duration,
+                            f"found {current_pass_patterns} patterns",
+                            "",
+                            "",
+                        ]
+                    )
+                # Timeline models process all data in one pass
+                if is_timeline_model or args.loops == 1:
+                    break
+
+                # For pattern/pair models: advance search time for next loop iteration
+                # Timeline models don't reach this point due to single-pass processing
+                # Advance by tolerance + 1ms to guarantee the previous match falls
+                # outside the tolerance window on the next pass.
+                if end_time:
+                    advance_ms = int(args.block_time_tolerance * 1000) + MIN_TIME_DELTA_MSECS
+                    host_start_date = end_time + timedelta(milliseconds=advance_ms)
+                else:
+                    host_start_date = host_start_date + timedelta(minutes=20)
+
+            # Create hostname directory and write output for this host
+            output_dir = create_output_directory(args, run_start_time, hostname)
+
+            # Determine file extension based on model type
+            is_timeline_model = (args.model_type == ModelType.TIMELINE)
+            file_extension = 'timeline.log' if is_timeline_model else 'timing'
+
+            # Create header with hostname column for individual host files
+            host_header = (
+                f"Delta(HH:MM:SS)"
+                f"\tHostname{' ' * (HOSTNAME_COLUMN_WIDTH - 8)}"
+                f"\tBlock Label               "
+                f"\tLog File{' ' * (LOG_FILE_COLUMN_WIDTH - 8)}"
+                f"\tData"
+            )
+            host_banner = (
+                f"-------------"
+                f"\t{'-' * HOSTNAME_COLUMN_WIDTH}"
+                f"\t---------------------------"
+                f"\t{'-' * LOG_FILE_COLUMN_WIDTH}"
+                f"\t--------")
+
+            # Only create file if there are actual results (not just headers)
+            profile_file = None
+            # Always stop console capture to restore stdout before next host
+            console_capture.stop_capture()
+
+            if all_structured_results:
+                profile_file = os.path.join(output_dir, f'{args.lab_name}_{hostname}_profile.{file_extension}')
+
+                # Write captured console output to profile file
+                console_output = console_capture.get_captured_output()
+                with open(profile_file, 'w') as f:
+                    f.write(console_output)
+
+            # Only create CSV file if there are actual results
+            if all_structured_results:
+                csv_filename = os.path.join(output_dir, f'{args.lab_name}_{hostname}_profile.{file_extension}.csv')
+
+                if args.model_type == ModelType.PATTERN:
+                    write_pattern_csv(csv_filename, all_structured_results, csv_pass_summaries)
+                elif args.model_type == ModelType.PAIR:
+                    write_pair_csv(csv_filename, all_structured_results, csv_pass_summaries)
+                elif args.model_type == ModelType.TIMELINE:
+                    write_timeline_csv(csv_filename, all_structured_results, csv_pass_summaries)
+
+            # Store profile file path for later graph processing
+            if 'graph' in variables and profile_file and os.path.exists(profile_file):
+                if not hasattr(args, 'graph_files'):
+                    args.graph_files = []
+                args.graph_files.append((profile_file, hostname))
+
+            if args.model_type == ModelType.PATTERN:
+                write_pattern_block_profile(output_dir, blocks, all_structured_results)
+            elif args.model_type == ModelType.PAIR:
+                write_pair_block_profile(output_dir, blocks, all_structured_results)
+            elif args.model_type == ModelType.TIMELINE:
+                write_timeline_block_profile(output_dir, blocks, all_structured_results)
+            # Write context files for blocks with context: setting
+            write_context_files(output_dir, blocks, all_structured_results)
+            # Only write summary.timing for non-timeline models and when there are results
+            if args.model_type != ModelType.TIMELINE and all_structured_results:
+                all_optional_warnings = getattr(args, 'all_optional_warnings', [])
+                if args.model_type == ModelType.PATTERN:
+                    summary_path = os.path.join(output_dir, 'summary.timing')
+                    write_pattern_summary(summary_path, all_structured_results,
+                                          pass_summaries, all_optional_warnings)
+                elif args.model_type == ModelType.PAIR:
+                    summary_path = os.path.join(output_dir, 'summary.timing')
+                    write_pair_summary(summary_path, all_structured_results,
+                                       pass_summaries, all_optional_warnings)
+
+            # Always show completion message for timeline models, only with verbose for others
+            if is_timeline_model:
+                print(f"  - timeline data collected for {hostname}")
+            else:
+                vlog1(f"  - results written to {output_dir}/")
+
+        # After processing all hosts, merge the profile.timing files
+        if bundle_host_list:
+            # Get the parent directory path - use -o path if specified, otherwise bundle path
+            model_name = os.path.splitext(os.path.basename(args.model_file))[0]
+            time_str = run_start_time.strftime("%Y%m%d_%H%M%S")
+
+            if args.output:
+                # When -o is specified, use that as the base
+                bundle_base_dir = os.path.join(args.output, f"lpmp_{args.lab_name}", f"{time_str}_{model_name}")
+            else:
+                # Default behavior - use bundle directory
+                bundle_base_dir = os.path.join(args.bundle_name, f"lpmp_{args.lab_name}", f"{time_str}_{model_name}")
+
+            # Create system summary or merged profile (model-type specific)
+            if args.model_type == ModelType.TIMELINE:
+                host_files = []
+                for hostname in bundle_host_list:
+                    host_file = os.path.join(
+                        bundle_base_dir, hostname,
+                        f'{args.lab_name}_{hostname}_profile.timeline.log'
+                    )
+                    if os.path.exists(host_file):
+                        host_files.append((host_file, hostname))
+
+                if host_files:
+                    try:
+                        system_timeline_path = os.path.join(
+                            bundle_base_dir,
+                            f'{args.lab_name}_system_profile.timeline.log'
+                        )
+                        merge_timeline_profiles(host_files, system_timeline_path)
+                        vlog1(f"  - timeline merged into: {system_timeline_path}")
+                    except Exception as e:
+                        print(f"Warning: Timeline merge failed: {e}", file=sys.stderr)
+                        if get_verbose_level() >= 2:
+                            import traceback
+                            traceback.print_exc()
+            elif len(bundle_host_list) > 1:
+                hosts_with_data = []
+                for hostname in bundle_host_list:
+                    host_output_dir = os.path.join(bundle_base_dir, hostname)
+                    profile_file = os.path.join(host_output_dir, f'{args.lab_name}_{hostname}_profile.timing')
+                    if os.path.exists(profile_file):
+                        hosts_with_data.append(hostname)
+
+                if len(hosts_with_data) > 1:
+                    system_summary_path = os.path.join(bundle_base_dir, f'{args.lab_name}_system_summary.timing')
+                    if args.model_type == ModelType.PATTERN:
+                        create_pattern_system_summary(
+                            bundle_base_dir, hosts_with_data, args.lab_name, system_summary_path)
+                    elif args.model_type == ModelType.PAIR:
+                        create_pair_system_summary(
+                            bundle_base_dir, hosts_with_data, args.lab_name, system_summary_path)
+
+            # Run graph processing after all model search phases are complete
+            if 'graph' in variables and hasattr(args, 'graph_files'):
+                import subprocess
+                for profile_file, hostname in args.graph_files:
+                    try:
+                        # Get the directory of the profile file to place graph files there
+                        profile_dir = os.path.dirname(profile_file)
+                        # Get the lpmp_graph.py path from the lpmptool directory
+                        graph_tool_path = os.path.join(os.path.dirname(__file__), 'lpmp_graph.py')
+
+                        cmd = [
+                            'python3', graph_tool_path,
+                            '--input', profile_file,
+                            '--name', variables['graph']
+                        ]
+                        if args.verbose >= 1:
+                            cmd.append('--verbose')
+
+                        vlog1(f"Running graph processing: {' '.join(cmd)}")
+
+                        subprocess.run(cmd, cwd=profile_dir, check=True)
+                        vlog1(f"Graph processing completed for {hostname}")
+                    except subprocess.CalledProcessError as e:
+                        print(f"Warning: Graph processing failed for {hostname}: {e}", file=sys.stderr)
+
+            # Verify timeline bounds for timeline models
+            if args.model_type == ModelType.TIMELINE:
+                system_profile = os.path.join(
+                    bundle_base_dir,
+                    f'{args.lab_name}_system_profile.timeline.log'
+                )
+                verify_timeline_bounds(system_profile, original_start_date, stop_date)
+
+            # Print output files
+            print_output_files(bundle_base_dir)
+
+            # For timeline models, cat small profile files to console
+            if args.model_type == ModelType.TIMELINE:
+                for hostname in bundle_host_list:
+                    host_profile = os.path.join(
+                        bundle_base_dir, hostname,
+                        f'{args.lab_name}_{hostname}_profile.timeline.log'
+                    )
+                    if os.path.exists(host_profile):
+                        with open(host_profile, 'r') as f:
+                            lines = f.readlines()
+                        # Show all lines if max_lines is 0, otherwise check limit
+                        if args.max_lines == 0 or len(lines) <= args.max_lines:
+                            print(f"\n--- {hostname} timeline ({len(lines)} lines) ---")
+                            for line in lines:
+                                print(line, end='')
+    else:
+        # System root mode - single processing run
+        vlog1(f"logs-dir: {args.logs_dir}")
+
+        # Expand wildcards once for system root
+        expand_wildcards_in_blocks(blocks, args.logs_dir, start_date,
+                                   getattr(args, 'stop_date_parsed', None))
+
+        # Update memory monitor after file expansion
+        if memory_monitor:
+            memory_monitor.update_peak('file_expansion')
+
+        # Only use model loops setting if user didn't specify -n explicitly and not timeline model
+        is_timeline_model = (args.model_type == ModelType.TIMELINE)
+        if not is_timeline_model and args.loops == 1 and 'loops' in settings:
+            if '-n' not in sys.argv and '--loops' not in sys.argv:
+                args.loops = settings['loops']
+                vlog2(f"Using loops from model: {args.loops}")
+
+        if args.max_log_length == 180 and 'max_log_length' in settings:
+            args.max_log_length = settings['max_log_length']
+            vlog2(f"Using max_log_length from model: {args.max_log_length}")
+
+        all_structured_results = []
+        pass_summaries = []
+        csv_pass_summaries = []
+        args.all_optional_warnings = []  # Initialize warnings collection
+
+        # Initialize console capture for system mode
+        is_timeline_model = (args.model_type == ModelType.TIMELINE)
+        console_capture = ConsoleCapture(silent_mode=is_timeline_model)
+        console_capture.start_capture()
+
+        vlog1(f"Loaded {len(blocks)} blocks from {args.model_file}")
+
+        loop_count = 0
+        while True:
+            loop_count += 1
+
+            # Add model start message for each loop
+            model_name = os.path.splitext(os.path.basename(args.model_file))[0]
+            if not is_timeline_model:
+                if start_date:
+                    start_time_str = start_date.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    print(f"{model_name} Start: {start_time_str}")
+                else:
+                    print(f"{model_name} Start: (beginning of log)")
+
+                # Print header and banner after model start message
+                if loop_count == 1:
+                    print(header)
+                    print(banner)
+
+            # Timeline models don't use loops - process all data in one pass
+            if is_timeline_model or (args.loops > 0 and loop_count > args.loops):
+                if not is_timeline_model and args.loops > 0 and loop_count > args.loops:
+                    break
+
+            # Start progress indicator for timeline models
+            progress_active = None
+            if is_timeline_model and loop_count == 1:
+                print(f"Scanning {args.logs_dir} ", end='', flush=True)
+                progress_type = ProgressType(args.progress)
+                progress_active = start_progress_indicator(progress_type)
+
+            # Use automatic block type detection
+            (
+                success,
+                start_time,
+                end_time,
+                patterns_found,
+                optional_warnings,
+                structured_results,
+            ) = process_blocks_auto_detect(
+                args,
+                blocks,
+                start_date,
+                max_time_delta,
+                variables,
+                settings,
+            )
+            current_pass_patterns = patterns_found if success else 0
+            all_structured_results.extend(structured_results)
+
+            # Stop progress indicator for timeline models
+            if progress_active is not None:
+                stop_progress_indicator(progress_active)
+
+            # Update memory monitor after pattern processing
+            if memory_monitor:
+                memory_monitor.update_peak(f'pattern_processing_pass_{loop_count}')
+
+            # Collect optional warnings from this pass
+            if optional_warnings:
+                args.all_optional_warnings.extend(optional_warnings)
+
+            if not success:
+
+                # Add error delimiter
+                if not is_timeline_model:
+                    print("\n" + "-" * 70)
+                vlog1(f"Pass {loop_count} ended - no patterns found")
+                # loops=0 means "run until EOF" — exhausting the log is normal,
+                # not a failure. Only flag as failed for fixed loop counts where
+                # the first pass fails (no data found at all).
+                if args.loops != 0 or loop_count == 1:
+                    any_host_failed = True
+                break
+
+            # Calculate and display timing summary (only for non-timeline models)
+            if not is_timeline_model:
+                total_duration = (
+                    format_duration((end_time - start_time).total_seconds())
+                    if start_time and end_time
+                    else "00:00:00.000"
+                )
+
+                # Extract model information if available (only for mtcAgent logs)
+                model_info = ""
+                # Check if any block uses mtcAgent log files
+                for block in blocks:
+                    filenames = block['file'] if isinstance(block['file'], list) else [block['file']]
+                    if any(f.startswith('mtcAgent.log') for f in filenames):
+                        model_info = extract_model_info(args.logs_dir)
+                        break
+                model_suffix = f" for {model_info}" if model_info else ""
+
+                summary_line = (
+                    f"Pass {loop_count:<3}     "
+                    f"{total_duration}    "
+                    f"found {current_pass_patterns} patterns"
+                    f"{model_suffix}"
+                )
+                print(f"\033[92m✅ {summary_line} <-----------------------------\033[0m")
+
+                # Add summary to output files
+                pass_summaries.append("✅ " + summary_line)
+                csv_pass_summaries.append(
+                    [
+                        f"Pass {loop_count}",
+                        total_duration,
+                        f"found {current_pass_patterns} patterns",
+                        "",
+                        "",
+                    ]
+                )
+
+            # Timeline models process all data in one pass
+            if is_timeline_model or args.loops == 1:
+                break
+
+            # For subsequent passes, continue from where we left off
+            # Advance by tolerance + 1ms to guarantee the previous match falls
+            # outside the tolerance window on the next pass.
+            if end_time:
+                advance_ms = int(args.block_time_tolerance * 1000) + MIN_TIME_DELTA_MSECS
+                start_date = end_time + timedelta(milliseconds=advance_ms)
+            else:
+                start_date = start_date + timedelta(minutes=20)  # Advance if no patterns found
+
+            # Only show separator for non-timeline models
+            if not is_timeline_model:
+                print("\n--------------------------------"
+                      "----------------------------------"
+                      "----------------------------------")
+
+        # Create output directory and write results
+        output_dir = create_output_directory(args, run_start_time)
+
+        # Update memory monitor after output directory creation
+        if memory_monitor:
+            memory_monitor.update_peak('output_generation')
+
+        # Determine file extension based on model type
+        is_timeline_model = (args.model_type == ModelType.TIMELINE)
+        file_extension = 'timeline.log' if is_timeline_model else 'timing'
+
+        # Only create file if there are actual results (not just headers)
+        profile_file = None
+        if all_structured_results:
+            profile_file = os.path.join(output_dir, f'{args.lab_name}_profile.{file_extension}')
+
+            # Stop console capture and write to profile file
+            console_capture.stop_capture()
+            console_output = console_capture.get_captured_output()
+
+            # Write console output to profile file
+            with open(profile_file, 'w') as f:
+                f.write(console_output)
+
+        # Only create CSV file if there are actual results
+        if all_structured_results:
+            csv_filename = os.path.join(output_dir, f'{args.lab_name}_profile.{file_extension}.csv')
+
+            if args.model_type == ModelType.PATTERN:
+                write_pattern_csv(csv_filename, all_structured_results, csv_pass_summaries)
+            elif args.model_type == ModelType.PAIR:
+                write_pair_csv(csv_filename, all_structured_results, csv_pass_summaries)
+            elif args.model_type == ModelType.TIMELINE:
+                write_timeline_csv(csv_filename, all_structured_results, csv_pass_summaries)
+
+        # Run lpmp_graph.py tool if graph variable is defined and profile file was created
+        if 'graph' in variables and profile_file and os.path.exists(profile_file):
+            import subprocess
+            try:
+                cmd = [
+                    'python3', 'lpmp_graph.py',
+                    '--input', profile_file,
+                    '--name', variables['graph']
+                ]
+                if args.verbose >= 1:
+                    cmd.append('--verbose')
+
+                vlog1(f"Running graph processing: {' '.join(cmd)}")
+
+                subprocess.run(cmd, cwd=os.path.dirname(__file__), check=True)
+                vlog1("Graph processing completed")
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Graph processing failed: {e}", file=sys.stderr)
+
+        # Write individual profile files for blocks with profile: true
+        if args.model_type == ModelType.PATTERN:
+            write_pattern_block_profile(output_dir, blocks, all_structured_results)
+        elif args.model_type == ModelType.PAIR:
+            write_pair_block_profile(output_dir, blocks, all_structured_results)
+        elif args.model_type == ModelType.TIMELINE:
+            write_timeline_block_profile(output_dir, blocks, all_structured_results)
+        # Write context files for blocks with context: setting
+        write_context_files(output_dir, blocks, all_structured_results)
+        # Only write summary.timing for non-timeline models
+        if args.model_type != ModelType.TIMELINE:
+            all_optional_warnings = getattr(args, 'all_optional_warnings', [])
+            if args.model_type == ModelType.PATTERN:
+                summary_path = os.path.join(output_dir, 'summary.timing')
+                write_pattern_summary(summary_path, all_structured_results,
+                                      pass_summaries, all_optional_warnings)
+            elif args.model_type == ModelType.PAIR:
+                summary_path = os.path.join(output_dir, 'summary.timing')
+                write_pair_summary(
+                    summary_path, all_structured_results,
+                    pass_summaries, all_optional_warnings
+                )
+
+        # Verify timeline bounds for timeline models
+        if args.model_type == ModelType.TIMELINE and profile_file and os.path.exists(profile_file):
+            verify_timeline_bounds(profile_file, start_date, stop_date)
+
+        print_output_files(output_dir)
+
+        # For timeline models, cat small profile files to console
+        if args.model_type == ModelType.TIMELINE and profile_file and os.path.exists(profile_file):
+            with open(profile_file, 'r') as f:
+                lines = f.readlines()
+            # Show all lines if max_lines is 0, otherwise check limit
+            if args.max_lines == 0 or len(lines) <= args.max_lines:
+                print(f"\n--- timeline ({len(lines)} lines) ---")
+                for line in lines:
+                    print(line, end='')
+
+    # Print memory statistics if enabled (single call for both modes)
+    if memory_monitor:
+        memory_monitor.print_stats()
+
+    # Exit with non-zero code if any required block failed
+    if any_host_failed:
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)

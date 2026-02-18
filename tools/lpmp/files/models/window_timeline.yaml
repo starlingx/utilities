@@ -1,0 +1,18 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Window Timeline
+# Purpose: Scan all log files in the logs directory using the window
+#          feature to collect timestamped events across all sources.
+#
+########################################################################
+
+blocks:
+  - label: "All logs"
+    file: "*"
+    window: true

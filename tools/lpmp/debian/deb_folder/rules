@@ -1,0 +1,31 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+
+export ROOT = debian/tmp
+export BINDIR = $(ROOT)/usr/local/bin
+export VARLIB = $(ROOT)/var/lib
+export ETCDIR = $(ROOT)/etc
+export PYTHONDIR = $(ROOT)/usr/lib/python3/dist-packages/lpmp
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	install -m 755 -d $(BINDIR)
+	install -m 755 -d $(ROOT)/etc/lpmp.d
+	install -m 755 -d $(VARLIB)/lpmp_models
+	install -m 755 -d $(VARLIB)/lpmp_models/helpers
+	install -m 755 -d $(VARLIB)/lpmp_models/examples
+	install -m 755 -d $(PYTHONDIR)
+	install -m 755 -p lpmptool $(BINDIR)/lpmptool
+	install -m 644 -p lpmp_engine.py $(PYTHONDIR)/
+	install -m 644 -p lpmp_output.py $(PYTHONDIR)/
+	install -m 644 -p lpmp_graph.py $(PYTHONDIR)/
+	install -m 644 -p lpmp_utils.py $(PYTHONDIR)/
+	install -m 644 -p docs/README.md $(PYTHONDIR)/
+	install -m 644 -p models/*.yaml $(VARLIB)/lpmp_models/
+	install -m 644 -p models/helpers/*.yaml $(VARLIB)/lpmp_models/helpers/
+	install -m 644 -p models/examples/*.yaml $(VARLIB)/lpmp_models/examples/
+
+override_dh_usrlocal:
+	echo "do nothing"

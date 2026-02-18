@@ -1,0 +1,31 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   SM Timeline
+# Purpose: Track Service Management scheduling events using shared
+#          timeline patterns from wrcp_domains_patterns.yaml.
+#
+########################################################################
+
+include: "helpers/wrcp_domains_patterns.yaml"
+
+blocks:
+  - label: "SM Scheduling"
+    file: "sm.log*"
+    controller: true
+    timeline: "{sm_sch}"
+
+  #- label: "SM Scheduling OK"
+  #  file: "sm.log*"
+  #  controller: true
+  #  timeline: "{sm_sch}"
+
+  - label: "hbsAgent SM HB Miss"
+    file: "hbsAgent.log*"
+    timeline:
+      "SM Heartbeat missing"

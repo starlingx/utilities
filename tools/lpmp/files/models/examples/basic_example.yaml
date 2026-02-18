@@ -1,0 +1,70 @@
+# =============================================================================
+# LPMP Basic Example - Getting Started
+# =============================================================================
+# This file demonstrates the essential LPMP features for getting started.
+# For comprehensive examples, see complete_reference.yaml
+# =============================================================================
+
+# Basic global settings (all optional)
+settings:
+  max_time_delta: 60                    # Max seconds between patterns
+  start_date: "2024-01-06T10:00:00"     # Start analysis from this time
+  loops: 1                              # Number of analysis passes
+
+blocks:
+  # ==========================================================================
+  # PATTERN BLOCKS - Sequential event timing
+  # ==========================================================================
+
+  # Simple boot sequence
+  - label: "System Boot"
+    file: "kern.log*"
+    patterns:
+      - "Kernel command line:"
+
+  # Multi-step process with timing
+  - label: "Service Initialization"
+    file: "daemon.log*"
+    patterns:
+      - "Starting initialization"
+      - "Loading configuration"
+      - "Initialization complete"
+    max_time_delta: 30                  # Must complete within 30 seconds
+
+  # Using OR patterns for alternatives
+  - label: "Network Ready"
+    file: ["network.log", "daemon.log"]
+    patterns:
+      - ["Link up", "Interface ready", "Network active"]
+    optional: true                      # Skip if not found
+
+  # ==========================================================================
+  # PAIR BLOCKS - Duration measurement
+  # ==========================================================================
+
+  # Basic service timing
+  - label: "Database Startup"
+    file: "db.log*"
+    start: "Database starting"
+    stop: "Database ready"
+    max_time_delta: 120                 # Allow up to 2 minutes
+
+  # Using variables
+  - label: "Host Unlock"
+    file: "mtcAgent.log*"
+    start: "{hostname} Unlock Action"
+    stop: "{hostname} is ENABLED"
+    profile: true                       # Create detailed timing file
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+# Run analysis:
+#   lpmptool -m basic_example.yaml -l /var/log
+#
+# With custom hostname:
+#   lpmptool -m basic_example.yaml --hostname controller-1
+#
+# Bundle mode:
+#   lpmptool -b /path/to/bundle -m basic_example.yaml
+# =============================================================================

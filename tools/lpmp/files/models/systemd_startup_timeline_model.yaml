@@ -1,0 +1,40 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Systemd Startup Timeline Model
+# Purpose: Collect timeline events during system startup including
+#          kernel boot trigger, systemd startup, and daemon events
+#          across multiple log domains.
+#
+########################################################################
+#
+# Includes: wrcp_domains_patterns.yaml (shared timeline patterns)
+#
+# Block Fields:
+#   label    - (required) block identifier
+#   file     - (required) log file glob pattern(s)
+#   timeline - list of patterns to collect (any order)
+#
+########################################################################
+
+include: "helpers/wrcp_domains_patterns.yaml"
+
+blocks:
+  - label: "Kernel Boot Trigger"
+    file: "kern.log*"
+    timeline:
+      - "Kernel command line:"
+
+  - label: "Systemd Startup"
+    file: "daemon.log*"
+    timeline:
+      - "Starting Create System Users"
+
+  - label: "Host Startup"
+    file: "daemon.log*"
+    timeline: "{daemon}"

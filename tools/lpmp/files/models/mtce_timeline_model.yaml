@@ -1,0 +1,71 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Maintenance Timeline Model
+# Purpose: Collect timeline events across maintenance, service
+#          management, puppet, kernel, process monitor, host watchdog,
+#          network, and daemon log domains.
+#
+########################################################################
+#
+# Includes: wrcp_domains_patterns.yaml (shared timeline patterns)
+#
+# Block Fields:
+#   label      - (required) block identifier
+#   file       - (required) log file glob pattern(s)
+#   timeline   - list of patterns to collect (any order)
+#   controller - only process on controller hosts (default: false)
+#
+########################################################################
+
+include: "helpers/wrcp_domains_patterns.yaml"
+
+blocks:
+  - label: "Mtce"
+    file: "mtcAgent.log*"
+    controller: true
+    timeline: "{maintenance}"
+
+  - label: "Mtce Error"
+    file: "mtcAgent.log*"
+    controller: true
+    context: [3,10]  # 3 lines before and 10 after
+    timeline: "{mtce_failures}"
+
+  - label: "S M"
+    file: "sm.log*"
+    controller: true
+    timeline: "{sm}"
+
+  - label: "Puppet"
+    file: "daemon.log*"
+    timeline: "{puppet}"
+
+  - label: "Kernel Boot"
+    file: "kern.log*"
+    timeline: "{kernel}"
+
+  - label: "mtcClient"
+    file: "mtcClient.log*"
+    timeline: "{mtce_processes}"
+
+  - label: "Process Monitor"
+    file: "pmond.log*"
+    timeline: "{pmond}"
+
+  - label: "Host Watchdog"
+    file: "hostwd.log*"
+    timeline: "{hostwd}"
+
+  - label: "Network Events"
+    file: "lmond.log*"
+    timeline: "{network}"
+
+  - label: "Daemon Events"
+    file: "daemon.log*"
+    timeline: "{daemon}"

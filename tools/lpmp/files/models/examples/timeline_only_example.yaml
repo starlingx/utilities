@@ -1,0 +1,236 @@
+# =============================================================================
+# LPMP Timeline-Only Example
+# =============================================================================
+# Demonstrates pure timeline block usage for chronological event collection.
+# All blocks use 'timeline' field to collect events across time periods.
+# Timeline models collect ALL matching events and sort them chronologically.
+# =============================================================================
+
+# Include shared pattern library for reusable patterns
+include: "shared_patterns.yaml"
+
+# Global settings for timeline analysis
+settings:
+  start_date: "2024-01-06T08:00:00"     # Start analysis from this timestamp
+  max_log_length: 250                   # Longer lines for detailed timeline
+  profile: true                         # Enable detailed timeline files
+  block_time_tolerance: 2.0             # Timeline block sequencing tolerance
+  # Note: max_time_delta not used in timeline models
+  # Note: loops setting ignored in timeline models
+
+blocks:
+  # ==========================================================================
+  # Timeline Blocks Using Shared Patterns
+  # ==========================================================================
+
+  # System maintenance events from shared patterns
+  - label: "Maintenance Timeline"
+    file: "mtcAgent.log*"
+    timeline: "{maintenance}"           # References shared_patterns.yaml
+    optional: false
+    profile: true
+
+  # Network events from shared patterns
+  - label: "Network Timeline"
+    file: ["network.log*", "daemon.log*"]
+    timeline: "{network}"               # References shared_patterns.yaml
+    optional: true
+
+  # Service lifecycle events
+  - label: "Service Timeline"
+    file: ["service.log*", "systemd.log*"]
+    timeline: "{services}"              # References shared_patterns.yaml
+    optional: true
+
+  # ==========================================================================
+  # Timeline Blocks with Direct Patterns
+  # ==========================================================================
+
+  # Security and authentication events
+  - label: "Security Timeline"
+    file: ["auth.log*", "secure.log*", "audit.log*"]
+    timeline:
+      - "Authentication successful"
+      - "Authentication failed"
+      - "SSH connection established"
+      - "SSH connection closed"
+      - "Certificate expired"
+      - "Certificate renewed"
+      - "Login attempt"
+      - "Password changed"
+      - "Permission denied"
+      - ["Sudo access granted", "Sudo access denied"]
+      - r"Failed login.*from \d+\.\d+\.\d+\.\d+"
+    optional: true
+    profile: true
+
+  # Database activity timeline
+  - label: "Database Timeline"
+    file: ["db.log*", "postgres.log*", "mysql.log*"]
+    timeline:
+      - "Database connection established"
+      - "Database connection lost"
+      - "Query executed"
+      - "Transaction started"
+      - "Transaction committed"
+      - "Transaction rolled back"
+      - "Database backup started"
+      - "Database backup completed"
+      - "Slow query detected"
+      - r"Connection pool: \d+ active"
+      - ["Database error", "Query timeout"]
+    optional: true
+
+  # ==========================================================================
+  # Variable Substitution in Timeline
+  # ==========================================================================
+
+  # Host-specific events with variables
+  - label: "Host Events Timeline"
+    file: ["system.log*", "mtcAgent.log*"]
+    timeline:
+      - "{hostname} boot complete"
+      - "{hostname} shutdown initiated"
+      - "{hostname} maintenance started"
+      - "{hostname} maintenance completed"
+      - r"{hostname} state: \w+"
+      - r"{hostname} is (ENABLED|DISABLED|DEGRADED)"
+      - "{hostname} Unlock Action"
+      - "{hostname} Lock Action"
+      - ["Host {hostname} error", "Host {hostname} warning"]
+    optional: false
+    profile: true
+
+  # Custom variable timeline (use --var env=prod --var version=1.2.3)
+  - label: "Application Timeline"
+    file: "app*.log*"
+    timeline:
+      - "Application starting in {env}"
+      - "Version {version} loaded"
+      - "Environment {env} configured"
+      - r"Application.*{env}.*ready"
+      - ["Application error in {env}", "Application warning in {env}"]
+    optional: true
+
+  # ==========================================================================
+  # Regex Timeline Patterns
+  # ==========================================================================
+
+  # System performance timeline
+  - label: "Performance Timeline"
+    file: ["system.log*", "performance.log*"]
+    timeline:
+      - r"CPU usage: \d+%"
+      - r"Memory usage: \d+%"
+      # - r"Load average: [\d\.]+"
+      - r"Disk usage: \d+%"
+      - "High CPU detected"
+      - "High memory usage"
+      - "Performance degradation"
+      - "Threshold exceeded"
+      - r"Process \d+ consuming \d+% CPU"
+      - ["System overload", "Resource exhaustion"]
+    optional: true
+    profile: true
+
+  # Error and warning timeline
+  - label: "Error Timeline"
+    file: ["*.log*"]                    # Search all log files
+    timeline:
+      - r"ERROR:.*"
+      - r"CRITICAL:.*"
+      - r"FATAL:.*"
+      - r"WARNING:.*"
+      - "Out of memory"
+      - "Disk full"
+      - "Connection refused"
+      - "Timeout occurred"
+      - ["Exception", "Traceback"]
+      - r"Failed to \w+"
+      - r"Cannot \w+"
+    optional: true
+
+  # ==========================================================================
+  # Multi-File Timeline Collection
+  # ==========================================================================
+
+  # Kernel and boot events across multiple sources
+  - label: "Boot Timeline"
+    file: ["kern.log*", "daemon.log*", "syslog*"]
+    timeline:
+      - "Kernel command line:"
+      - "Loading kernel modules"
+      - "System initialization started"
+      - "System initialization complete"
+      - "Network interface up"
+      - "Services started"
+      - "Boot completed"
+      - "Ready for user login"
+      - r"systemd.*target.*reached"
+      - ["Boot successful", "Boot completed"]
+    optional: false
+    profile: true
+
+  # ==========================================================================
+  # Controller-Specific Timeline
+  # ==========================================================================
+
+  # Controller-only events
+  - label: "Controller Timeline"
+    file: ["controller.log*", "cluster.log*"]
+    timeline:
+      - "Controller daemon starting"
+      - "Cluster membership established"
+      - "Controller services ready"
+      - "Database cluster active"
+      - "Load balancer configured"
+      - r"Controller.*{hostname}.*active"
+      - ["Controller failover", "Controller switchover"]
+    controller: true                    # Only runs on controller hosts
+    optional: true
+    profile: true
+
+  # ==========================================================================
+  # Compressed and Rotated Log Timeline
+  # ==========================================================================
+
+  # Timeline across compressed and rotated logs
+  - label: "Historical Timeline"
+    file: ["app.log", "app.log.1", "app.log.1.gz", "app.log.2.gz"]
+    timeline:
+      - "Application event"
+      - "User action"
+      - "System notification"
+      - r"Event ID: \d+"
+      - ["Important event", "Critical event"]
+    optional: true
+
+# =============================================================================
+# TIMELINE MODEL CHARACTERISTICS
+# =============================================================================
+# 1. ALL blocks must be timeline blocks (cannot mix with pattern/pair blocks)
+# 2. Events are collected and sorted chronologically across all sources
+# 3. No timing constraints between events (max_time_delta not applicable)
+# 4. loops setting is ignored (timeline models run once)
+# 5. Results show ALL matching events in temporal order
+# 6. Excellent for forensic analysis and event correlation
+# =============================================================================
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+# Basic timeline analysis:
+#   lpmptool -m timeline_only_example.yaml -l /var/log
+#
+# With custom variables:
+#   lpmptool -m timeline_only_example.yaml --var env=prod --var version=1.2.3
+#
+# Bundle mode timeline:
+#   lpmptool -b /path/to/bundle -m timeline_only_example.yaml
+#
+# Filtered timeline (start date):
+#   lpmptool -m timeline_only_example.yaml --start-date "2024-01-06T10:00:00"
+#
+# Controller-only timeline:
+#   lpmptool -m timeline_only_example.yaml --hostname controller-0
+# =============================================================================

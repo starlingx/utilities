@@ -1,0 +1,101 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# File:    file_ignore_list_and_format_handling.yaml
+# Purpose: Controls file and directory filtering during log scanning,
+#          and defines custom timestamp formats for non-standard logs.
+#          Auto-loaded by lpmptool from model search paths.
+#
+########################################################################
+#
+# ignore:
+#   List of file or directory patterns to skip entirely.
+#   Supports exact basenames, glob patterns, and directory prefixes
+#   (trailing / means prune entire directory tree).
+#
+# timestamp_formats:
+#   List of custom timestamp parsing rules for log files that don't
+#   use the standard ISO or sysinv timestamp formats.
+#   Each entry has:
+#     pattern: glob pattern (or list of patterns) to match filenames (relative to logs dir)
+#     regex:   regex with a capture group for the timestamp string
+#     format:  strptime format string to parse the captured group
+#
+# Use --no-ts-files to discover files that need entries here.
+
+ignore:
+  # Directories to prune
+  - "pods/"
+  - "lat/"
+  - "sssd/"
+  - "sriovdp/"
+
+  # Individual files
+  - "nfv-vim-alarms.log"
+  - "nfv-vim-events.log"
+  - "ceph/ceph-mon.*.log*"
+  - "ceph/ceph-mds.*.log*"
+  - "rabbitmq/startup_log*"
+  - "rabbitmq/startup_err*"
+  - "horizon/gunicorn.log*"
+  - "keystone/keystone.log*"
+  - "sudo.log"
+  - "sm-troubleshoot.log"
+  - "sm-shutdown.log"
+  - "sm-customer.alarm"
+  - "haproxy.log"
+  - "k8s-account-creation-script.log"
+  - "postgresql/postgresql-*-main.log"
+  - "*.txt"
+
+
+timestamp_formats:
+  # "YYYY-MM-DD HH:MM:SS.fff" (space separator, dot milliseconds)
+  # e.g. 2026-02-27 10:10:13.703 INFO ...
+  - pattern:
+      - "sysinv.log"
+      - "software-api.log"
+      - "ceph/ceph-mgr.*.log*"
+      - "ceph/ceph-osd.*.log*"
+      - "ceph/ceph.log*"
+      - "ceph/ceph.audit.log*"
+      - "ceph/ceph-init.log*"
+      - "ceph/ceph-process-states.log*"
+      - "keystone/keystone-all.log*"
+      - "rabbitmq/rabbit@localhost.log*"
+      - "rabbitmq/rabbit@localhost_upgrade.log*"
+      - "barbican/barbican-api.log*"
+      - "calico/cni/cni.log*"
+      - "ceph-manager.log*"
+      - "fm-api.log*"
+    regex: "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})"
+    format: "%Y-%m-%d %H:%M:%S.%f"
+
+  # "YY-MM-DD HH:MM:SS.fff" (2-digit year, space separator, dot milliseconds)
+  # e.g. 26-02-27 16:27:59.202 05[LIB] reloaded ...
+  - pattern:
+      - "charon.log*"
+    regex: "(\\d{2}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})"
+    format: "%y-%m-%d %H:%M:%S.%f"
+
+  # "YYYY-MM-DD HH:MM:SS:" (space separator, no milliseconds, trailing colon)
+  # e.g. 2026-02-27 09:12:54: (server.c.1488) server started ...
+  - pattern:
+      - "lighttpd-error.log*"
+    regex: "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}):"
+    format: "%Y-%m-%d %H:%M:%S"
+
+  # "YYYY-MM-DD HH:MM:SS,fff" (space separator, comma milliseconds)
+  # e.g. (stevedore.extension): 2026-02-27 10:10:13,703 ERROR ...
+  - pattern:
+      - "tuned/tuned.log*"
+      - "software-api.log*"
+      - "horizon/horizon.log*"
+      - "mgr-restful-plugin.log"
+    regex: "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2},\\d{3})"
+    format: "%Y-%m-%d %H:%M:%S,%f"

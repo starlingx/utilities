@@ -1,0 +1,33 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Controller Configuration Pattern Model
+# Purpose: Profile controller node configuration timing from initial
+#          configuration through puppet manifest application to
+#          completion.
+#
+########################################################################
+#
+# Block Fields:
+#   label    - (required) block identifier
+#   file     - (required) log file glob pattern(s)
+#   patterns - list of sequential patterns to match
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - r"regex \\d+"             - regex match (note double backslashes)
+#
+########################################################################
+
+blocks:
+  - label: "Controller Config"
+    file: "daemon.log*"
+    patterns:
+    - "Configuring controller node"
+    - "Applying puppet .* manifest"
+    - "controller_config\\[.*\\]: info \\[DONE\\]"

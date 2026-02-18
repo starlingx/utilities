@@ -1,0 +1,111 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Upgrade Pattern Model
+# Purpose: Profile software upgrade timing from deploy start through
+#          host reboot, enable, and upgrade stage completion.
+#
+########################################################################
+#
+# Variable Substitution:
+#   {host}  - replaced by --hostname value (default: controller-0)
+#
+# Block Fields:
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   patterns       - list of sequential patterns to match
+#   optional       - skip with warning if not found (default: false)
+#   present        - capture if found, silently skip if not (default: false)
+#   profile        - generate per-block profile file (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#   override       - override hostname for log file search
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - ["a", "b"]               - OR match (first found wins)
+#
+########################################################################
+
+settings:
+  max_time_delta: 500
+
+# deploy (25.09.0 to 25.09.100) started
+blocks:
+  - label: "Upgrade Start"
+    file: "software.log*"
+    patterns:
+      - "from start to start-done"
+
+  - label: "Upgrade Deploy"
+    file: "software.log*"
+    max_time_delta: 500
+    patterns:
+      - "{host} from pending to deploying"
+
+  - label: "Unlock Action Staged"
+    file: "sysinv.log*"
+    patterns:
+      - "{host} Action staged: unlock"
+
+  - label: "mtcClient Stopped"
+    file: "daemon.log*"
+    optional: true
+    override: "{host}"
+    patterns:
+      - "Stopped StarlingX Maintenance Command Handler Client"
+
+  - label: "Blackout"
+    file: "kern.log*"
+    max_time_delta: 600     # reboot time can be long, don't timeout
+    profile: true
+    override: "{host}"
+    patterns:
+      - "Kernel command line:"
+
+  - label: "Host Manufacturer"
+    file: "mtcAgent.log*"
+    present: true
+    patterns:
+      - "{host} manufacturer is"
+
+  - label: "Host Enable State"
+    file: "mtcAgent.log*"
+    max_time_delta: 1000
+    patterns:
+      - ["{host} is ENABLED", "{host} is DEGRADED", "{host} is UNHEALTHY" , "{host} is FAILED"]  # OR patterns - matches either
+
+  - label: "Unlock KPI"
+    file: "mtcAgent.log*"
+    optional: true   # to handle unlock failure cases where there is no KPI
+    patterns:
+      - "{host} kpi:action: unlock start"
+
+  - label: "Upgrade Stages"
+    file: "software.log*"
+    max_time_delta: 10000
+    patterns:
+      # - "{host} from deploying to deployed"
+      - "from host-done to activate"
+      - "from activate to activate-done"
+      - "from activate-done to completed"
+
+  #- label: "Upgrade Complete"
+  #  file: "software.log*"
+  #  patterns:
+  #    - ''
+
+
+
+  - label: "K8s Pod Recovery Done"
+    file: "daemon.log*"
+    profile: true
+    optional: true
+    max_time_delta: 300   # Pod recovery can be long
+    override: "{host}"
+    patterns:
+      - "k8s-pod-recovery.service: Succeeded"
