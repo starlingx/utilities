@@ -1,7 +1,7 @@
 #! /bin/bash
 ########################################################################
 #
-# Copyright (c) 2014-2025 Wind River Systems, Inc.
+# Copyright (c) 2014-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -1290,12 +1290,15 @@ if [ ! -z ${COLLECT_NAME} ] ; then
     COLLECT_TYPE="user-named"
 
     # Subcloud collect with a password at this point must be orchestrated
+    #
     # ... with collect date specified by the system controller.
     if [ "${DCROLE}" == "${DCROLE_SUBCLOUD}" -a "${pw}" != "" ] ; then
-        dlog "date override ${NOWDATE} to ${COLLECT_NAME: -15}"
-        NOWDATE=${COLLECT_NAME: -15}
-        ilog "Orchestrated collect"
-        ORCHESTRATED_COLLECT=true
+        if [[ "${COLLECT_NAME: -15}" =~ ^[0-9]{8}\.[0-9]{6}$ ]] ; then
+            dlog "date override ${NOWDATE} to ${COLLECT_NAME: -15}"
+            NOWDATE=${COLLECT_NAME: -15}
+            ilog "Orchestrated collect"
+            ORCHESTRATED_COLLECT=true
+        fi
     elif [ "${DCROLE}" == "" -a "${ACTIVE}" == false -a "${pw}" != "" ]; then
         wlog "Subcloud has not been properly configured."
         ERROR_DCROLE=$(cat /etc/platform/platform.conf | grep distributed_cloud_role | cut -d '=' -f 2)
