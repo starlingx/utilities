@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2016-2018, 2025 Wind River Systems, Inc.
+# Copyright (c) 2016-2018, 2025-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -99,3 +99,7 @@ SYSTEM_MODE_SIMPLEX = sysinv_constants.SYSTEM_MODE_SIMPLEX
 
 # Port on which ceph manager and ceph-mgr listens
 CEPH_MGR_PORT = sysinv_constants.CEPH_MGR_PORT
+
+# OS type
+OS_DEBIAN_BULLSEYE = sysinv_constants.OS_DEBIAN_BULLSEYE
+OS_DEBIAN_TRIXIE = sysinv_constants.OS_DEBIAN_TRIXIE

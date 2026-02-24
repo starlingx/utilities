@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2016-2022 Wind River Systems, Inc.
+# Copyright (c) 2016-2022,2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -28,10 +28,16 @@ from ceph_manager import constants
 from ceph_manager import utils
 from ceph_manager.i18n import _LI
 from ceph_manager.monitor import Monitor
+from ceph_manager.utils import get_debian_codename
 from cephclient import wrapper
 
 
-eventlet.monkey_patch(all=True)
+codename = get_debian_codename()
+if codename == constants.OS_DEBIAN_BULLSEYE:
+    eventlet.monkey_patch(all=True)
+else:
+    # TODO(aabhinav): Re-enable monkey patching when eventlet/urllib3 conflict is resolved
+    eventlet.monkey_patch(socket=False, select=False)
 
 CONF = cfg.CONF
 CONF.register_opts([

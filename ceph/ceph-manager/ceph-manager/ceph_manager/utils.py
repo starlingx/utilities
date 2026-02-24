@@ -1,8 +1,10 @@
 #
-# Copyright (c) 2022 Wind River Systems, Inc.
+# Copyright (c) 2022,2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+
+import functools
 
 import netaddr
 
@@ -35,3 +37,15 @@ def ipv6_bracketed(address):
         address = "%s" % address
 
     return address
+
+
+@functools.lru_cache(maxsize=1)
+def get_debian_codename():
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("VERSION_CODENAME="):
+                    return line.strip().split("=")[1]
+    except Exception:
+        pass
+    return None
