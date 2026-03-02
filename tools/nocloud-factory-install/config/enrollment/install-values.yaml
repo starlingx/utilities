@@ -1,0 +1,14 @@
+# Install value Configurations - user configuration overrides
+#
+# Install values for subclouds with servers that support Redfish Virtual
+# Media Service. Those values will be stored to the central cloud database
+# for remote install, ref:
+# https://docs.starlingx.io/dist_cloud/kubernetes/installing-a-subcloud-using-redfish-platform-management-service.html
+# For subcloud enrollment initiated on site, only bootstrap_interface or
+# bootstrap_vlan parameter is required.
+#
+
+bootstrap_interface: eno1
+
+# If the bootstrap interface is a vlan interface then configure the vlan ID.
+# bootstrap_vlan: 5
