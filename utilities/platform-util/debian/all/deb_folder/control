@@ -27,7 +27,7 @@ Description: Controller platform utilities - python
 
 Package: platform-util-controller
 Architecture: all
-Depends: ${python3:Depends}, ${misc:Depends}, python3-platform-util, genisoimage
+Depends: ${python3:Depends}, ${misc:Depends}, python3-platform-util, genisoimage, python3-passlib
 Description: Controller platform utilities
  Platform utilities installed only on controllers
 

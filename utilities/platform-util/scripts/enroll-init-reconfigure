@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2024-2025 Wind River Systems, Inc.
+# Copyright (c) 2024-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -222,23 +222,29 @@ function check_services_status {
     retries=0
 
     while [ $retries -lt $max_retries ]; do
+        local not_ready=""
         sm_output=$(sm-dump)
 
         sysinv_status=$(echo "$sm_output" | awk '/sysinv-inv/ {print $2}')
-        mtc_status=$(echo "$sm_output" | awk '/mtc-agent/ {print $2}')
+        [ "$sysinv_status" != "enabled-active" ] && not_ready="${not_ready}sysinv-inv($sysinv_status) "
 
-        if [ "$sysinv_status" == "enabled-active" ] && [ "$mtc_status" == "enabled-active" ]; then
-            log_info "Required services are now enabled-active."
+        mtc_status=$(echo "$sm_output" | awk '/mtc-agent/ {print $2}')
+        [ "$mtc_status" != "enabled-active" ] && not_ready="${not_ready}mtc-agent($mtc_status) "
+
+        [ ! -f /var/run/.nfv-vim.dor_complete ] && not_ready="${not_ready}nfv-vim.dor_complete "
+        [ ! -f /run/sysinv/.sysinv_reported ] && not_ready="${not_ready}sysinv_reported "
+
+        if [ -z "$not_ready" ]; then
+            log_info "Required services are now enabled-active and flags are present."
             return 0
-        else
-            log_warn "Required services are not yet enabled-active. Retrying... "
         fi
 
+        log_warn "Not ready: ${not_ready}Retrying..."
         retries=$((retries + 1))
         sleep 30
     done
 
-    log_fatal "Required services are not enabled-active after $max_retries attempts."
+    log_fatal "Required services are not enabled-active or flags not created after $max_retries attempts."
 }
 
 function load_credentials {

@@ -1,0 +1,57 @@
+# Ansible Bootstrap Configurations - user configuration overrides
+#
+# System and network bootstrap properties cen be specified here as outlined in
+# the StarlingX documentation. For instance, OAM network configuration can
+# be specified: external_oam_subnet, external_oam_gateway_address,
+# external_oam_floating_address, etc.
+#
+
+system_mode: simplex
+name: "subcloud1"
+
+description: "test"
+location: "loc"
+
+management_subnet: 192.168.101.0/24
+management_start_address: 192.168.101.2
+management_end_address: 192.168.101.50
+management_gateway_address: 192.168.101.1
+
+external_oam_subnet: 10.10.10.0/24
+external_oam_gateway_address: 10.10.10.1
+external_oam_floating_address: 10.10.10.12
+
+systemcontroller_gateway_address: 192.168.204.101
+
+# System controller OAM address and credentials for enrollment
+systemcontroller_oam_address: 10.10.10.2
+sysadmin_password: St8rlingX*1234
+
+# CA cert to install on the subcloud for OAM network communication.
+# Cert need to be stored in the config/enrollment directory
+# ssl_ca_cert: ssl_ca.pem
+
+docker_registries:
+  k8s.gcr.io:
+    url: registry.central:9001/k8s.gcr.io
+  gcr.io:
+    url: registry.central:9001/gcr.io
+  ghcr.io:
+    url: registry.central:9001/ghcr.io
+  quay.io:
+    url: registry.central:9001/quay.io
+  docker.io:
+    url: registry.central:9001/docker.io
+  docker.elastic.co:
+    url: registry.central:9001/docker.elastic.co
+  registry.k8s.io:
+    url: registry.central:9001/registry.k8s.io
+  icr.io:
+    url: registry.central:9001/icr.io
+  defaults:
+    username: sysinv
+    password: <sysinv_password>
+    type: docker
+
+admin_username: admin
+admin_password: St8rlingX*1234

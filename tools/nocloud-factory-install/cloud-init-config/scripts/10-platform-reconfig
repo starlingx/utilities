@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# System reconfiguration for enrollment
+#
+
+from datetime import datetime
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+from passlib.hash import sha512_crypt
+
+NOCLOUD = "/opt/nocloud"
+if NOCLOUD not in sys.path:
+    sys.path.insert(0, NOCLOUD)
+
+from nocloud_utils.utils import extract_yaml_value  # noqa: E402
+from nocloud_utils.utils import find_file  # noqa: E402
+
+USER = "sysadmin"
+HOME = f"/home/{USER}"
+CONFIG_BASE = f"{HOME}/enroll-config"
+
+
+def copy_config_files():
+    """Copy configuration files from nocloud to home directory."""
+    config_dir = f"{NOCLOUD}/config/enrollment"
+    if os.path.isdir(config_dir) and os.listdir(config_dir):
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        config_dest = f"{CONFIG_BASE}/{timestamp}"
+
+        uid = os.stat(HOME).st_uid
+        gid = os.stat(HOME).st_gid
+
+        os.makedirs(CONFIG_BASE, exist_ok=True)
+        temp_dir = tempfile.mkdtemp(dir=CONFIG_BASE)
+        shutil.copytree(config_dir, temp_dir, dirs_exist_ok=True)
+        os.rename(temp_dir, config_dest)
+        subprocess.run(["chown", "-R", f"{uid}:{gid}", CONFIG_BASE], check=True)
+        return config_dest
+    return None
+
+
+def validate_input(value, key_name, hide_value=False):
+    """Validate input value and log the result."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not value:
+        print(f"ERROR [{timestamp}]: {key_name} not found", file=sys.stderr)
+        sys.exit(1)
+    display_value = "***" if hide_value else value
+    print(f"INFO [{timestamp}]: {key_name} found: {display_value}")
+    return value
+
+
+def extract_config_values(config_dir):
+    """Extract and validate configuration values from files."""
+    # Find required files
+    bootstrap_values = validate_input(
+        find_file("*bootstrap-values*", config_dir), "bootstrap-values"
+    )
+    validate_input(find_file("*install-values*", config_dir), "install-values")
+
+    # Extract and validate all required values
+    return {
+        "systemcontroller_oam": validate_input(
+            extract_yaml_value(
+                bootstrap_values, "systemcontroller_oam_address"
+            ),
+            "systemcontroller_oam_address",
+        ),
+        "oam_subnet": validate_input(
+            extract_yaml_value(bootstrap_values, "external_oam_subnet"),
+            "external_oam_subnet",
+        ),
+        "oam_gateway": validate_input(
+            extract_yaml_value(
+                bootstrap_values, "external_oam_gateway_address"
+            ),
+            "external_oam_gateway_address",
+        ),
+        "oam_ip": validate_input(
+            extract_yaml_value(
+                bootstrap_values, "external_oam_floating_address"
+            ),
+            "external_oam_floating_address",
+        ),
+        "admin_password": validate_input(
+            extract_yaml_value(bootstrap_values, "admin_password"),
+            "admin_password",
+            hide_value=True,
+        ),
+        "sysadmin_password": validate_input(
+            extract_yaml_value(bootstrap_values, "sysadmin_password"),
+            "sysadmin_password",
+            hide_value=True,
+        ),
+    }
+
+
+def main():
+    """Main function to run the enrollment reconfiguration."""
+    # Copy configuration files
+    config_dir = copy_config_files()
+    if not config_dir:
+        print("ERROR: No configuration files found", file=sys.stderr)
+        sys.exit(1)
+
+    # Extract and validate all configuration values
+    config = extract_config_values(config_dir)
+
+    # Hash the password for chpasswd -e
+    hashed_password = sha512_crypt.hash(config["sysadmin_password"])
+
+    # Run enroll-init-reconfigure
+    subprocess.run(
+        [
+            "/usr/local/bin/enroll-init-reconfigure",
+            "--oam_subnet",
+            config["oam_subnet"],
+            "--oam_gateway_ip",
+            config["oam_gateway"],
+            "--oam_ip",
+            config["oam_ip"],
+            "--new_password",
+            hashed_password,
+        ],
+        check=True,
+    )
+
+
+if __name__ == "__main__":
+    main()

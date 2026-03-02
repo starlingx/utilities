@@ -1,1 +1,4 @@
+# instance-id: unique identifier to determine if running on new instance
+# Update to trigger cloud-init re-execution
+# Ref: https://cloudinit.readthedocs.io/en/latest/
 instance-id: iid-local01

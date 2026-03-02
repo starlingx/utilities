@@ -1,5 +1,6 @@
 #cloud-config
 
+# chpasswd is ignored by Cloud-Init after factory install
 chpasswd:
   list:
     # Changes the sysadmin password - the hash below specifies St8rlingX*1234
@@ -7,8 +8,21 @@ chpasswd:
   expire: False
 
 runcmd:
-  - [ /bin/bash, -c, "echo $(date): Initiating factory-install" ]
-  - mkdir -p /opt/nocloud
-  - mount LABEL=CIDATA /opt/nocloud
-  - run-parts --verbose --exit-on-error /opt/nocloud/factory-install/scripts
-  - eject /opt/nocloud
+  - |
+    # MODE options: factory-install, onsite-enrollment
+    MODE=factory-install
+
+    echo $(date): Initiating ${MODE}
+    mkdir -p /opt/nocloud
+    mount LABEL=CIDATA /opt/nocloud
+
+    if [ "${MODE}" = "onsite-enrollment" ]; then
+      run-parts --verbose --exit-on-error /opt/nocloud/cloud-init-config/scripts
+      run-parts --verbose --exit-on-error /opt/nocloud/onsite-enrollment/scripts
+    elif [ "${MODE}" = "factory-install" ]; then
+      run-parts --verbose --exit-on-error /opt/nocloud/factory-install/scripts
+    else
+      echo "ERROR: Unknown MODE: ${MODE}"
+    fi
+
+    eject /opt/nocloud

@@ -12,6 +12,11 @@
         - stx-utilities-pci-irq-affinity-agent-tox-py39
         - stx-utilities-pci-irq-affinity-agent-tox-pep8
         - stx-utilities-k8s-coredump-tox-py39
+        - stx-utilities-nocloud-factory-install-tox-py39
+        - stx-utilities-nocloud-factory-install-tox-pep8
+        - stx-utilities-nocloud-factory-install-tox-pylint
+        - stx-utilities-nocloud-factory-install-tox-bandit
+        - stx-utilities-nocloud-factory-install-tox-linters
     gate:
       jobs:
         - stx-utilities-tox-linters
@@ -24,6 +29,11 @@
         - stx-utilities-pci-irq-affinity-agent-tox-py39
         - stx-utilities-pci-irq-affinity-agent-tox-pep8
         - stx-utilities-k8s-coredump-tox-py39
+        - stx-utilities-nocloud-factory-install-tox-py39
+        - stx-utilities-nocloud-factory-install-tox-pep8
+        - stx-utilities-nocloud-factory-install-tox-pylint
+        - stx-utilities-nocloud-factory-install-tox-bandit
+        - stx-utilities-nocloud-factory-install-tox-linters
     post:
       jobs:
         - stx-utilities-upload-git-mirror
@@ -151,6 +161,61 @@
     vars:
       tox_envlist: py39
       tox_extra_args: -c utilities/k8s-coredump/k8s-coredump/tox.ini
+
+- job:
+    name: stx-utilities-nocloud-factory-install-tox-py39
+    parent: tox
+    description: Run py39 tests for nocloud-factory-install
+    nodeset: debian-bullseye
+    files:
+      - tools/nocloud-factory-install/*
+    vars:
+      tox_envlist: py39
+      tox_extra_args: -c tools/nocloud-factory-install/tox.ini
+
+- job:
+    name: stx-utilities-nocloud-factory-install-tox-pep8
+    parent: tox
+    description: Run pep8 checks for nocloud-factory-install
+    nodeset: debian-bullseye
+    files:
+      - tools/nocloud-factory-install/*
+    vars:
+      tox_envlist: pep8
+      tox_extra_args: -c tools/nocloud-factory-install/tox.ini
+
+- job:
+    name: stx-utilities-nocloud-factory-install-tox-pylint
+    parent: tox
+    description: Run pylint checks for nocloud-factory-install
+    nodeset: debian-bullseye
+    files:
+      - tools/nocloud-factory-install/*
+    vars:
+      tox_envlist: pylint
+      tox_extra_args: -c tools/nocloud-factory-install/tox.ini
+
+- job:
+    name: stx-utilities-nocloud-factory-install-tox-bandit
+    parent: tox
+    description: Run bandit checks for nocloud-factory-install
+    nodeset: debian-bullseye
+    files:
+      - tools/nocloud-factory-install/*
+    vars:
+      tox_envlist: bandit
+      tox_extra_args: -c tools/nocloud-factory-install/tox.ini
+
+- job:
+    name: stx-utilities-nocloud-factory-install-tox-linters
+    parent: openstack-tox-linters
+    description: Run linters (bashate and yamllint) for nocloud-factory-install
+    nodeset: debian-bullseye
+    files:
+      - tools/nocloud-factory-install/*
+    vars:
+      tox_envlist: linters
+      tox_extra_args: -c tools/nocloud-factory-install/tox.ini
 
 - secret:
     name: stx-utilities-github-secret2
