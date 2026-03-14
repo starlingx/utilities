@@ -99,7 +99,6 @@ if [[ "$1" == "clean" ]]; then
     rm -f $CUSTOM_CLOUD_CFG
     rm -f $SCRIPT_PATH
     udevadm control --reload-rules
-    systemctl daemon-reexec
     exit 0
 fi
 
