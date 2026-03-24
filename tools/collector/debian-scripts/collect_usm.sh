@@ -54,8 +54,8 @@ if [ "$nodetype" = "controller" ] ; then
     # collect feed info
     collect_feed
 
-    # copy /opt/software to extra dir
-    run_command "rsync -a /opt/software ${extradir}" "${LOGFILE}"
+    # copy /opt/software to extra dir, excluding large and temp directories
+    run_command "rsync -a /opt/software --exclude __pycache__ --exclude ostree_repo --exclude packages ${extradir}" "${LOGFILE}"
     sleep ${COLLECT_RUNCMD_DELAY}
 
     # copy /var/www/pages/feed to extra dir, excluding large and temp directories
