@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019 Wind River Systems, Inc.
+# Copyright (c) 2019, 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -102,3 +102,6 @@ class CephClientIncorrectPassword(CephClientException):
 
 class CephCliTimeoutExpired(CephClientException):
     message = "Timeout was reached while executing the command. {}"
+
+class RookCephClientException(CephClientException):
+    message = "Rook Ceph Dashboard API error: {}"
