@@ -84,6 +84,7 @@ LOG_BUFFER = []
 category_failures = defaultdict(list)
 category_warnings = defaultdict(list)
 current_category = None
+executed_categories = []
 
 category_validations = {
     "Test next-hop reachability": [],
@@ -99,7 +100,8 @@ category_validations = {
     "Test host resolution and reachability (dnsmasq)": [],
     "Test host resolution and reachability (dnsmasq_dc)": [],
     "Test connectivity to dnsmasq host-records": [],
-    "Multicast Heartbeat Traffic Test": []
+    "Mgmt Heartbeat Traffic Test": [],
+    "Cluster-host Heartbeat Traffic Test": []
 }
 
 
@@ -120,6 +122,8 @@ def log_to_file_only(msg):
 def print_category(title, files=None, description=None):
     global current_category
     current_category = title
+    if title not in executed_categories:
+        executed_categories.append(title)
 
     log("")
     log("=" * 50)
@@ -196,9 +200,37 @@ def run_checked(cmd):
     return rc, out, err
 
 
+def normalize_ip(ip_str):
+    """Normalize an IP address string so ipaddress module can parse it.
+
+    Handles mixed notation IPv6 addresses (e.g. fd10::192.168.1.10)
+    that Python's ipaddress module rejects outside of ::ffff: and :: prefixes.
+    Converts the embedded IPv4 portion to hex so the result is pure IPv6.
+    """
+    try:
+        return ipaddress.ip_address(ip_str)
+    except ValueError:
+        pass
+    # Detect mixed notation: contains both ':' and '.' (e.g. fd10::10.0.0.1)
+    if ':' in ip_str and '.' in ip_str:
+        # Find where the IPv4 part starts (last token after ':')
+        last_colon = ip_str.rfind(':')
+        ipv4_part = ip_str[last_colon + 1:]
+        prefix = ip_str[:last_colon + 1]
+        try:
+            v4 = ipaddress.IPv4Address(ipv4_part)
+            octets = v4.packed
+            hex_hi = f"{octets[0]:02x}{octets[1]:02x}"
+            hex_lo = f"{octets[2]:02x}{octets[3]:02x}"
+            return ipaddress.ip_address(f"{prefix}{hex_hi}:{hex_lo}")
+        except ValueError:
+            pass
+    raise ValueError(f"invalid IP address: {ip_str}")
+
+
 def is_ipv6(ip):
     try:
-        return ipaddress.ip_address(ip).version == 6
+        return normalize_ip(ip).version == 6
     except ValueError:
         return False
 
@@ -265,6 +297,23 @@ def find_iface_by_ip(ip):
     return iface_raw.split("@")[0]
 
 
+def find_iface_by_assigned_ip(target_ip):
+    family = "-6" if is_ipv6(target_ip) else "-4"
+    rc, out, _ = run(f"ip {family} -br addr show")
+    if rc != 0 or not out:
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        iface = parts[0].split("@")[0]
+        for addr_cidr in parts[2:]:
+            addr = addr_cidr.split("/")[0]
+            if addr == target_ip:
+                return iface
+    return None
+
+
 def is_ip_onlink(ip, iface):
     if is_ipv6(ip):
         cmd = f"ip -6 addr show dev {iface}"
@@ -278,7 +327,7 @@ def is_ip_onlink(ip, iface):
         if result.returncode != 0:
             return False
 
-        target = ipaddress.ip_address(ip)
+        target = normalize_ip(ip)
         for line in result.stdout.splitlines():
             match = re.search(pattern, line)
             if match:
@@ -289,6 +338,39 @@ def is_ip_onlink(ip, iface):
         pass
 
     return False
+
+
+def get_ips_from_hosts():
+    mgmt_ips = {}
+    cluster_ips = {}
+
+    try:
+        with open("/etc/hosts") as f:
+            for line in f:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                parts = line.split()
+                ip = parts[0]
+                for name in parts[1:]:
+                    if re.match(r"^controller-\d+$", name):
+                        mgmt_ips[name] = ip
+                    elif re.match(r"^controller-\d+-cluster-host$", name):
+                        cluster_ips[name.replace("-cluster-host", "")] = ip
+    except Exception:
+        pass
+
+    return mgmt_ips, cluster_ips
+
+
+def is_same_interface(ip1, ip2):
+    def _iface(ip):
+        return find_iface_by_assigned_ip(ip) or find_iface_by_ip(ip)
+
+    iface1 = _iface(ip1)
+    iface2 = _iface(ip2)
+    if not iface1 or not iface2:
+        return False
+    return iface1 == iface2
 
 
 def get_controller_neighbors():
@@ -335,6 +417,53 @@ def get_interfaces_list():
         pass
 
     return ifaces
+
+
+def resolve_ip(hostname, ipv6):
+    rc, out, _ = run(f"getent ahosts {hostname}")
+    if rc != 0 or not out:
+        return None
+    for line in out.splitlines():
+        ip = line.split()[0]
+        if is_ipv6(ip) == ipv6:
+            return ip
+    return None
+
+
+def detect_mcast_from_ss(ss_output, port):
+    """Extract multicast addresses from ss output for a given port.
+
+    ss output format uses IP%IFACE:PORT or IP:PORT where the last
+    colon separates the address from the port. Examples:
+        ff05::18:1:1:2222              -> IP=ff05::18:1:1      PORT=2222
+        239.1.1.1%enp0s8:2222          -> IP=239.1.1.1         PORT=2222
+        ff05::18:1:1%enp0s8:2222       -> IP=ff05::18:1:1      PORT=2222
+        2607:fe88:1000:118:2222        -> IP=2607:fe88:1000:118 (unicast, skip)
+        192.168.204.2%enp0s8:2222      -> IP=192.168.204.2     (unicast, skip)
+    """
+    addrs = []
+    for line in ss_output.splitlines():
+        tokens = line.split()
+        for token in tokens:
+            # Split on last colon to separate IP from port
+            idx = token.rfind(':')
+            if idx < 0:
+                continue
+            token_port = token[idx + 1:]
+            if token_port != port:
+                continue
+            candidate = token[:idx]
+            # Remove %interface suffix (e.g. [ff05::1]%vlan42)
+            candidate = candidate.split('%')[0]
+            # Remove brackets if present (e.g. [ff05::1])
+            candidate = candidate.strip('[]')
+            try:
+                ip = ipaddress.ip_address(candidate)
+                if ip.is_multicast and candidate not in addrs:
+                    addrs.append(candidate)
+            except ValueError:
+                pass
+    return addrs
 
 
 def print_bonding_info():
@@ -589,7 +718,10 @@ def test_hosts_generic(cat, path):
     print_category(cat, [path], description=desc)
 
     if not path or not os.path.exists(path):
-        category_failures[cat].append("hosts file not found")
+        if path == "/etc/hosts":
+            category_failures[cat].append("hosts file not found")
+        else:
+            log("[INFO] file not found (possibly standby controller), skipping test")
         return
 
     # Get local hostname to check if it's a compute node
@@ -1077,6 +1209,11 @@ def test_mtu_to_controllers():
             log("")
             continue
 
+        if iface == "lo":
+            log(f"[INFO] Skipping {ip} (routed via loopback)")
+            log("")
+            continue
+
         payload = calc_payload(mtu, is_ipv6(ip))
 
         # Validate payload doesn't exceed interface MTU
@@ -1178,144 +1315,252 @@ def test_dhcp_client_status():
             category_failures[cat].append(f"dhclient not running for {iface}")
 
 
-def test_multicast_heartbeat():
-    cat = "Multicast Heartbeat Traffic Test"
-    desc = [
-        "1) Detect local hostname and controller neighbors",
-        "2) Parse UDP sockets for hbsClient multicast ports",
-        "3) Resolve local and neighbor IPs using getent",
-        "4) Test RX/TX: Capture heartbeat traffic"
-    ]
-    print_category(cat, description=desc)
+def test_multicast_group_membership(cat, iface, all_mcast_addrs):
+    log(f"[INFO] Verifying multicast group membership on {iface}")
 
-    def resolve_ip(hostname, ipv6):
-        rc, out, _ = run(f"getent ahosts {hostname}")
-        if rc != 0 or not out:
-            return None
-        for line in out.splitlines():
-            ip = line.split()[0]
-            if is_ipv6(ip) == ipv6:
-                return ip
-        return None
-
-    def test_heartbeat_traffic(iface, port, src_ip, dst_addr, direction, label):
-        log(f"  Testing {direction} on port {port} {label}...")
-        cmd = (
-            f"timeout {TCPDUMP_TIMEOUT} tcpdump -i {iface} -vvv -nne "
-            f"'udp and dst {dst_addr} and dst port {port} and src {src_ip}' -c 1"
+    rc, maddr_out, _ = run(f"ip maddr show dev {iface}")
+    if rc != 0 or not maddr_out:
+        category_failures[cat].append(
+            f"unable to read multicast groups on {iface}"
         )
-        rc, _, _ = run(cmd)
-        if rc != 0:
-            category_failures[cat].append(
-                f"{direction}: no heartbeat from {src_ip} on {iface} port {port}"
+        return
+
+    joined = set()
+    for line in maddr_out.splitlines():
+        line = line.strip()
+        if line.startswith("link"):
+            continue
+        tokens = line.split()
+        for token in tokens:
+            try:
+                ip = ipaddress.ip_address(token)
+                joined.add(str(ip))
+            except ValueError:
+                continue
+
+    for mcast_addr in all_mcast_addrs:
+        normalized = str(ipaddress.ip_address(mcast_addr))
+        if normalized in joined:
+            log_result(
+                f"  multicast group {mcast_addr} joined on {iface}",
+                "PASS"
             )
         else:
-            log_result(f"  {direction} {label} port {port}", "PASS")
+            category_failures[cat].append(
+                f"multicast group {mcast_addr} not joined on {iface}"
+            )
+            log_result(
+                f"  multicast group {mcast_addr} joined on {iface}",
+                "FAILED"
+            )
 
-    try:
-        local_host = open("/etc/hostname").read().strip()
-    except Exception:
-        category_failures[cat].append("unable to read /etc/hostname")
-        return
 
-    if not re.match(r"^controller-\d+$", local_host):
-        log(f"[INFO] Local host '{local_host}' is not a controller, skipping test")
-        log_result("Multicast heartbeat test", "PASS")
-        return
+def _capture_heartbeat(cat, iface, port, src_ip, dst_addrs, direction, label):
+    log(f"  Testing {direction} on port {port} {label}...")
+    if isinstance(dst_addrs, list):
+        dst_filter = " or ".join(f"dst {a}" for a in dst_addrs)
+        dst_filter = f"({dst_filter})"
+    else:
+        dst_filter = f"dst {dst_addrs}"
+    cmd = (
+        f"timeout {TCPDUMP_TIMEOUT} tcpdump -i {iface} -vvv -nne "
+        f"'udp and {dst_filter} and dst port {port} and src {src_ip}' -c 1"
+    )
+    rc, _, _ = run(cmd)
+    if rc != 0:
+        category_failures[cat].append(
+            f"{direction}: no heartbeat from {src_ip} on {iface} port {port}"
+        )
+    else:
+        log_result(f"  {direction} {label} port {port}", "PASS")
 
-    neighbors = get_controller_neighbors()
-    if not neighbors:
-        log("[INFO] Standalone system detected, skipping test")
-        return
 
-    rc, out, _ = run_checked("ss -tupSnOl")
-    if rc != 0 or not out:
+def run_heartbeat_test(cat, local_host, neighbors, ports, cluster_ips=None, rx_only=False):
+    """Orchestrate heartbeat capture for a list of ports against all neighbors.
+
+    If cluster_ips dict is provided, uses cluster-host IPs instead of mgmt IPs.
+    If rx_only is True, only captures RX traffic (no TX test).
+    """
+    rc, ss_out, _ = run("ss -tupSnOl")
+    if rc != 0 or not ss_out:
         category_failures[cat].append("unable to read UDP sockets via ss")
         return
 
-    # Test management heartbeat (port 2106)
-    hb_port = "2106"
-    mcast_addr = None
-    found = False
-    for line in out.splitlines():
-        if "hbsClient" in line and ("ff08::1:1:2" in line or "239.1.1.2" in line):
-            if f":{hb_port}" in line:
-                found = True
-                mcast_addr = "ff08::1:1:2" if "ff08::1:1:2" in line else "239.1.1.2"
-                break
+    mcast_addrs = []
+    for port in ports:
+        for addr in detect_mcast_from_ss(ss_out, port):
+            if addr not in mcast_addrs:
+                mcast_addrs.append(addr)
 
-    if not found:
-        log_result(f"no multicast heartbeat socket detected (hbsClient port {hb_port})", "FAILED")
-        category_failures[cat].append(f"no multicast heartbeat socket detected (hbsClient port {hb_port})")
+    if not mcast_addrs:
+        category_failures[cat].append(
+            f"no multicast socket detected for ports {'/'.join(ports)}"
+        )
         return
 
-    log(f"[INFO] Local hostname: {local_host}")
-    log(f"[INFO] Heartbeat port: {hb_port}")
-    log(f"[INFO] Multicast address: {mcast_addr}")
+    log(f"[INFO] Multicast addresses detected: {', '.join(mcast_addrs)}")
 
-    use_ipv6 = mcast_addr == "ff08::1:1:2"
-    local_ip = resolve_ip(local_host, use_ipv6)
+    use_ipv6 = any(is_ipv6(a) for a in mcast_addrs)
+
+    if cluster_ips is not None:
+        local_ip = cluster_ips.get(local_host)
+    else:
+        local_ip = resolve_ip(local_host, use_ipv6)
+
     if not local_ip:
-        protocol = "IPv6" if use_ipv6 else "IPv4"
-        category_failures[cat].append(f"no {protocol} address for {local_host}")
+        category_failures[cat].append(f"no IP found for {local_host}")
         return
 
     log(f"[INFO] Local IP: {local_ip}")
-    log("")
 
     for neighbor_name, _ in neighbors:
         log(f"[INFO] Testing heartbeat with neighbor: {neighbor_name}")
 
-        neighbor_ip = resolve_ip(neighbor_name, use_ipv6)
+        if cluster_ips is not None:
+            neighbor_ip = cluster_ips.get(neighbor_name)
+        else:
+            neighbor_ip = resolve_ip(neighbor_name, use_ipv6)
+
         if not neighbor_ip:
-            protocol = "IPv6" if use_ipv6 else "IPv4"
-            category_failures[cat].append(f"no {protocol} address for {neighbor_name}")
+            category_failures[cat].append(f"no IP found for {neighbor_name}")
             continue
 
         log(f"  Resolved IP: {neighbor_ip}")
 
         iface = find_iface_by_ip(neighbor_ip)
         if not iface:
-            category_failures[cat].append(f"unable to determine interface for {neighbor_name}")
+            category_failures[cat].append(
+                f"unable to determine interface for {neighbor_name}"
+            )
             continue
 
         log(f"  Interface: {iface}")
 
-        test_heartbeat_traffic(iface, hb_port, neighbor_ip, mcast_addr, "RX", f"from {neighbor_name}")
-        test_heartbeat_traffic(iface, hb_port, local_ip, mcast_addr, "TX", f"from {local_ip}")
+        for port in ports:
+            _capture_heartbeat(cat, iface, port, neighbor_ip, mcast_addrs, "RX", f"from {neighbor_name}")
+            if not rx_only:
+                _capture_heartbeat(cat, iface, port, local_ip, mcast_addrs, "TX", f"from {local_host}")
 
         log("")
 
-    # Test SM heartbeat (ports 2222 and 2223)
-    sm_mcast_ipv6 = "ff08::1:1:1"
-    sm_mcast_ipv4 = "239.1.1.1"
-    sm_ports = ["2222", "2223"]
+    return mcast_addrs
 
-    log(f"[INFO] Testing SM heartbeat on {sm_mcast_ipv6} and {sm_mcast_ipv4}")
-    local_ipv6 = resolve_ip(local_host, True)
-    local_ipv4 = resolve_ip(local_host, False)
 
-    for neighbor_name, _ in neighbors:
-        neighbor_ipv6 = resolve_ip(neighbor_name, True)
-        neighbor_ipv4 = resolve_ip(neighbor_name, False)
+def test_mgmt_heartbeat():
+    cat = "Mgmt Heartbeat Traffic Test"
+    desc = [
+        "1) Detect local hostname and mgmt interface",
+        "2) Detect multicast addresses from UDP sockets (ss) on port 2106",
+        "3) Controller: capture RX and TX heartbeat traffic on port 2106",
+        "3) Worker: capture RX-only heartbeat traffic on port 2106",
+        "4) Controller only: capture RX and TX SM traffic on ports 2222 and 2223",
+        "5) Verify multicast group membership on mgmt interface"
+    ]
+    print_category(cat, description=desc)
 
-        log(f"[INFO] Testing SM heartbeat with {neighbor_name}")
+    local_host = open("/etc/hostname").read().strip()
+    is_controller = bool(re.match(r"^controller-\d+$", local_host))
 
-        if neighbor_ipv6 and local_ipv6:
-            iface = find_iface_by_ip(neighbor_ipv6)
-            if iface:
-                for port in sm_ports:
-                    test_heartbeat_traffic(iface, port, neighbor_ipv6, sm_mcast_ipv6, "RX", f"from {neighbor_name}")
-                    test_heartbeat_traffic(iface, port, local_ipv6, sm_mcast_ipv6, "TX", f"from {local_host}")
+    neighbors = get_controller_neighbors()
 
-        if neighbor_ipv4 and local_ipv4:
-            iface = find_iface_by_ip(neighbor_ipv4)
-            if iface:
-                for port in sm_ports:
-                    test_heartbeat_traffic(iface, port, neighbor_ipv4, sm_mcast_ipv4, "RX", f"from {neighbor_name}")
-                    test_heartbeat_traffic(iface, port, local_ipv4, sm_mcast_ipv4, "TX", f"from {local_host}")
+    mcast_addrs = run_heartbeat_test(cat, local_host, neighbors, ["2106"], rx_only=not is_controller)
 
-        log("")
+    if is_controller:
+        sm_mcast_addrs = run_heartbeat_test(cat, local_host, neighbors, ["2222", "2223"])
+    else:
+        sm_mcast_addrs = []
+
+    local_ip = resolve_ip(local_host, True) or resolve_ip(local_host, False)
+    if local_ip:
+        mgmt_iface = find_iface_by_assigned_ip(local_ip)
+    else:
+        # Workers/computes are not listed in /etc/hosts, so resolve_ip() returns
+        # None. Use controller-0 mgmt IP as a reference: ip route get reveals
+        # which local interface is used to reach that subnet, identifying the
+        # local mgmt interface without needing the worker's own hostname.
+        mgmt_ips, _ = get_ips_from_hosts()
+        ref_ip = mgmt_ips.get("controller-0")
+        mgmt_iface = find_iface_by_ip(ref_ip) if ref_ip else None
+    if mgmt_iface:
+        all_mcast = list(dict.fromkeys((mcast_addrs or []) + (sm_mcast_addrs or [])))
+        test_multicast_group_membership(cat, mgmt_iface, all_mcast)
+
+
+def test_cluster_host_heartbeat():
+    cat = "Cluster-host Heartbeat Traffic Test"
+    desc = [
+        "1) Detect local hostname",
+        "2) Resolve mgmt and cluster-host IPs from /etc/hosts",
+        "3) Check if mgmt and cluster-host share the same interface",
+        "4) If different interface: capture heartbeat traffic on port 2116",
+        "5) Controller only: capture RX and TX SM traffic on ports 2222 and 2223",
+        "6) Controller only: verify multicast group membership on cluster-host interface"
+    ]
+    print_category(cat, description=desc)
+
+    local_host = open("/etc/hostname").read().strip()
+    is_controller = bool(re.match(r"^controller-\d+$", local_host))
+
+    neighbors = get_controller_neighbors()
+    mgmt_ips, cluster_ips = get_ips_from_hosts()
+
+    if is_controller:
+        if local_host not in mgmt_ips or local_host not in cluster_ips:
+            log("[INFO] unable to determine mgmt/cluster-host IPs from /etc/hosts, skipping test")
+            return
+
+        same_iface = is_same_interface(mgmt_ips[local_host], cluster_ips[local_host])
+
+        if not same_iface:
+            hbs_mcast_addrs = run_heartbeat_test(cat, local_host, neighbors, ["2116"], cluster_ips)
+        else:
+            hbs_mcast_addrs = []
+
+        sm_mcast_addrs = run_heartbeat_test(cat, local_host, neighbors, ["2222", "2223"], cluster_ips)
+
+        cluster_iface = find_iface_by_assigned_ip(cluster_ips[local_host])
+        if cluster_iface:
+            all_mcast = list(dict.fromkeys((hbs_mcast_addrs or []) + (sm_mcast_addrs or [])))
+            test_multicast_group_membership(cat, cluster_iface, all_mcast)
+    else:
+        # Workers/computes: use controller-0 mgmt and cluster-host IPs as reference
+        # to detect whether mgmt and cluster-host use different local interfaces.
+        ref_mgmt_ip = mgmt_ips.get("controller-0")
+        ref_cluster_ip = cluster_ips.get("controller-0")
+
+        if not ref_mgmt_ip or not ref_cluster_ip:
+            log("[INFO] unable to determine controller mgmt/cluster-host IPs, skipping test")
+            return
+
+        if is_same_interface(ref_mgmt_ip, ref_cluster_ip):
+            log("[INFO] mgmt and cluster-host share the same interface, skipping test")
+            return
+
+        # Build a cluster_ips dict using <hostname>-cluster-host entries from /etc/hosts
+        worker_cluster_ips = {}
+        try:
+            with open("/etc/hosts") as f:
+                for line in f:
+                    if not line.strip() or line.startswith("#"):
+                        continue
+                    parts = line.split()
+                    ip = parts[0]
+                    for name in parts[1:]:
+                        if re.match(r"^\S+-cluster-host$", name):
+                            host_key = name.replace("-cluster-host", "")
+                            worker_cluster_ips[host_key] = ip
+        except Exception:
+            pass
+
+        if local_host not in worker_cluster_ips:
+            log(f"[INFO] no cluster-host entry found for {local_host}, skipping test")
+            return
+
+        hbs_mcast_addrs = run_heartbeat_test(cat, local_host, neighbors, ["2116"], cluster_ips=worker_cluster_ips, rx_only=True)
+
+        cluster_iface = find_iface_by_assigned_ip(worker_cluster_ips[local_host])
+        if cluster_iface:
+            test_multicast_group_membership(cat, cluster_iface, hbs_mcast_addrs or [])
 
 
 def test_dnsmasq_host_records_connectivity():
@@ -1357,7 +1602,7 @@ def test_dnsmasq_host_records_connectivity():
 
                 for token in parts[1:]:
                     try:
-                        ip = str(ipaddress.ip_address(token))
+                        ip = str(normalize_ip(token))
                         records.append((hostname, ip))
                     except ValueError:
                         continue
@@ -1472,7 +1717,9 @@ def write_report():
     )
     log("=" * 120)
 
-    for cat in category_validations:
+    report_categories = executed_categories if executed_categories else category_validations
+
+    for cat in report_categories:
         fails = list(dict.fromkeys(category_failures.get(cat, [])))
         warns = list(dict.fromkeys(category_warnings.get(cat, [])))
 
@@ -1505,41 +1752,54 @@ def pause_between_categories():
         exit(1)
 
 
-def run_tests():
-    tests = [
-        # L2 Tests
-        test_next_hops,
-        test_status_interfaces,
-        test_link_negotiation,
-        # L3 Tests
-        test_configured_ip_addresses,
-        test_ip_overlap_between_interfaces,
-        test_duplicated_default_routes,
-        test_mtu_to_controllers,
-        test_dhcp_client_status,
-        test_dns_servers,
-        test_hosts_file,
-        test_dnsmasq_hosts,
-        test_dnsmasq_host_records_connectivity,
-        # L4 Tests
-        test_multicast_heartbeat,
-    ]
+AVAILABLE_TESTS = {
+    "next_hops":             (test_next_hops,                        "ARP/NDP reachability to routing next-hops"),
+    "interfaces_status":     (test_status_interfaces,                "Check interfaces are UP"),
+    "link_negotiation":      (test_link_negotiation,                 "Verify speed/duplex on physical interfaces"),
+    "configured_ips":        (test_configured_ip_addresses,          "Verify configured IPs are assigned"),
+    "ip_overlap":            (test_ip_overlap_between_interfaces,    "Detect overlapping subnets between interfaces"),
+    "duplicated_routes":     (test_duplicated_default_routes,        "Detect duplicated default routes"),
+    "mtu":                   (test_mtu_to_controllers,               "Path MTU and fragmentation test to neighbors"),
+    "dhcp":                  (test_dhcp_client_status,               "Verify dhclient is running for DHCP interfaces"),
+    "dns":                   (test_dns_servers,                      "Ping and port 53 test to DNS servers"),
+    "hosts_file":            (test_hosts_file,                       "Resolve and ping /etc/hosts entries"),
+    "dnsmasq_hosts":         (test_dnsmasq_hosts,                    "Resolve and ping dnsmasq addn_hosts entries"),
+    "dnsmasq_records":       (test_dnsmasq_host_records_connectivity, "Ping dnsmasq host-record entries"),
+    "mgmt_heartbeat":        (test_mgmt_heartbeat,                   "Capture mgmt heartbeat traffic via tcpdump"),
+    "cluster_host_heartbeat": (test_cluster_host_heartbeat,          "Capture cluster-host heartbeat traffic via tcpdump"),
+}
 
-    for test in tests:
-        test()
-        pause_between_categories()
+
+def run_tests(selected=None):
+    if selected:
+        func, _ = AVAILABLE_TESTS[selected]
+        func()
+    else:
+        for func, _ in AVAILABLE_TESTS.values():
+            func()
+            pause_between_categories()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Network diagnostics tool")
+    test_list = "\n  ".join(
+        f"{name:<24} {desc}" for name, (_, desc) in AVAILABLE_TESTS.items()
+    )
+    parser = argparse.ArgumentParser(
+        description="Network diagnostics tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"Available tests:\n  {test_list}"
+    )
     parser.add_argument("--pause", action="store_true", help="Pause between test categories")
     parser.add_argument("--log-file", type=str, default=REPORT_FILE,
                         help=f"Path to the log file (default: {REPORT_FILE})")
+    parser.add_argument("--test", type=str, metavar="TEST_NAME",
+                        choices=AVAILABLE_TESTS.keys(),
+                        help="Run only the specified test (see list below)")
     args = parser.parse_args()
 
     PAUSE_ENABLED = args.pause
     REPORT_FILE = args.log_file
 
-    run_tests()
+    run_tests(selected=args.test)
     print_system_info()
     write_report()
