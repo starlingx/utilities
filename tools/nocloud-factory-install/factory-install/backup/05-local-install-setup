@@ -1,0 +1,207 @@
+#!/bin/bash
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Creates a persistent UEFI boot entry and writes install_kargs/install_bootnum
+# to boot.env so the system can reinstall from locally prestaged media without
+# network or BMC access. Must be run before 10-system-backup so the backup
+# contains the changes made by this script.
+#
+
+function log_fatal {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - local-install-setup -") FATAL: ${*}"
+    exit 1
+}
+
+function log_warn {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - local-install-setup -") WARN: ${*}"
+}
+
+function log_info {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - local-install-setup -") INFO: $*"
+}
+
+function check_rc_die {
+    local -i rc=${1}
+    local msg="${2}"
+    if [ ${rc} -ne 0 ]; then
+        log_fatal "${msg} [rc=${rc}]"
+    fi
+}
+
+log_info "Starting local install recovery setup..."
+
+# Only supported on simplex systems.
+system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+if [ "$system_mode" != "simplex" ]; then
+    log_info "Skipping local install recovery setup for non-simplex system mode"
+    exit 0
+fi
+
+SW_VERSION=$(awk -F= '/^SW_VERSION/ {print $2}' /etc/build.info | tr -d '"')
+BOOT_ENV="/boot/efi/EFI/BOOT/boot.env"
+EFI_LABEL="Local Factory Restore"
+
+# Detect EFI partition device (e.g. /dev/sda1 or /dev/nvme0n1p1).
+EFI_DEV=$(awk '$2 == "/boot/efi" {print $1}' /proc/mounts | head -1)
+if [ -z "${EFI_DEV}" ]; then
+    log_fatal "Cannot detect EFI partition from /proc/mounts"
+fi
+
+# Strip partition suffix: /dev/sda1 -> /dev/sda, /dev/nvme0n1p1 -> /dev/nvme0n1.
+EFI_DISK=$(echo "${EFI_DEV}" | sed 's/p\?[0-9]*$//')
+EFI_PART_NUM=$(echo "${EFI_DEV}" | grep -o '[0-9]*$')
+log_info "EFI device: ${EFI_DEV} (disk: ${EFI_DISK}, part: ${EFI_PART_NUM})"
+
+# Resolve EFI_DISK to a stable /dev/disk/by-path/ identifier for instdev.
+# /dev/nvmeXn1 names can change across reboots, causing the installer to target the
+# wrong disk and wipe factory data.
+EFI_DISK_PERSISTENT=""
+for p in /dev/disk/by-path/*; do
+    if [ "$(readlink -f "${p}")" = "${EFI_DISK}" ]; then
+        EFI_DISK_PERSISTENT="${p}"
+        break
+    fi
+done
+if [ -n "${EFI_DISK_PERSISTENT}" ]; then
+    log_info "Persistent install device: ${EFI_DISK_PERSISTENT}"
+    INSTDEV="${EFI_DISK_PERSISTENT}"
+else
+    log_warn "No /dev/disk/by-path/ link found for ${EFI_DISK}; using bare device name"
+    INSTDEV="${EFI_DISK}"
+fi
+
+# ip= is required even for local (instnet=0) installs because miniboot.cfg
+# network setup runs unconditionally and wait_for_interface will hang without
+# an interface name. ip=,,,,,<iface>,off brings it up without assigning an address.
+MGMT_IFACE=$(awk -F= '/^management_interface/ {print $2}' /etc/platform/platform.conf)
+if [ -n "${MGMT_IFACE}" ]; then
+    # VLAN devices don't exist in the installer environment so we resolve it to the
+    # physical interface.
+    if [ -f "/proc/net/vlan/${MGMT_IFACE}" ]; then
+        PHYS_IFACE=$(awk '/^Device:/ {print $2}' "/proc/net/vlan/${MGMT_IFACE}")
+        log_info "Management interface ${MGMT_IFACE} is a VLAN; using parent ${PHYS_IFACE}"
+        MGMT_IFACE="${PHYS_IFACE}"
+    fi
+    log_info "Management interface for ip=: ${MGMT_IFACE}"
+    MGMT_IP_PARAM="ip=,,,,,${MGMT_IFACE},off"
+else
+    log_warn "management_interface not found in platform.conf; local reinstall may fail to settle interface"
+    MGMT_IP_PARAM=""
+fi
+
+# Build install kernel args pointing to prestaged data on platform_backup.
+# install_kargs is stored in boot.env and read by the "Local Factory Restore" grub entry
+INSTALL_KARGS="initrd=/initrd rdinit=/install"
+INSTALL_KARGS="${INSTALL_KARGS} ks=partition://platform_backup:factory/${SW_VERSION}/miniboot.cfg"
+INSTALL_KARGS="${INSTALL_KARGS} instw=60 instiso=otaboot biosplusefi=1"
+INSTALL_KARGS="${INSTALL_KARGS} instnet=0 instgpg=0 inst.noverifyssl=True"
+INSTALL_KARGS="${INSTALL_KARGS} instname=debian instbr=starlingx instab=0"
+INSTALL_KARGS="${INSTALL_KARGS} inst_ostree_root=/dev/mapper/cgts--vg-root--lv"
+INSTALL_KARGS="${INSTALL_KARGS} inst_ostree_var=/dev/mapper/cgts--vg-var--lv"
+INSTALL_KARGS="${INSTALL_KARGS} defaultkernel=vmlinuz-*[!t]-amd64"
+INSTALL_KARGS="${INSTALL_KARGS} instdev=${INSTDEV}"
+INSTALL_KARGS="${INSTALL_KARGS} insturl=file:///tmp/platform-backup/factory/${SW_VERSION}/ostree_repo"
+INSTALL_KARGS="${INSTALL_KARGS} traits=controller,worker"
+INSTALL_KARGS="${INSTALL_KARGS} onsite_restore=1"
+INSTALL_KARGS="${INSTALL_KARGS} console=ttyS0,115200n8 console=tty0"
+[ -n "${MGMT_IP_PARAM}" ] && INSTALL_KARGS="${INSTALL_KARGS} ${MGMT_IP_PARAM}"
+
+# Stage installer kernel and initramfs under /boot/install/ (otaboot root),
+# where grub.cfg expects them. Copy signatures if present for secure boot.
+log_info "Staging installer kernel and initramfs at /boot/install/"
+mkdir -p /boot/install
+check_rc_die $? "Failed to create /boot/install"
+
+# In the factory install flow, the files under /boot/1/ should always exist
+if [ ! -f "/boot/1/vmlinuz" ] || [ ! -f "/boot/1/initramfs" ]; then
+    log_fatal "Installer kernel/initramfs not found at /boot/1/"
+fi
+
+cp /boot/1/vmlinuz   /boot/install/vmlinuz
+check_rc_die $? "Failed to copy vmlinuz"
+cp /boot/1/initramfs /boot/install/initramfs
+check_rc_die $? "Failed to copy initramfs"
+[ -f "/boot/1/vmlinuz.sig"   ] && cp /boot/1/vmlinuz.sig   /boot/install/vmlinuz.sig
+[ -f "/boot/1/initramfs.sig" ] && cp /boot/1/initramfs.sig /boot/install/initramfs.sig
+log_info "Staged installer kernel/initramfs at /boot/install/"
+
+# Delete any stale UEFI boot entry for the install label. A leftover entry
+# from a previous install may reference an old partition UUID
+OLD_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
+if [ -n "${OLD_BOOTNUM}" ]; then
+    log_info "Removing stale UEFI boot entry Boot${OLD_BOOTNUM} ('${EFI_LABEL}')"
+    efibootmgr -B -b "${OLD_BOOTNUM}" || log_warn "Failed to remove Boot${OLD_BOOTNUM}"
+fi
+
+# Create a fresh UEFI boot entry. -C keeps it out of BootOrder so normal
+# boots are unaffected.
+log_info "Creating UEFI boot entry '${EFI_LABEL}'"
+efibootmgr -C -w \
+    -p "${EFI_PART_NUM}" \
+    -L "${EFI_LABEL}" \
+    -d "${EFI_DISK}" \
+    -l '\EFI\BOOT\BOOTX64.EFI'
+check_rc_die $? "Failed to create UEFI boot entry"
+log_info "UEFI boot entry created"
+
+# efibootmgr prints boot numbers in hex, grubs get_efivar -f uint8 returns
+# BootCurrent in decimal, need to convert for the comparison in grub.cfg.
+EFI_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
+if [ -z "${EFI_BOOTNUM}" ]; then
+    log_fatal "Could not find boot number for '${EFI_LABEL}' after creation"
+fi
+EFI_BOOTNUM_DEC=$(printf '%d' "0x${EFI_BOOTNUM}")
+log_info "UEFI boot entry: Boot${EFI_BOOTNUM} (decimal: ${EFI_BOOTNUM_DEC})"
+
+# Write install_kargs and install_bootnum to boot.env
+if [ ! -f "${BOOT_ENV}" ]; then
+    log_fatal "boot.env not found at ${BOOT_ENV}"
+fi
+
+if grep -q "^install_kargs=" "${BOOT_ENV}"; then
+    sed -i "s|^install_kargs=.*|install_kargs=${INSTALL_KARGS}|" "${BOOT_ENV}"
+else
+    sed -i "1 a install_kargs=${INSTALL_KARGS}" "${BOOT_ENV}"
+fi
+check_rc_die $? "Failed to write install_kargs to ${BOOT_ENV}"
+
+# install_bootnum is used to automatically select the local install option
+if grep -q "^install_bootnum=" "${BOOT_ENV}"; then
+    sed -i "s/^install_bootnum=.*/install_bootnum=${EFI_BOOTNUM_DEC}/" "${BOOT_ENV}"
+else
+    sed -i "1 a install_bootnum=${EFI_BOOTNUM_DEC}" "${BOOT_ENV}"
+fi
+check_rc_die $? "Failed to write install_bootnum to ${BOOT_ENV}"
+log_info "Updated install_kargs and install_bootnum in ${BOOT_ENV}"
+
+# Write backup_restore_values.yml consumed by dc-auto-restore.service on the
+# first boot after a local reinstall.
+BACKUP_DIR="/opt/platform-backup/factory/${SW_VERSION}"
+mkdir -p "${BACKUP_DIR}"
+check_rc_die $? "Failed to create ${BACKUP_DIR}"
+
+FACTORY_YML="${BACKUP_DIR}/backup_restore_values.yml"
+log_info "Writing backup_restore_values.yml to ${BACKUP_DIR}"
+cat > "${FACTORY_YML}" << EOF
+auto_restore_mode: factory
+initial_backup_dir: ${BACKUP_DIR}
+ipmi_sel_event_monitoring: false
+restore_mode: optimized
+skip_registry_login: true
+skip_patches_restore: true
+exclude_sw_deployments: true
+images_archive_dir: ${BACKUP_DIR}
+EOF
+check_rc_die $? "Failed to write backup_restore_values.yml"
+
+# Stage a copy as the permanent factory restore fallback on an unversioned dir.
+log_info "Staging factory backup_restore_values.yml to /opt/platform-backup/.onsite-restore/factory/"
+mkdir -p /opt/platform-backup/.onsite-restore/factory
+cp "${FACTORY_YML}" /opt/platform-backup/.onsite-restore/factory/backup_restore_values.yml
+check_rc_die $? "Failed to copy backup_restore_values.yml to .onsite-restore/factory"
+log_info "Staged factory backup_restore_values.yml to /opt/platform-backup/.onsite-restore/factory/"
+
+log_info "Completed the local install recovery setup"

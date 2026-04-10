@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Trigger a local reinstall and factory restore.
+#
+# Validates prestaged data, arms BootNext, and reboots. The system
+# reinstalls from locally prestaged media and restores factory defaults
+# on the first boot after reinstall.
+#
+
+exec 1> >(tee -a /var/log/cloud-init-output.log)
+exec 2> >(tee -a /var/log/cloud-init-output.log >&2)
+
+function log_fatal {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - onsite-factory-restore -") FATAL: ${*}"
+    exit 1
+}
+
+function log_info {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - onsite-factory-restore -") INFO: $*"
+}
+
+log_info "Starting onsite factory restore"
+
+# Onsite factory restore is only supported on simplex systems.
+system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+if [ "$system_mode" != "simplex" ]; then
+    log_fatal "Onsite factory restore is only supported on simplex systems"
+fi
+
+if [ ! -x /usr/local/bin/local-install-trigger.sh ]; then
+    log_fatal "local-install-trigger.sh not found or not executable"
+fi
+
+/usr/local/bin/local-install-trigger.sh --restore-mode factory

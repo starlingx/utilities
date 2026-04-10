@@ -48,6 +48,7 @@ override_dh_auto_install:
 	install -m 750 scripts/set_keystone_user_option.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/enroll-init-cleanup $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/enroll-init-reconfigure $(DEBIAN_BUILDDIR)/usr/local/bin/
+	install -m 750 scripts/local-install-trigger.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/host-cis-benchmark-apparmor-setup.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 750 scripts/apiserver_cis_compliance.sh $(DEBIAN_BUILDDIR)/usr/local/bin/
 	install -m 755 platform-util/k8s-ca-read/k8s-ca-read.py $(DEBIAN_BUILDDIR)/usr/local/bin/
@@ -64,4 +65,4 @@ override_dh_fixperms:
 	dh_fixperms -Xupdate-iso.sh -Xpatch-dm.sh -Xgen-bootloader-iso.sh -Xstx-iso-utils.sh \
 	-Xshow-certs.sh -Xupdate_docker_registry_auth.sh -Xchange_system_private_registry.sh \
 	-Xis-rootdisk-device.sh -Xlocal_starlingxrc -Xkubeconfig-setup -Xpatch-restart-* \
-	-Xconnectivity_test -Xnetwork_diagnostics -Xset_keystone_user_option.sh -Xenroll-init-* -Xk8s-ca-read
+	-Xconnectivity_test -Xnetwork_diagnostics -Xset_keystone_user_option.sh -Xenroll-init-* -Xlocal-install-trigger.sh -Xk8s-ca-read

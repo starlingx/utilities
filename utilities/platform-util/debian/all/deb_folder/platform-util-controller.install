@@ -11,6 +11,7 @@
 /usr/local/bin/kubeconfig-setup
 /usr/local/bin/enroll-init-cleanup
 /usr/local/bin/enroll-init-reconfigure
+/usr/local/bin/local-install-trigger.sh
 /usr/local/bin/host-cis-benchmark-apparmor-setup.sh
 /usr/local/bin/apiserver_cis_compliance.sh
 /usr/local/bin/k8s-ca-read
