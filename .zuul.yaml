@@ -9,7 +9,6 @@
         - stx-utilities-ceph-manager-tox-bandit
         - stx-utilities-ceph-manager-tox-py39
         - stx-utilities-ceph-client-tox-bandit
-        - stx-utilities-pci-irq-affinity-agent-tox-py27
         - stx-utilities-pci-irq-affinity-agent-tox-py39
         - stx-utilities-pci-irq-affinity-agent-tox-pep8
         - stx-utilities-k8s-coredump-tox-py39
@@ -22,7 +21,6 @@
         - stx-utilities-ceph-manager-tox-bandit
         - stx-utilities-ceph-manager-tox-py39
         - stx-utilities-ceph-client-tox-bandit
-        - stx-utilities-pci-irq-affinity-agent-tox-py27
         - stx-utilities-pci-irq-affinity-agent-tox-py39
         - stx-utilities-pci-irq-affinity-agent-tox-pep8
         - stx-utilities-k8s-coredump-tox-py39
@@ -85,7 +83,7 @@
     parent: tox
     description: |
       Run bandit test for utilities ceph-mananger
-    nodeset: ubuntu-bionic
+    nodeset: debian-bullseye
     files:
       - ./ceph/ceph-manager/ceph-manager/*
     vars:
@@ -110,24 +108,12 @@
     parent: tox
     description: |
       Run bandit test for utilities python-cephclient
-    nodeset: ubuntu-bionic
+    nodeset: debian-bullseye
     files:
       - ./ceph/python-cephclient/python-cephclient/*
     vars:
       tox_envlist: bandit
       tox_extra_args: -c ./ceph/python-cephclient/python-cephclient/tox.ini
-
-- job:
-    name: stx-utilities-pci-irq-affinity-agent-tox-py27
-    parent: tox
-    description: |
-      Run py27 unittests for utilities/pci-irq-affinity-agent
-    nodeset: ubuntu-bionic
-    files:
-      - ./utilities/pci-irq-affinity-agent/*
-    vars:
-      tox_envlist: py27
-      tox_extra_args: -c ./utilities/pci-irq-affinity-agent/pci_irq_affinity/tox.ini
 
 - job:
     name: stx-utilities-pci-irq-affinity-agent-tox-py39
@@ -148,7 +134,7 @@
     parent: tox
     description: |
       Run flake8 checks for utilities/pci-irq-affinity-agent
-    nodeset: ubuntu-bionic
+    nodeset: debian-bullseye
     files:
       - ./utilities/pci-irq-affinity-agent/*
     vars:
