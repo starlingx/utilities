@@ -11,8 +11,11 @@ from importlib.util import module_from_spec
 from importlib.util import spec_from_file_location
 import os
 import unittest
+from unittest.mock import MagicMock
 from unittest.mock import mock_open
 from unittest.mock import patch
+
+import requests
 
 from nocloud_utils.utils import log_error
 from nocloud_utils.utils import log_info
@@ -108,13 +111,13 @@ class TestEnrollSubcloud(unittest.TestCase):
 
     def test_extract_systemcontroller_oam(self):
         """Test extracting systemcontroller OAM address."""
-        yaml_content = "systemcontroller_oam_address: 10.10.10.1\n"
+        yaml_content = "systemcontroller_oam_address: 10.10.10.2\n"
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
             result = self.base.extract_yaml(
                 "/fake/path", "systemcontroller_oam_address"
             )
-        self.assertEqual(result, "10.10.10.1")
+        self.assertEqual(result, "10.10.10.2")
 
     def test_extract_credentials(self):
         """Test extracting admin password from YAML."""
@@ -134,12 +137,10 @@ class TestEnrollSubcloud(unittest.TestCase):
             self.assertIn("test message", str(mock_print.call_args))
 
     def test_base_log_error(self):
-        """Test logging an error message and exiting."""
-        with patch("builtins.print") as mock_print, \
-             patch("sys.exit") as mock_exit:
+        """Test logging an error message."""
+        with patch("builtins.print") as mock_print:
             log_error("error message")
             mock_print.assert_called_once()
-            mock_exit.assert_called_once_with(1)
             self.assertIn("error message", str(mock_print.call_args))
 
     def test_subcloud_setup_get_ssl_ca_cert_path_exists(self):
@@ -150,7 +151,9 @@ class TestEnrollSubcloud(unittest.TestCase):
         ]
         setup = self.module.SubcloudSetup()
         yaml_content = (
-            "ssl_ca_cert: cert.pem\nsystemcontroller_oam_address: 10.10.10.1\n"
+            "ssl_ca_cert: cert.pem\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
+            "name: subcloud1\n"
         )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
@@ -167,7 +170,9 @@ class TestEnrollSubcloud(unittest.TestCase):
         ]
         setup = self.module.SubcloudSetup()
         yaml_content = (
-            "other_key: value\nsystemcontroller_oam_address: 10.10.10.1\n"
+            "other_key: value\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
+            "name: subcloud1\n"
         )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
@@ -179,7 +184,7 @@ class TestEnrollSubcloud(unittest.TestCase):
         """Test syncing time from remote system controller."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
         auth = self.module.CentralCloudAuth(config)
         self.mock_requests_head.return_value.headers = {
@@ -194,7 +199,7 @@ class TestEnrollSubcloud(unittest.TestCase):
         """Test getting Keystone authentication token."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
         auth = self.module.CentralCloudAuth(config)
         auth.admin_password = "password"  # nosec B105
@@ -213,14 +218,79 @@ class TestEnrollSubcloud(unittest.TestCase):
             [f"{TEST_CONFIG_DIR}/bootstrap.yaml"],
         ]
         base = self.module.BaseClass()
-        yaml_content = "systemcontroller_oam_address: 10.10.10.1\n"
+        yaml_content = (
+            "systemcontroller_oam_address: 10.10.10.2\n"
+            "name: subcloud1\n"
+        )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
-            base.load_common_files()
+            config = base.load_common_files()
         self.assertEqual(
             base.bootstrap_values, f"{TEST_CONFIG_DIR}/bootstrap.yaml"
         )
-        self.assertEqual(base.systemcontroller_oam, "10.10.10.1")
+        self.assertEqual(base.systemcontroller_oam, "10.10.10.2")
+        self.assertEqual(config.subcloud_name, "subcloud1")
+
+    def test_load_subcloud_name_missing(self):
+        """Test missing subcloud name in bootstrap-values"""
+        self.mock_glob.side_effect = [
+            [TEST_OLD_CONFIG_DIR, TEST_CONFIG_DIR],
+            [f"{TEST_CONFIG_DIR}/bootstrap.yaml"],
+        ]
+        base = self.module.BaseClass()
+        yaml_content = "systemcontroller_oam_address: 10.10.10.2\n"
+        m = mock_open(read_data=yaml_content)
+        with patch("builtins.open", m), \
+             patch("sys.exit", side_effect=SystemExit(1)) as mock_exit:
+            with self.assertRaises(SystemExit):
+                base.load_common_files()
+            mock_exit.assert_called_with(1)
+        error_msg = str(self.mock_print.call_args_list)
+        self.assertIn("Subcloud name not found", error_msg)
+
+    def test_subcloud_enroll_closes_file_handles(self):
+        """Test that file handles are closed after enrollment."""
+        config = self.module.EnrollmentConfig()
+        config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
+        config.systemcontroller_oam = "10.10.10.2"
+        config.config_dir = TEST_CONFIG_DIR
+        config.subcloud_name = "subcloud1"
+        enroll = self.module.SubcloudEnroll(config, "token123")
+
+        # Pre-populate the values to avoid complex mocking
+        enroll.sysadmin_password = "password"  # nosec
+        enroll.install_values = f"{TEST_CONFIG_DIR}/install.yaml"
+        enroll.deploy_config = f"{TEST_CONFIG_DIR}/deploy.yaml"
+
+        mock_file_bootstrap = MagicMock()
+        mock_file_install = MagicMock()
+        mock_file_deploy = MagicMock()
+
+        def open_side_effect(path, *_args, **_kwargs):
+            if "bootstrap" in path:
+                return mock_file_bootstrap
+            if "install" in path:
+                return mock_file_install
+            if "deploy" in path:
+                return mock_file_deploy
+            return MagicMock()
+
+        with patch("builtins.open", side_effect=open_side_effect):
+            with patch.object(
+                enroll, "extract_yaml", return_value="10.10.10.12"
+            ):
+                self.mock_requests_post.return_value.json.return_value = {
+                    "id": 1
+                }
+                self.mock_requests_post.return_value.raise_for_status = (
+                    lambda: None
+                )
+                enroll.enroll_subcloud()
+
+        # Verify file handles for multipart upload were closed
+        mock_file_bootstrap.close.assert_called_once()
+        mock_file_install.close.assert_called_once()
+        mock_file_deploy.close.assert_called_once()
 
     def test_subcloud_setup_install_ssl_ca(self):
         """Test installing SSL CA certificate."""
@@ -230,7 +300,9 @@ class TestEnrollSubcloud(unittest.TestCase):
         ]
         setup = self.module.SubcloudSetup()
         yaml_content = (
-            "ssl_ca_cert: cert.pem\nsystemcontroller_oam_address: 10.10.10.1\n"
+            "ssl_ca_cert: cert.pem\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
+            "name: subcloud1\n"
         )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
@@ -247,7 +319,9 @@ class TestEnrollSubcloud(unittest.TestCase):
         ]
         setup = self.module.SubcloudSetup()
         yaml_content = (
-            "other_key: value\nsystemcontroller_oam_address: 10.10.10.1\n"
+            "other_key: value\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
+            "name: subcloud1\n"
         )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
@@ -259,10 +333,10 @@ class TestEnrollSubcloud(unittest.TestCase):
         """Test system controller URL formatting for IPv4."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
         base = self.module.BaseClass(config)
-        self.assertEqual(base.systemcontroller_url, "https://10.10.10.1")
+        self.assertEqual(base.systemcontroller_url, "https://10.10.10.2")
 
     def test_systemcontroller_url_ipv6(self):
         """Test system controller URL formatting for IPv6."""
@@ -277,7 +351,7 @@ class TestEnrollSubcloud(unittest.TestCase):
         """Test syncing time when connection times out."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
         auth = self.module.CentralCloudAuth(config)
         # Simulate exception to trigger retry logic
@@ -285,15 +359,15 @@ class TestEnrollSubcloud(unittest.TestCase):
         # Simulate timeout by making monotonic return values that exceed timeout
         with patch("time.monotonic", side_effect=[0, 600]), \
              patch("time.sleep"), \
-             patch("sys.exit") as mock_exit:
-            auth.sync_time_from_remote()
-            mock_exit.assert_called_once_with(1)
+             patch("sys.exit", side_effect=SystemExit(1)):
+            with self.assertRaises(SystemExit):
+                auth.sync_time_from_remote()
 
     def test_sync_time_small_diff(self):
         """Test syncing time when time difference is small."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
         auth = self.module.CentralCloudAuth(config)
         # Set Date header to a time within 20 seconds of current time
@@ -314,7 +388,9 @@ class TestEnrollSubcloud(unittest.TestCase):
         ]
         setup = self.module.SubcloudSetup()
         yaml_content = (
-            "ssl_ca_cert: cert.pem\nsystemcontroller_oam_address: 10.10.10.1\n"
+            "ssl_ca_cert: cert.pem\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
+            "name: subcloud1\n"
         )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
@@ -330,11 +406,11 @@ class TestEnrollSubcloud(unittest.TestCase):
         ]
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
         auth = self.module.CentralCloudAuth(config)
         yaml_content = (
-            "systemcontroller_oam_address: 10.10.10.1\nadmin_password: pass\n"
+            "systemcontroller_oam_address: 10.10.10.2\nadmin_password: pass\n"
         )
         m = mock_open(read_data=yaml_content)
         with patch("builtins.open", m):
@@ -345,15 +421,16 @@ class TestEnrollSubcloud(unittest.TestCase):
         """Test adding subcloud without deploy configuration."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
+        config.subcloud_name = "subcloud1"
         subcloud_enroll = self.module.SubcloudEnroll(config, "token123")
         self.mock_glob.side_effect = [
             [f"{TEST_CONFIG_DIR}/install.yaml"],
             [],
         ]
         yaml_content = (
-            "systemcontroller_oam_address: 10.10.10.1\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
             "name: subcloud1\n"
             "sysadmin_password: syspass\n"
         )
@@ -371,17 +448,18 @@ class TestEnrollSubcloud(unittest.TestCase):
         """Test adding subcloud with deploy configuration."""
         config = self.module.EnrollmentConfig()
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
-        config.systemcontroller_oam = "10.10.10.1"
+        config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
+        config.subcloud_name = "subcloud1"
         subcloud_enroll = self.module.SubcloudEnroll(config, "token123")
         self.mock_glob.side_effect = [
             [f"{TEST_CONFIG_DIR}/install.yaml"],
             [f"{TEST_CONFIG_DIR}/deploy.yaml"],
         ]
         yaml_content = (
-            "systemcontroller_oam_address: 10.10.10.1\n"
+            "systemcontroller_oam_address: 10.10.10.2\n"
             "name: subcloud1\n"
-            "external_oam_floating_address: 10.10.10.5\n"
+            "external_oam_floating_address: 10.10.10.12\n"
             "sysadmin_password: syspass\n"
         )
         m = mock_open(read_data=yaml_content)
@@ -407,6 +485,7 @@ class TestEnrollSubcloud(unittest.TestCase):
         config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
         config.systemcontroller_oam = "10.10.10.2"
         config.config_dir = TEST_CONFIG_DIR
+        config.subcloud_name = "subcloud1"
         subcloud_enroll = self.module.SubcloudEnroll(config, "token123")
         self.mock_glob.side_effect = [
             [f"{TEST_CONFIG_DIR}/install.yaml"],
@@ -428,6 +507,310 @@ class TestEnrollSubcloud(unittest.TestCase):
         call_kwargs = self.mock_requests_post.call_args[1]
         self.assertEqual(call_kwargs["data"]["on_site"], "true")
         self.assertNotIn("skip_enroll_init", call_kwargs["data"])
+
+    def test_subcloud_enroll_closes_handles_on_post_failure(self):
+        """Test file handles are closed even when the POST request fails."""
+        config = self.module.EnrollmentConfig()
+        config.bootstrap_values = f"{TEST_CONFIG_DIR}/bootstrap.yaml"
+        config.systemcontroller_oam = "10.10.10.2"
+        config.config_dir = TEST_CONFIG_DIR
+        config.subcloud_name = "subcloud1"
+        enroll = self.module.SubcloudEnroll(config, "token123")
+
+        enroll.sysadmin_password = "password"  # nosec
+        enroll.install_values = f"{TEST_CONFIG_DIR}/install.yaml"
+        enroll.deploy_config = None
+
+        # Simulate POST failure
+        self.mock_requests_post.side_effect = (
+            requests.exceptions.ConnectionError("refused")
+        )
+        self.mock_exit.side_effect = SystemExit(1)
+
+        # Track file handles returned by open()
+        mock_file_bootstrap = MagicMock()
+        mock_file_install = MagicMock()
+        mock_files = {
+            "bootstrap": mock_file_bootstrap,
+            "install": mock_file_install,
+        }
+
+        def open_side_effect(path, *_args, **_kwargs):
+            for key, mock_fh in mock_files.items():
+                if key in path:
+                    return mock_fh
+            return MagicMock()
+
+        with patch("builtins.open", side_effect=open_side_effect), \
+             patch.object(enroll, "extract_yaml",
+                          return_value="10.10.10.12"):
+            with self.assertRaises(SystemExit):
+                enroll.enroll_subcloud()
+
+        for mock_fh in mock_files.values():
+            mock_fh.close.assert_called_once()
+
+
+class TestPreEnrollHandler(unittest.TestCase):
+    """Test cases for the PreEnrollHandler class."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.patches = [
+            patch("glob.glob", return_value=[]),
+            patch("builtins.open", mock_open()),
+            patch("sys.exit"),
+        ]
+        for p in cls.patches:
+            p.start()
+
+        spec = spec_from_file_location(
+            "enroll_subcloud",
+            SCRIPT_PATH,
+            loader=SourceFileLoader(
+                "enroll_subcloud", SCRIPT_PATH
+            ),
+        )
+        cls.module = module_from_spec(spec)
+        spec.loader.exec_module(cls.module)
+
+    @classmethod
+    def tearDownClass(cls):
+        for p in cls.patches:
+            p.stop()
+
+    def setUp(self):
+        self.mock_glob = patch("glob.glob").start()
+        self.mock_isdir = patch("os.path.isdir").start()
+        self.mock_open_file = patch(
+            "builtins.open", mock_open()
+        ).start()
+        self.mock_print = patch("builtins.print").start()
+        self.mock_exit = patch("sys.exit").start()
+        self.mock_exists = patch(
+            "os.path.exists"
+        ).start()
+        self.mock_requests_get = patch(
+            "requests.get"
+        ).start()
+        self.mock_requests_delete = patch(
+            "requests.delete"
+        ).start()
+        self.mock_isdir.return_value = True
+        self.mock_exists.return_value = True
+        self.mock_glob.return_value = [TEST_CONFIG_DIR]
+        # sys.exit must raise so code after it is not reached
+        self.mock_exit.side_effect = SystemExit(1)
+
+    def tearDown(self):
+        patch.stopall()
+
+    def _make_checker(self):
+        """Create a PreEnrollHandler with test config."""
+        config = self.module.EnrollmentConfig()
+        config.bootstrap_values = (
+            f"{TEST_CONFIG_DIR}/bootstrap.yaml"
+        )
+        config.systemcontroller_oam = "10.10.10.2"
+        config.config_dir = TEST_CONFIG_DIR
+        config.subcloud_name = "subcloud1"
+        checker = self.module.PreEnrollHandler(
+            config, "token123"
+        )
+        return checker
+
+    def _mock_response(
+        self, status_code=200, json_data=None, text=""
+    ):
+        """Create a mock HTTP response."""
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.text = text
+        if json_data is not None:
+            resp.json.return_value = json_data
+        if status_code >= 400:
+            resp.raise_for_status.side_effect = (
+                requests.exceptions.HTTPError(
+                    f"{status_code} Server Error: {text}",
+                    response=resp,
+                )
+            )
+        else:
+            resp.raise_for_status.return_value = None
+        return resp
+
+    def test_get_404_no_deletion(self):
+        """GET returns 404: no deletion, proceed."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(status_code=404)
+        )
+        checker.execute()
+        self.mock_requests_delete.assert_not_called()
+
+    def test_get_200_valid_status_delete_called(self):
+        """GET returns 200 with valid deploy status: delete is called."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(
+                status_code=200,
+                json_data={
+                    "deploy-status": "create-complete"
+                },
+            )
+        )
+        self.mock_requests_delete.return_value = (
+            self._mock_response(status_code=200)
+        )
+        checker.execute()
+        self.mock_requests_delete.assert_called_once()
+
+    def test_get_200_invalid_status_error(self):
+        """GET returns 200 with invalid deploy status: log_error called."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(
+                status_code=200,
+                json_data={
+                    "deploy-status": "complete"
+                },
+            )
+        )
+        with self.assertRaises(SystemExit):
+            checker.execute()
+        self.mock_exit.assert_called_with(1)
+        self.mock_requests_delete.assert_not_called()
+        error_msg = str(
+            self.mock_print.call_args_list
+        )
+        self.assertIn("subcloud1", error_msg)
+        self.assertIn("complete", error_msg)
+
+    def test_get_unexpected_status_error(self):
+        """GET returns unexpected HTTP status (500): log_error called."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(
+                status_code=500,
+                text="Internal Server Error",
+            )
+        )
+        with self.assertRaises(SystemExit):
+            checker.execute()
+        self.mock_exit.assert_called_with(1)
+        error_msg = str(
+            self.mock_print.call_args_list
+        )
+        self.assertIn("500", error_msg)
+
+    def test_delete_200_success(self):
+        """DELETE returns 200: success, execution proceeds."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(
+                status_code=200,
+                json_data={
+                    "deploy-status": "create-complete"
+                },
+            )
+        )
+        self.mock_requests_delete.return_value = (
+            self._mock_response(status_code=200)
+        )
+        checker.execute()
+
+    def test_delete_non_200_error(self):
+        """DELETE returns non-200: log_error called."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(
+                status_code=200,
+                json_data={
+                    "deploy-status": "create-complete"
+                },
+            )
+        )
+        self.mock_requests_delete.return_value = (
+            self._mock_response(
+                status_code=500,
+                text="Delete failed",
+            )
+        )
+        with self.assertRaises(SystemExit):
+            checker.execute()
+        self.mock_exit.assert_called_with(1)
+        error_msg = str(
+            self.mock_print.call_args_list
+        )
+        self.assertIn("500", error_msg)
+
+    def test_get_request_exception_error(self):
+        """GET raises RequestException: log_error called."""
+        checker = self._make_checker()
+        self.mock_requests_get.side_effect = (
+            requests.exceptions.ConnectionError(
+                "Connection refused"
+            )
+        )
+        with self.assertRaises(SystemExit):
+            checker.execute()
+        self.mock_exit.assert_called_with(1)
+        error_msg = str(
+            self.mock_print.call_args_list
+        )
+        self.assertIn("Connection refused", error_msg)
+
+    def test_delete_request_exception_error(self):
+        """DELETE raises RequestException: log_error called."""
+        checker = self._make_checker()
+        self.mock_requests_get.return_value = (
+            self._mock_response(
+                status_code=200,
+                json_data={
+                    "deploy-status": "create-complete"
+                },
+            )
+        )
+        self.mock_requests_delete.side_effect = (
+            requests.exceptions.Timeout("Request timed out")
+        )
+        with self.assertRaises(SystemExit):
+            checker.execute()
+        self.mock_exit.assert_called_with(1)
+        error_msg = str(
+            self.mock_print.call_args_list
+        )
+        self.assertIn("Request timed out", error_msg)
+
+    def test_valid_states_constant(self):
+        """VALID_STATES_FOR_DEPLOY_ENROLL contains the 6 specified states."""
+        expected = {
+            "create-complete",
+            "enroll-failed",
+            "pre-enroll-failed",
+            "pre-init-enroll-failed",
+            "init-enroll-failed",
+            "factory-restore-complete",
+        }
+        self.assertEqual(
+            self.module.VALID_STATES_FOR_DEPLOY_ENROLL,
+            expected,
+        )
+
+    def test_get_200_malformed_json_error(self):
+        """GET returns 200 with malformed JSON: log_error and exit."""
+        checker = self._make_checker()
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.side_effect = ValueError("No JSON")
+        self.mock_requests_get.return_value = resp
+        with self.assertRaises(SystemExit):
+            checker.execute()
+        self.mock_exit.assert_called_with(1)
+        error_msg = str(
+            self.mock_print.call_args_list
+        )
+        self.assertIn("Failed to parse response", error_msg)
 
 
 if __name__ == "__main__":

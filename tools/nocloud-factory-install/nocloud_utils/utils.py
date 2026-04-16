@@ -25,10 +25,9 @@ def extract_yaml_value(filepath, key):
 
 
 def log_error(message):
-    """Log an error message and exit."""
+    """Log an error message."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"ERROR [{timestamp}]: {message}", file=sys.stderr)
-    sys.exit(1)
 
 
 def log_info(message):

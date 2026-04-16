@@ -8,6 +8,7 @@
 # - Wait until the connection of the OAM floating address.
 # - Sync local time from remote HTTP Date header.
 # - Get Keystone auth token.
+# - Precheck if subcloud already added and delete it if in valid status.
 # - Request to add a subcloud for the enrollment.
 #
 
@@ -46,6 +47,17 @@ KEYSTONE_ENDPOINT_RETRY_INTERVAL_SECONDS = 20
 OAM_CONNECTION_RETRY_TIMEOUT_SECONDS = 8 * 60
 OAM_CONNECTION_RETRY_INTERVAL_SECONDS = 30
 
+# Valid deploy states that allow deletion before re-enrollment.
+# Keep in sync with distributedcloud/dcmanager/common/consts.py
+VALID_STATES_FOR_DEPLOY_ENROLL = {
+    "create-complete",
+    "enroll-failed",
+    "pre-enroll-failed",
+    "pre-init-enroll-failed",
+    "init-enroll-failed",
+    "factory-restore-complete",
+}
+
 
 class EnrollmentConfig:
     """Container for shared enrollment configuration data."""
@@ -54,6 +66,7 @@ class EnrollmentConfig:
         self.bootstrap_values = None
         self.systemcontroller_oam = None
         self.config_dir = None
+        self.subcloud_name = None
 
 
 class BaseClass:
@@ -83,6 +96,7 @@ class BaseClass:
         """Find the most recent config directory."""
         if not os.path.exists(CONFIG_BASE):
             log_error(f"Config base directory not found: {CONFIG_BASE}")
+            sys.exit(1)
         pattern = f"{CONFIG_BASE}/*"
         dirs = [
             d
@@ -91,6 +105,7 @@ class BaseClass:
         ]
         if not dirs:
             log_error(f"No config directories found in {CONFIG_BASE}")
+            sys.exit(1)
         return dirs[0]
 
     def find_file_in_config(self, pattern):
@@ -107,6 +122,7 @@ class BaseClass:
         self.bootstrap_values = self.find_file_in_config("*bootstrap-values*")
         if not self.bootstrap_values:
             log_error("bootstrap-values file not found")
+            sys.exit(1)
         log_info(f"Found bootstrap-values: {self.bootstrap_values}")
 
         # Extract systemcontroller_oam_address
@@ -117,16 +133,27 @@ class BaseClass:
             log_error(
                 "systemcontroller_oam_address not found in bootstrap-values"
             )
+            sys.exit(1)
         log_info(
             f"Found systemcontroller_oam_address: "
             f"{self.systemcontroller_oam}"
         )
+
+        # Extract subcloud name
+        subcloud_name = self.extract_yaml(
+            self.bootstrap_values, "name"
+        )
+        if not subcloud_name:
+            log_error("Subcloud name not found in bootstrap-values")
+            sys.exit(1)
+        log_info(f"Subcloud name: {subcloud_name}")
 
         # Create and return config object
         config = EnrollmentConfig()
         config.bootstrap_values = self.bootstrap_values
         config.systemcontroller_oam = self.systemcontroller_oam
         config.config_dir = self.config_dir
+        config.subcloud_name = subcloud_name
         return config
 
 
@@ -140,6 +167,7 @@ class SubcloudSetup(BaseClass):
         """Get the SSL CA certificate path."""
         if not self.bootstrap_values:
             log_error("bootstrap-values file not found")
+            sys.exit(1)
 
         ssl_ca_cert = self.extract_yaml(self.bootstrap_values, "ssl_ca_cert")
         if not ssl_ca_cert:
@@ -149,6 +177,7 @@ class SubcloudSetup(BaseClass):
         cert_path = os.path.join(self.config_dir, ssl_ca_cert)
         if not os.path.exists(cert_path):
             log_error(f"ssl_ca_cert file not found: {cert_path}")
+            sys.exit(1)
         log_info(f"Found ssl_ca_cert file: {cert_path}")
 
         return cert_path
@@ -168,6 +197,7 @@ class SubcloudSetup(BaseClass):
                 log_info("SSL CA certificate installed successfully")
             except subprocess.CalledProcessError as e:
                 log_error(f"Failed to install SSL CA certificate: {e}")
+                sys.exit(1)
 
     def execute(self):
         """Execute subcloud setup and return config."""
@@ -192,6 +222,7 @@ class CentralCloudAuth(BaseClass):
         )
         if not self.admin_password:
             log_error("admin_password not found in bootstrap-values")
+            sys.exit(1)
         log_info("Found admin_password")
 
     def _sync_clock(self, date_header):
@@ -252,6 +283,7 @@ class CentralCloudAuth(BaseClass):
             time.sleep(OAM_CONNECTION_RETRY_INTERVAL_SECONDS)
 
         log_error(f"Time sync failed after retries: {last_exception}")
+        sys.exit(1)
 
     def get_keystone_auth_token(self):
         """Get Keystone authentication token."""
@@ -283,10 +315,13 @@ class CentralCloudAuth(BaseClass):
         ):
             try:
                 response = requests.post(auth_url, json=auth_data, timeout=30)
+                # Raise RequestException if response status_code between 400
+                # and 600: https://requests.readthedocs.io/en/latest/api/
                 response.raise_for_status()
                 self.auth_token = response.headers.get("X-Subject-Token")
                 if not self.auth_token:
                     log_error("Auth token not found in response headers")
+                    sys.exit(1)
                 log_info("Successfully retrieved auth token")
                 return self.auth_token
             except requests.exceptions.SSLError as e:
@@ -299,7 +334,9 @@ class CentralCloudAuth(BaseClass):
                 time.sleep(interval)
             except requests.exceptions.RequestException as e:
                 log_error(f"Failed to get auth token: {e}")
+                sys.exit(1)
         log_error(f"Failed to get auth token after retries: {last_exception}")
+        sys.exit(1)
 
     def execute(self):
         """Execute authentication process."""
@@ -307,6 +344,111 @@ class CentralCloudAuth(BaseClass):
         self.sync_time_from_remote()
         self.get_keystone_auth_token()
         return self.auth_token
+
+
+class PreEnrollHandler(BaseClass):
+    """Check subcloud existence and delete if in a valid state.
+
+    If the subcloud exists with a retriable deploy status, delete it
+    before re-enrollment. Block enrollment otherwise.
+    """
+
+    def __init__(self, config, auth_token):
+        super().__init__(config)
+        self.auth_token = auth_token
+        self.subcloud_name = config.subcloud_name
+
+    def _get_subcloud(self):
+        """GET /v1.0/subclouds/{subcloud_name} with auth header.
+
+        Returns:
+            requests.Response or None (if 404)
+        """
+        url = (
+            f"{self.systemcontroller_url}:{DCMANAGER_PORT}"
+            f"/v1.0/subclouds/{self.subcloud_name}"
+        )
+        headers = {"X-Auth-Token": self.auth_token}
+        log_info(f"Checking subcloud existence: GET {url}")
+        try:
+            response = requests.get(
+                url, headers=headers, timeout=30
+            )
+        except requests.exceptions.RequestException as e:
+            # Network-level failures (ConnectionError, Timeout, etc.)
+            # are fatal. Do not use raise_for_status() as HTTP 404 is
+            # expected to be handled below via status code.
+            log_error(
+                f"Failed to query subcloud "
+                f"{self.subcloud_name}: {e}"
+            )
+            sys.exit(1)
+        if response.status_code == 404:
+            log_info(
+                f"Subcloud {self.subcloud_name} not found, "
+                "proceeding to enrollment"
+            )
+            return None
+        if response.status_code != 200:
+            # Unexpected HTTP status from dcmanager, e.g. 500
+            # Internal Server Error or 401 Unauthorized.
+            log_error(
+                f"Failed to query subcloud "
+                f"{self.subcloud_name}: "
+                f"HTTP {response.status_code} "
+                f"- {response.text}"
+            )
+            sys.exit(1)
+        return response
+
+    def _delete_subcloud(self):
+        """DELETE /v1.0/subclouds/{subcloud_name}."""
+        url = (
+            f"{self.systemcontroller_url}:{DCMANAGER_PORT}"
+            f"/v1.0/subclouds/{self.subcloud_name}"
+        )
+        headers = {"X-Auth-Token": self.auth_token}
+        log_info(f"Deleting subcloud: DELETE {url}")
+        try:
+            response = requests.delete(
+                url, headers=headers, timeout=30
+            )
+            # Raise RequestException if response status_code between 400
+            # and 600: https://requests.readthedocs.io/en/latest/api/
+            response.raise_for_status()
+            log_info(
+                f"Subcloud {self.subcloud_name} "
+                "deleted successfully"
+            )
+        except requests.exceptions.RequestException as e:
+            log_error(
+                f"Failed to delete subcloud "
+                f"{self.subcloud_name}: {e}"
+            )
+            sys.exit(1)
+
+    def execute(self):
+        """Execute pre-enrollment check."""
+        response = self._get_subcloud()
+        if response is None:
+            return
+        try:
+            deploy_status = response.json().get("deploy-status")
+        except (ValueError, KeyError) as e:
+            log_error(
+                f"Failed to parse response for subcloud "
+                f"{self.subcloud_name}: {e}"
+            )
+            sys.exit(1)
+        if deploy_status not in VALID_STATES_FOR_DEPLOY_ENROLL:
+            log_error(
+                f"Subcloud {self.subcloud_name} exists with "
+                f"deploy status '{deploy_status}' which "
+                "does not permit deletion before "
+                "re-enrollment"
+            )
+            sys.exit(1)
+        self._delete_subcloud()
 
 
 class SubcloudEnroll(BaseClass):
@@ -317,7 +459,7 @@ class SubcloudEnroll(BaseClass):
         self.auth_token = auth_token
         self.install_values = None
         self.deploy_config = None
-        self.subcloud_name = None
+        self.subcloud_name = config.subcloud_name
         self.sysadmin_password = None
 
     def load_subcloud_config(self):
@@ -327,6 +469,7 @@ class SubcloudEnroll(BaseClass):
         self.install_values = self.find_file_in_config("*install-values*")
         if not self.install_values:
             log_error("install-values file not found")
+            sys.exit(1)
         log_info(f"Found install-values: {self.install_values}")
 
         # Load deployment config (optional)
@@ -334,18 +477,13 @@ class SubcloudEnroll(BaseClass):
         if self.deploy_config:
             log_info(f"Found deploy_config: {self.deploy_config}")
 
-        # Extract subcloud name
-        self.subcloud_name = self.extract_yaml(self.bootstrap_values, "name")
-        if not self.subcloud_name:
-            log_error("Subcloud name not found in bootstrap-values")
-        log_info(f"Subcloud name: {self.subcloud_name}")
-
         # Extract sysadmin_password from bootstrap values
         self.sysadmin_password = self.extract_yaml(
             self.bootstrap_values, "sysadmin_password"
         )
         if not self.sysadmin_password:
             log_error("sysadmin_password not found in bootstrap-values")
+            sys.exit(1)
         log_info("Found sysadmin_password")
 
     def enroll_subcloud(self):
@@ -360,7 +498,8 @@ class SubcloudEnroll(BaseClass):
         data = {
             "name": self.subcloud_name,
             "bootstrap-address": self.extract_yaml(
-                self.bootstrap_values, "external_oam_floating_address"
+                self.bootstrap_values,
+                "external_oam_floating_address",
             ),
             "enroll": "true",
             "sysadmin_password": base64.b64encode(
@@ -369,6 +508,7 @@ class SubcloudEnroll(BaseClass):
             "on_site": "true",
         }
 
+        files = {}
         try:
             # Prepare multipart form data
             files = {
@@ -394,11 +534,14 @@ class SubcloudEnroll(BaseClass):
             response = requests.post(
                 rpc_url, headers=headers, files=files, data=data, timeout=30
             )
+            # Raise RequestException if response status_code between 400
+            # and 600: https://requests.readthedocs.io/en/latest/api/
             response.raise_for_status()
             log_info(f"Subcloud {self.subcloud_name} added successfully")
             return response.json()
         except requests.exceptions.RequestException as e:
             log_error(f"Failed to add subcloud: {e}")
+            sys.exit(1)
         finally:
             # Close file handles
             for file_tuple in files.values():
@@ -413,4 +556,5 @@ class SubcloudEnroll(BaseClass):
 if __name__ == "__main__":
     config = SubcloudSetup().execute()
     auth_token = CentralCloudAuth(config).execute()
+    PreEnrollHandler(config, auth_token).execute()
     SubcloudEnroll(config, auth_token).execute()
