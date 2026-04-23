@@ -507,7 +507,7 @@ fi
 mount_iso "${INPUT_ISO}" "${PWD}" "${GUESTMOUNT_POINT}"
 
 ilog "rsync mounted content to ${BUILDDIR}"
-rsync -a "${MNTDIR}/" "${BUILDDIR}/"
+rsync -a --exclude='/rr_moved/' "${MNTDIR}/" "${BUILDDIR}/"
 rc=$?
 [ ${rc} -ne 0 ] && elog "rsync ISO content failed rc=${rc}. Aborting..."
 
