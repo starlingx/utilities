@@ -8,9 +8,8 @@
 # https://docs.openstack.org/oslo.messaging/latest/reference/server.html
 
 import sys
+import threading
 
-# noinspection PyUnresolvedReferences
-import eventlet
 # noinspection PyUnresolvedReferences
 from fm_api import fm_api
 # noinspection PyUnresolvedReferences
@@ -28,16 +27,8 @@ from ceph_manager import constants
 from ceph_manager import utils
 from ceph_manager.i18n import _LI
 from ceph_manager.monitor import Monitor
-from ceph_manager.utils import get_debian_codename
+# noinspection PyUnresolvedReferences
 from cephclient import wrapper
-
-
-codename = get_debian_codename()
-if codename == constants.OS_DEBIAN_BULLSEYE:
-    eventlet.monkey_patch(all=True)
-else:
-    # TODO(aabhinav): Re-enable monkey patching when eventlet/urllib3 conflict is resolved
-    eventlet.monkey_patch(socket=False, select=False)
 
 CONF = cfg.CONF
 CONF.register_opts([
@@ -69,7 +60,7 @@ class Service(service.Service):
         super(Service, self).start()
         self.ceph_api = wrapper.CephWrapper(
             endpoint='http://localhost:{}'.format(constants.CEPH_MGR_PORT))
-        eventlet.spawn_n(self.monitor.run)
+        threading.Thread(target=self.monitor.run, daemon=True).start()
 
     def stop(self, graceful=False):
         super(Service, self).stop(graceful)
