@@ -22,7 +22,7 @@ RUN apt-get install python3.9-distutils -y
 RUN add-apt-repository --remove ppa:deadsnakes/ppa -y
 
 # Install pip3.9
-RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+RUN curl https://bootstrap.pypa.io/pip/3.9/get-pip.py -o get-pip.py
 RUN python3.9 get-pip.py
 
 # Install pip dependencies
