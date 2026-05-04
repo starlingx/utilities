@@ -27,6 +27,11 @@ LOG = log.getLogger(__name__)
 
 OIDC_LOGIN_TIMEOUT = 120
 
+# Global cache for JWKS KeyJar
+# Structure: {issuer_url: {'keyjar': KeyJar, 'expires_at': timestamp}}
+_keyjar_cache = {}
+_KEYJAR_CACHE_TTL = 3600  # 1 hour
+
 def get_oidc_token(username):
     """This method gets the oidc token from the calling user's
     environment; i.e., the file pointed to by the KUBECONFIG
@@ -139,11 +144,10 @@ def _get_token_from_oidc_login(exec_block):
     return token
 
 
-def get_oidc_token_claims(oidc_token, token_cache):
+def get_oidc_token_claims(oidc_token):
     """Validate OIDC token and return token dict & claims.
     Args:
         oidc_token (str): the oidc token to validate
-        token_cache (dict str:str): a cache of tokens:expire time
 
     Returns: str of the dex token, or None if unable to get token
     """
@@ -168,7 +172,6 @@ def get_oidc_token_claims(oidc_token, token_cache):
     try:
         oidc_token_dict = validate_oidc_token(
             oidc_token,
-            token_cache,
             issuer_url,
             client_id
         )
@@ -229,36 +232,62 @@ def parse_oidc_token_claims(claims, domain, project):
     return {'username': username, 'roles': roles}
 
 
-def validate_oidc_token(token, token_cache, issuer_url, client_id, cache_size=5000):
+def _get_keyjar(issuer_url, client_id, force_refresh=False):
+    """Get or refresh the cached KeyJar for the given issuer.
+
+    Args:
+        issuer_url (str): the url of the issuer of the oidc token (dex)
+        client_id (str): the client id for connecting to oidc identity provider
+        force_refresh (bool): force refresh even if cache is valid
+
+    Returns: KeyJar object or None if unable to fetch
+    """
+    current_time = time.time()
+
+    # Check if we have a valid cached KeyJar
+    if not force_refresh and issuer_url in _keyjar_cache:
+        cached = _keyjar_cache[issuer_url]
+        if cached['expires_at'] > current_time:
+            return cached['keyjar']
+
+    # Fetch new JWKS
+    try:
+        client = Client(client_id=client_id)
+        provider_info = client.provider_config(issuer_url)
+        jwks_uri = provider_info["jwks_uri"]
+        keys = requests.get(jwks_uri).json()
+
+        keyjar = KeyJar()
+        keyjar.import_jwks(keys, issuer_url)
+
+        # Cache the KeyJar
+        _keyjar_cache[issuer_url] = {
+            'keyjar': keyjar,
+            'expires_at': current_time + _KEYJAR_CACHE_TTL
+        }
+
+        return keyjar
+    except Exception as e:
+        LOG.error(f"Failed to fetch JWKS from {issuer_url}: {e}")
+        return None
+
+
+def validate_oidc_token(token, issuer_url, client_id):
     """ This method validates a given oidc token
-    It then updates the cache accordingly
-    If the token validation is successful, the token is added to the cache
-    Expired tokens in the cache are removed
 
     Args:
         token (str): the oidc token to validate
-        cache (dict str:str): a cache of tokens:expire time
         issuer_url (str): the url of the issuer of the oidc token (dex)
         client_id (str): the client id for connecting to oidc identity provider
     Returns: dict representation of the token, or None if validation failed
     """
 
-    # First check if token is in cache
-    if (token in token_cache and
-       token_cache[token]['exp'] > time.time()):
-        return token_cache[token]
+    # Get cached KeyJar
+    keyjar = _get_keyjar(issuer_url, client_id)
+    if not keyjar:
+        return None
 
     try:
-        # Initialize OIDC client
-        client = Client(client_id=client_id)
-        provider_info = client.provider_config(issuer_url)
-
-        # Fetch public keys for verifying tokens
-        jwks_uri = provider_info["jwks_uri"]
-        keys = requests.get(jwks_uri).json()
-        keyjar = KeyJar()
-        keyjar.import_jwks(keys, issuer_url)
-
         # Validate token
         id_token = IdToken().from_jwt(token, keyjar=keyjar, sender=issuer_url)
         token_claims = id_token.to_dict()
@@ -269,29 +298,25 @@ def validate_oidc_token(token, token_cache, issuer_url, client_id, cache_size=50
             LOG.warning("Token expired during validation")
             return None
 
-        # adjust token cache
-        oldest_exp_time = current_time_seconds
-        oldest_token = None
-        expired_tokens = []
-        for cached_token, cached_token_claims in token_cache.items():
-            if (oldest_token is None or
-               cached_token_claims['exp'] < oldest_exp_time):
-                oldest_exp_time = cached_token_claims['exp']
-                oldest_token = cached_token
-            if cached_token_claims['exp'] < current_time_seconds:
-                expired_tokens.append(cached_token)
-        for expired_token in expired_tokens:
-            del token_cache[expired_token]
-        if len(token_cache) >= cache_size:
-            del token_cache[oldest_token]
-        # add our new verified token to the cache
-        token_cache[token] = token_claims
-
         return token_claims
     # this is just a verification failure, either due to expiration or
     # because the token is from another system. no need to log anything
     except jwkest.jws.NoSuitableSigningKeys:
-        pass
+        # Try refreshing the KeyJar once in case keys were rotated
+        keyjar = _get_keyjar(issuer_url, client_id, force_refresh=True)
+        if keyjar:
+            try:
+                id_token = IdToken().from_jwt(token, keyjar=keyjar, sender=issuer_url)
+                token_claims = id_token.to_dict()
+
+                current_time_seconds = time.time()
+                if token_claims['exp'] < current_time_seconds:
+                    LOG.warning("Token expired during validation")
+                    return None
+
+                return token_claims
+            except jwkest.jws.NoSuitableSigningKeys:
+                pass
     # could be a lot of other cases where it fails, ex dex temporarily
     # unreachable. We dont want whatever calling the common library to fail
     # due to this, so we just catch and return None for "token verify failed"
