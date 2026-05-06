@@ -11,15 +11,12 @@ COPY --from=stx-debian /etc/apt/sources.list.d/stx.list /etc/apt/sources.list.d/
 
 RUN apt-get update -y
 
-# Install python3.9
-RUN apt-get install -y               \
-    python3.9                        \
-    libpython3.9                     \
-    software-properties-common
-
-RUN add-apt-repository ppa:deadsnakes/ppa -y
-RUN apt-get install python3.9-distutils -y
-RUN add-apt-repository --remove ppa:deadsnakes/ppa -y
+# Install python3.9 and distutils from deadsnakes PPA in one step
+# to avoid multiple network round-trips and transient PPA failures
+RUN apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa -y && \
+    apt-get install -y python3.9 libpython3.9 python3.9-distutils && \
+    add-apt-repository --remove ppa:deadsnakes/ppa -y
 
 # Install pip3.9
 RUN curl https://bootstrap.pypa.io/pip/3.9/get-pip.py -o get-pip.py
