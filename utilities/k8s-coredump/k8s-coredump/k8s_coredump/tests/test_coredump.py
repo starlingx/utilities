@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2023 Wind River Systems, Inc.
+# Copyright (c) 2023-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -103,7 +103,7 @@ class TestCoredump(BaseTestCase):
         See the mocked_run in the setup method of this test case class.
         """
         self.run_command = ""
-        coredump._systemCoreFile()
+        coredump._systemCoreFile(**self.input_kwargs)
         self.assertEqual(self.run_command[0], '/usr/lib/systemd/systemd-coredump')
 
     def test_getPodUID(self):

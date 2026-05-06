@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# Copyright (c) 2017 Wind River Systems, Inc.
+# Copyright (c) 2017-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -101,7 +101,7 @@ function is_isolcpus_core {
 }
 
 # Return list of reaffineable pids. This includes all processes, but excludes
-# kernel threads, vSwitch, and anything in the cgroup cpusets: k8s-infra, docker,
+# kernel threads, vSwitch, and anything in the cgroup cpusets: k8sinfra, docker,
 # and machine.slice (i.e., qemu-kvm).
 function reaffineable_pids {
     local pids_excl
@@ -112,7 +112,7 @@ function reaffineable_pids {
                 sed 's/,$/\n/')
     pidlist=$(ps --ppid ${pids_excl} -p ${pids_excl} --deselect \
                 -o pid=,cgroup= | \
-                awk '!/k8s-infra|docker|machine.slice/ {print $1; }')
+                awk '!/k8sinfra|docker|machine.slice/ {print $1; }')
     echo "${pidlist[@]}"
 }
 
