@@ -87,8 +87,9 @@ EXPECTED_TOKEN_MODE = "r"
 
 # Expected value for the pod UID
 MOCKED_UID = "2284e2ba-cdaf-4558-907a-b9364b66f3e9"
+MOCKED_UID_UNDERSCORED = MOCKED_UID.replace('-', '_')
 
-# CGROUP file mock for coredump._getPodUID method test
+# CGROUP file mock for coredump._getPodUID method test (v1 BestEffort)
 CGROUP_FILE_MOCK = f"""
 12:blkio:/k8sinfra/kubepods/besteffort/pod{MOCKED_UID}/0123456789012345678901234567890123456789012345678901234567890123
 11:pids:/k8sinfra/kubepods/besteffort/pod{MOCKED_UID}/0123456789012345678901234567890123456789012345678901234567890123
@@ -103,6 +104,23 @@ CGROUP_FILE_MOCK = f"""
 2:devices:/k8sinfra/kubepods/besteffort/pod{MOCKED_UID}/0123456789012345678901234567890123456789012345678901234567890123
 1:name=systemd:/k8sinfra/kubepods/besteffort/pod{MOCKED_UID}/0123456789012345678901234567890123456789012345678901234567890123
 0::/system.slice/containerd.service
+"""
+
+# CGROUP file mock for v1 Guaranteed (no QoS sub-directory)
+CGROUP_FILE_MOCK_V1_GUARANTEED = f"""
+12:blkio:/k8s-infra/kubepods/pod{MOCKED_UID}/0123456789012345678901234567890123456789012345678901234567890123
+11:pids:/k8s-infra/kubepods/pod{MOCKED_UID}/0123456789012345678901234567890123456789012345678901234567890123
+0::/system.slice/containerd.service
+"""
+
+# CGROUP file mock for v2 unified hierarchy (Guaranteed)
+CGROUP_FILE_MOCK_V2_GUARANTEED = f"""
+0::/k8sinfra.slice/k8sinfra-kubepods.slice/k8sinfra-kubepods-pod{MOCKED_UID_UNDERSCORED}.slice/cri-containerd-0123456789012345678901234567890123456789012345678901234567890123.scope
+"""
+
+# CGROUP file mock for v2 unified hierarchy (Burstable)
+CGROUP_FILE_MOCK_V2_BURSTABLE = f"""
+0::/k8sinfra.slice/k8sinfra-kubepods.slice/k8sinfra-kubepods-burstable.slice/k8sinfra-kubepods-burstable-pod{MOCKED_UID_UNDERSCORED}.slice/cri-containerd-0123456789012345678901234567890123456789012345678901234567890123.scope
 """
 
 # Mocked pod information for the coredump._lookupPod method test

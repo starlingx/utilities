@@ -35,15 +35,26 @@ def _getToken():
 
 
 def _getPodUID(pid):
+    # cgroup v1: matches all QoS classes including Guaranteed
+    # BestEffort/Burstable have: kubepods/<qos>/pod<uid>/<cid>
+    # Guaranteed has:            kubepods/pod<uid>/<cid>
+    pattern_v1 = re.compile(
+        r"\d+:.+:/[^/]+/kubepods/(?:[^/]+/)?pod([^/]+)/([0-9a-f]{64})")
+    # cgroup v2 unified hierarchy
+    # Path format: 0::/...kubepods[-.]<qos[-.]>pod<uid>.slice/...
+    # UIDs use underscores in cgroup v2 paths instead of dashes
+    pattern_v2 = re.compile(
+        r"0::/.*kubepods[.-](?:burstable[.-]|besteffort[.-])?pod([^/.\s]+)")
     try:
-        pattern = re.compile("\d+:.+:/[^/]+/kubepods/[^/]+/pod([^/]+)/([0-9a-f]{64})")
         cgroups = os.path.join("/proc", pid, "cgroup")
         with io.open(cgroups, "r") as f:
             for line in f:
-                match = re.match(pattern, line)
+                match = re.match(pattern_v1, line)
                 if match:
-                    # extract pod UID from pod cgroup path
                     return match.group(1)
+                match = re.match(pattern_v2, line)
+                if match:
+                    return match.group(1).replace('_', '-')
     except IOError as e:
         LOG.error("Failed to read process cgroups: %s" % e)
         sys.exit(-1)

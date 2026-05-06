@@ -5,6 +5,7 @@
 #
 ################################################################################
 import collections
+import io
 import json
 
 import fixtures
@@ -13,6 +14,9 @@ from k8s_coredump.tests.base import BaseTestCase
 from k8s_coredump.tests.base import MockedOpen
 from k8s_coredump.tests.base import MockedStdin
 from k8s_coredump.tests.test_data import ANNOTATIONS_EXAMPLES
+from k8s_coredump.tests.test_data import CGROUP_FILE_MOCK_V1_GUARANTEED
+from k8s_coredump.tests.test_data import CGROUP_FILE_MOCK_V2_BURSTABLE
+from k8s_coredump.tests.test_data import CGROUP_FILE_MOCK_V2_GUARANTEED
 from k8s_coredump.tests.test_data import DISK_USAGE
 from k8s_coredump.tests.test_data import EXPECTED_TOKEN
 from k8s_coredump.tests.test_data import EXPECTED_TOKEN_MODE
@@ -114,6 +118,24 @@ class TestCoredump(BaseTestCase):
         See the MockedFile.__iter__ and MockedFile.__next__ in the base file for the methods
         that are mocked for this test case.
         """
+        pod_uid = coredump._getPodUID("9999999")
+        self.assertEqual(pod_uid, MOCKED_UID)
+
+    @mock.patch('k8s_coredump.coredump.io.open', return_value=io.StringIO(CGROUP_FILE_MOCK_V1_GUARANTEED))
+    def test_getPodUID_v1_guaranteed(self, mock_open):
+        """Test _getPodUID for cgroup v1 Guaranteed QoS pods (no QoS sub-directory)"""
+        pod_uid = coredump._getPodUID("9999999")
+        self.assertEqual(pod_uid, MOCKED_UID)
+
+    @mock.patch('k8s_coredump.coredump.io.open', return_value=io.StringIO(CGROUP_FILE_MOCK_V2_GUARANTEED))
+    def test_getPodUID_v2_guaranteed(self, mock_open):
+        """Test _getPodUID for cgroup v2 Guaranteed QoS pods"""
+        pod_uid = coredump._getPodUID("9999999")
+        self.assertEqual(pod_uid, MOCKED_UID)
+
+    @mock.patch('k8s_coredump.coredump.io.open', return_value=io.StringIO(CGROUP_FILE_MOCK_V2_BURSTABLE))
+    def test_getPodUID_v2_burstable(self, mock_open):
+        """Test _getPodUID for cgroup v2 Burstable QoS pods"""
         pod_uid = coredump._getPodUID("9999999")
         self.assertEqual(pod_uid, MOCKED_UID)
 
