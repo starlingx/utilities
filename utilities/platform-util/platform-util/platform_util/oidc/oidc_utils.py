@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import json
 import os
 from pathlib import Path
 import re
@@ -24,17 +25,22 @@ import yaml
 
 LOG = log.getLogger(__name__)
 
+OIDC_LOGIN_TIMEOUT = 120
+
 def get_oidc_token(username):
     """This method gets the oidc token from the calling user's
     environment; i.e., the file pointed to by the KUBECONFIG
     environment variable, or if not specified, then ~/.kube/config
 
+    First checks for a static user.token entry (preserves existing behaviour).
+    If not found, checks for a user.exec block containing oidc-login get-token
+    and invokes it as a subprocess to obtain the token.
+
     Args:
         username(str): the name of the user to get the token for
 
-    Returns: str of the dex token, or None if unable to get token 
+    Returns: str of the dex token, or None if unable to get token
     """
-
     kubeconfig_path = os.environ.get("KUBECONFIG")
     if kubeconfig_path is None:
         kubeconfig_path = str(Path.home()) + '/.kube/config'
@@ -48,17 +54,89 @@ def get_oidc_token(username):
     if 'users' not in data:
         return None
 
+    # First: look for static user.token (existing behaviour)
     for config_user in data['users']:
-        if 'name' not in config_user:
+        if config_user.get('name') == username:
+            user_block = config_user.get('user') or {}
+            token = user_block.get('token')
+            if token:
+                return token
+
+    # Second: look for any user with an oidc-login exec block
+    oidc_exec_blocks = []
+    for config_user in data['users']:
+        user = config_user.get('user', {})
+        if not user:
             continue
-        if config_user['name'] != username:
-            continue
-        try:
-            return config_user['user']['token']
-        except KeyError:
-            return None
+        exec_block = user.get('exec')
+        if exec_block and _is_oidc_login_exec(exec_block):
+            oidc_exec_blocks.append(exec_block)
+
+    if len(oidc_exec_blocks) > 1:
+        LOG.error("Config error in kubeconfig file: multiple user "
+                  "entries have oidc-login exec block. "
+                  "Only one is expected.")
+        return None
+
+    if oidc_exec_blocks:
+        token = _get_token_from_oidc_login(oidc_exec_blocks[0])
+        if token:
+            return token
 
     return None
+
+
+def _is_oidc_login_exec(exec_block):
+    """Check if an exec block is an oidc-login get-token command."""
+    args = exec_block.get('args', [])
+    return 'oidc-login' in args and 'get-token' in args
+
+
+def _get_token_from_oidc_login(exec_block):
+    """Invoke the oidc-login exec command and parse the ExecCredential response.
+
+    Args:
+        exec_block(dict): the exec block from kubeconfig user entry
+
+    Returns: str of the ID token, or None on failure
+    """
+    command = exec_block.get('command')
+    args = exec_block.get('args', [])
+    if not command:
+        LOG.error("oidc-login exec block has no command")
+        return None
+
+    cmd = [command] + args
+
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=None,
+            stdin=None,
+            timeout=OIDC_LOGIN_TIMEOUT
+        )
+    except FileNotFoundError:
+        LOG.error("Command not found: %s. Ensure kubectl and "
+                  "oidc-login plugin are installed.", command)
+        return None
+    except subprocess.TimeoutExpired:
+        LOG.error("oidc-login command timed out after %d seconds",
+                  OIDC_LOGIN_TIMEOUT)
+        return None
+
+    if result.returncode != 0:
+        LOG.error("oidc-login command failed (rc=%d)", result.returncode)
+        return None
+
+    try:
+        exec_credential = json.loads(result.stdout)
+        token = exec_credential['status']['token']
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        LOG.error("Failed to parse ExecCredential response: %s", e)
+        return None
+
+    return token
 
 
 def get_oidc_token_claims(oidc_token, token_cache):
