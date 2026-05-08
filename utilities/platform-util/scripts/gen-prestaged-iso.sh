@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2022-2024 Wind River Systems, Inc.
+# Copyright (c) 2022-2024, 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -647,7 +647,10 @@ fi
 # to the prestage iso.
 
 log_info "Copying input ISO"
-rsync -a --exclude "pxeboot" "${MNTDIR}/" "${BUILDDIR}/"
+rsync -a \
+    --exclude "pxeboot" \
+    --exclude "/rr_moved/" \
+    "${MNTDIR}/" "${BUILDDIR}/"
 rc=$?
 if [ "${rc}" -ne 0 ]; then
     unmount_iso
