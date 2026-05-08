@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim: filetype=sh shiftwidth=4 expandtab
 #
-# Copyright (c) 2020-2025 Wind River Systems, Inc.
+# Copyright (c) 2020-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -695,6 +695,7 @@ function create_miniboot_iso {
     rsync ${VERBOSE_RSYNC} -a \
           --exclude ostree_repo \
           --exclude pxeboot \
+          --exclude '/rr_moved/' \
         "${MNTDIR}/" "${BUILDDIR}"
     check_rc_exit $? "Failed to rsync ISO from $MNTDIR to $BUILDDIR"
 
