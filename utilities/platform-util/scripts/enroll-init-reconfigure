@@ -52,6 +52,9 @@ Usage:
 ENDUSAGE
 }
 
+# Flag to check if system is installed from a clone
+readonly CLONED_FLAG="/etc/platform/.cloned_install"
+
 # IPMI event types
 readonly EVENT_FACTORY_SETUP_COMPLETE="factory_setup_complete"
 readonly EVENT_FACTORY_SETUP_FAILED="factory_setup_failed"
@@ -385,6 +388,36 @@ function reconfigure_password {
     log_info "Reconfiguring sysadmin password..."
     echo "sysadmin:$NEW_PASSWORD" | sudo chpasswd -e
     check_rc_die $? "chpasswd failed"
+}
+
+function re_gen_sshkey {
+    if [ ! -f "$CLONED_FLAG" ]; then
+        # Do nothing as a normal enrollment
+        return 0
+    fi
+
+    log_info "Cloned install detected. Regenerating SSH host keys..."
+
+    # Remove old host keys
+    log_info "Removing existing SSH host keys..."
+    rm -f /etc/ssh/ssh_host_*
+
+    # Generate new host keys
+    log_info "Generating new SSH host key..."
+    ssh-keygen -q -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""
+    check_rc_die $? "Failed to generate ed25519 host key"
+
+    ssh-keygen -q -t rsa -b 4096 -f /etc/ssh/ssh_host_rsa_key -N ""
+    check_rc_die $? "Failed to generate RSA host key"
+
+    ssh-keygen -q -t ecdsa -b 256 -f /etc/ssh/ssh_host_ecdsa_key -N ""
+    check_rc_die $? "Failed to generate ECDSA host key"
+
+    # Restart sshd via pmon
+    pmon-restart sshd
+    check_rc_die $? "Failed to restart sshd"
+
+    log_info "SSH host key regeneration complete."
 }
 
 KUBECONFIG="/etc/kubernetes/admin.conf"
@@ -833,6 +866,7 @@ else
 fi
 
 reconfigure_password
+re_gen_sshkey
 
 touch /var/lib/factory-install/state/enroll-init
 
