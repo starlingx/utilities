@@ -6,7 +6,7 @@ echo "Running all unit tests"
 readonly SCRIPTDIR=$(readlink -m "$(dirname "$0")")
 cd "${SCRIPTDIR}" || { echo "cd failed"; exit 1; }
 
-TESTS="./gen-prestaged-iso-test.sh ./gen-prestaged-iso-test.sh"
+TESTS="./gen-prestaged-iso-test.sh ./gen-prestaged-iso-centos-test.sh ./gen-bootloader-iso-test.sh"
 
 log_progress() { echo -e "$(tput setaf 2)$*$(tput sgr0)"; }
 log_error() { echo -e "$(tput setaf 1)ERROR: $*$(tput sgr0)"; }
