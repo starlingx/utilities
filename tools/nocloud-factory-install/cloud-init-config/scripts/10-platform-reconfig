@@ -30,21 +30,23 @@ CONFIG_BASE = f"{HOME}/enroll-config"
 
 def copy_config_files():
     """Copy configuration files from nocloud to home directory."""
-    config_dir = f"{NOCLOUD}/config/enrollment"
-    if os.path.isdir(config_dir) and os.listdir(config_dir):
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        config_dest = f"{CONFIG_BASE}/{timestamp}"
+    config_dir = f"{NOCLOUD}/config"
 
-        uid = os.stat(HOME).st_uid
-        gid = os.stat(HOME).st_gid
+    if not (os.path.isdir(config_dir) and os.listdir(config_dir)):
+        return None
 
-        os.makedirs(CONFIG_BASE, exist_ok=True)
-        temp_dir = tempfile.mkdtemp(dir=CONFIG_BASE)
-        shutil.copytree(config_dir, temp_dir, dirs_exist_ok=True)
-        os.rename(temp_dir, config_dest)
-        subprocess.run(["chown", "-R", f"{uid}:{gid}", CONFIG_BASE], check=True)
-        return config_dest
-    return None
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    config_dest = f"{CONFIG_BASE}/{timestamp}"
+
+    uid = os.stat(HOME).st_uid
+    gid = os.stat(HOME).st_gid
+
+    os.makedirs(CONFIG_BASE, exist_ok=True)
+    temp_dir = tempfile.mkdtemp(dir=CONFIG_BASE)
+    shutil.copytree(config_dir, temp_dir, dirs_exist_ok=True)
+    os.rename(temp_dir, config_dest)
+    subprocess.run(["chown", "-R", f"{uid}:{gid}", CONFIG_BASE], check=True)
+    return config_dest
 
 
 def validate_input(value, key_name, hide_value=False):

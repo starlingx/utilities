@@ -1,9 +1,19 @@
 # Ansible Bootstrap Configurations - user configuration overrides
 #
-# System and network bootstrap properties cen be specified here as outlined in
-# the StarlingX documentation. For instance, OAM network configuration can
-# be specified: external_oam_subnet, external_oam_gateway_address,
+# Shared across on-site flows (onsite-enrollment, onsite-restore).
+# System and network bootstrap properties can be specified here as outlined
+# in the StarlingX documentation. For instance, OAM network configuration
+# can be specified: external_oam_subnet, external_oam_gateway_address,
 # external_oam_floating_address, etc.
+#
+# Field consumption per mode:
+#   - onsite-enrollment: full schema (all fields below) is consumed by
+#     dcmanager during enrollment.
+#   - onsite-restore: only the platform-reconfigure subset
+#     (system_mode, name, external_oam_*, systemcontroller_oam_address,
+#     sysadmin_password, ssl_ca_cert, admin_*) is consumed locally by
+#     10-platform-reconfig and 90-trigger-onsite-restore. Other fields
+#     are ignored on the restore path.
 #
 
 system_mode: simplex
@@ -23,12 +33,12 @@ external_oam_floating_address: 10.10.10.12
 
 systemcontroller_gateway_address: 192.168.204.101
 
-# System controller OAM address and credentials for enrollment
+# System controller OAM address and credentials
 systemcontroller_oam_address: 10.10.10.2
 sysadmin_password: St8rlingX*1234
 
 # CA cert to install on the subcloud for OAM network communication.
-# Cert need to be stored in the config/enrollment directory
+# Cert needs to be stored alongside this file in the config/ directory.
 # ssl_ca_cert: ssl_ca.pem
 
 docker_registries:

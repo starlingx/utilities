@@ -39,12 +39,20 @@ Arm a local reinstall and restore on an AIO-SX subcloud.
 
 Usage:
     $(basename "$0") --restore-mode <factory|auto>
+                     [--backup-source <local|remote>]
                      [--sw-version <version>]
                      [--extra-kargs <string>]
 
     --restore-mode <factory|auto>
         factory: restore from the factory backup (factory_backup.tgz)
         auto:    restore from a versioned platform backup tarball
+
+    --backup-source <local|remote>
+        Only valid with --restore-mode auto.
+        local  (default): read backup from \${PLATFORM_BACKUP}/backups/<sw-version>/
+        remote:           read backup from \${PLATFORM_BACKUP}/auto-restore/
+                          (used when dcmanager has rsynced the backup
+                          synchronously during an on-site restore).
 
     --sw-version <version>
         SW version to reinstall. Defaults to the running system version.
@@ -55,6 +63,7 @@ ENDUSAGE
 }
 
 RESTORE_MODE=""
+BACKUP_SOURCE="local"
 SW_VERSION=""
 EXTRA_KARGS=""
 BOOT_ENV="/boot/efi/EFI/BOOT/boot.env"
@@ -69,6 +78,10 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --restore-mode)
             RESTORE_MODE="$2"
+            shift 2
+            ;;
+        --backup-source)
+            BACKUP_SOURCE="$2"
             shift 2
             ;;
         --sw-version)
@@ -92,6 +105,14 @@ fi
 
 if [ "${RESTORE_MODE}" != "factory" ] && [ "${RESTORE_MODE}" != "auto" ]; then
     log_fatal "--restore-mode must be 'factory' or 'auto'; got '${RESTORE_MODE}'"
+fi
+
+if [ "${BACKUP_SOURCE}" != "local" ] && [ "${BACKUP_SOURCE}" != "remote" ]; then
+    log_fatal "--backup-source must be 'local' or 'remote'; got '${BACKUP_SOURCE}'"
+fi
+
+if [ "${BACKUP_SOURCE}" = "remote" ] && [ "${RESTORE_MODE}" != "auto" ]; then
+    log_fatal "--backup-source remote is only valid with --restore-mode auto"
 fi
 
 if [ -z "${SW_VERSION}" ]; then
@@ -123,7 +144,11 @@ if [ "${RESTORE_MODE}" = "factory" ]; then
     [ -f "${BACKUP_DIR}/miniboot.cfg" ] || \
         log_fatal "miniboot.cfg not found at ${BACKUP_DIR}/miniboot.cfg"
 else
-    BACKUP_DIR="${PLATFORM_BACKUP}/backups/${SW_VERSION}"
+    if [ "${BACKUP_SOURCE}" = "remote" ]; then
+        BACKUP_DIR="${PLATFORM_BACKUP}/auto-restore"
+    else
+        BACKUP_DIR="${PLATFORM_BACKUP}/backups/${SW_VERSION}"
+    fi
     log_info "Validating auto-restore prestaged data at ${BACKUP_DIR}"
     [ -d "${PLATFORM_BACKUP}/${SW_VERSION}/ostree_repo" ] || \
         log_fatal "prestaged ostree_repo not found at ${PLATFORM_BACKUP}/${SW_VERSION}/ostree_repo"
@@ -211,7 +236,7 @@ efibootmgr -C -w \
     -p "${EFI_PART_NUM}" \
     -L "${EFI_LABEL}" \
     -d "${EFI_DISK}" \
-    -l '\EFI\BOOT\BOOTX64.EFI'
+    -l '\EFI\BOOT\bootx64.efi'
 check_rc_die $? "Failed to create UEFI boot entry"
 EFI_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
 if [ -z "${EFI_BOOTNUM}" ]; then

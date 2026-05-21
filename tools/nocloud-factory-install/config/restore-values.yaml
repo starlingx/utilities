@@ -1,0 +1,14 @@
+# On-site backup restore values - user configuration overrides
+#
+# Used by the onsite-restore flow only. Forwarded by
+# 90-trigger-onsite-restore to dcmanager
+#
+
+# true  -> restore from the locally prestaged backup at
+#          /opt/platform-backup/backups/<sw-version>/ (no transfer)
+# false -> dcmanager rsyncs the central backup from system controller
+#           to /opt/platform-backup/auto-restore/ on the subcloud.
+local_only: false
+
+# Total timeout in seconds for the restore monitoring phase.
+restore_timeout: 5400
