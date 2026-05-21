@@ -1,6 +1,6 @@
 ########################################################################
 #
-# Copyright (c) 2022 - 2023 Wind River Systems, Inc.
+# Copyright (c) 2022 - 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -133,62 +133,54 @@ class Plugin:
         """
 
         plugin_name = os.path.basename(self.file)
-        HOSTS_ERR = f"plugin: '{plugin_name}' shouldn't have 'hosts' label"
 
-        if self.state["algorithm"] == algorithms.SUBSTRING:
-            self.validate_state(plugin_name, "files")
-            self.validate_state(plugin_name, "hosts")
-            self.validate_state(plugin_name, "substring")
-        elif self.state["algorithm"] == algorithms.ALARM:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.SYSTEM_INFO:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.SWACT_ACTIVITY:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.PUPPET_ERRORS:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.PROCESS_FAILURES:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.HEARTBEAT_LOSS:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.MAINTENANCE_ERR:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.DAEMON_FAILURES:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.STATE_CHANGES:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
-        elif self.state["algorithm"] == algorithms.AUDIT:
-            if len(self.state["hosts"]) > 0:
-                raise ValueError(HOSTS_ERR)
+        # All supported algorithm names
+        supported_algorithms = [
+            algorithms.ALARM,
+            algorithms.AUDIT,
+            algorithms.DAEMON_FAILURES,
+            algorithms.HEARTBEAT_LOSS,
+            algorithms.MAINTENANCE_ERR,
+            algorithms.PROCESS_FAILURES,
+            algorithms.PUPPET_ERRORS,
+            algorithms.STATE_CHANGES,
+            algorithms.SUBSTRING,
+            algorithms.SWACT_ACTIVITY,
+            algorithms.SYSTEM_INFO,
+        ]
 
-            try:
-                datetime.strptime(self.state["start"], "%Y-%m-%d %H:%M:%S")
-            except ValueError as e:
-                logger.error(
-                    "plugin '%s' needs a valid start time in YYYY-MM-DD \
-                     HH:MM:SS format", plugin_name)
-
-            try:
-                datetime.strptime(self.state["end"], "%Y-%m-%d %H:%M:%S")
-            except ValueError as e:
-                logger.error(
-                    "plugin '%s' needs a valid end time in YYYY-MM-DD \
-                     HH:MM:SS format", plugin_name)
-
-        else:
+        if self.state["algorithm"] not in supported_algorithms:
             raise ValueError(
                 f"plugin: '{plugin_name}' algorithm label unsupported value: "
                 f"{self.state['algorithm']}"
             )
+
+        # SUBSTRING is the only algorithm that requires hosts, files,
+        # and substring labels. All others reject hosts.
+        if self.state["algorithm"] == algorithms.SUBSTRING:
+            self.validate_state(plugin_name, "files")
+            self.validate_state(plugin_name, "hosts")
+            self.validate_state(plugin_name, "substring")
+        else:
+            if len(self.state["hosts"]) > 0:
+                raise ValueError(
+                    f"plugin: '{plugin_name}' shouldn't have 'hosts' label")
+
+        # AUDIT has additional time range validation
+        if self.state["algorithm"] == algorithms.AUDIT:
+            try:
+                datetime.strptime(self.state["start"], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                logger.error(
+                    "plugin '%s' needs a valid start time in YYYY-MM-DD "
+                    "HH:MM:SS format", plugin_name)
+
+            try:
+                datetime.strptime(self.state["end"], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                logger.error(
+                    "plugin '%s' needs a valid end time in YYYY-MM-DD "
+                    "HH:MM:SS format", plugin_name)
 
         for host in self.state["hosts"]:
             if host not in ["controllers", "workers", "storages", "all"]:
