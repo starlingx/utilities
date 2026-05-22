@@ -500,6 +500,7 @@ function generate_boot_cfg {
     local BOOT_IP_ARG="${BOOT_IP},,${BOOT_GATEWAY},${BOOT_NETMASK},${BOOT_HOSTNAME},${BOOT_INTERFACE},off"
 
     local PARAM_LIST=
+    local EXTRA_BOOT_PARAMS=
     # Set/update boot parameters
     if [ ${#PARAMS[@]} -gt 0 ]; then
         for p in "${PARAMS[@]}"; do
@@ -514,7 +515,13 @@ function generate_boot_cfg {
                     log_verbose "Setting instdev=$value from boot_device param"
                     instdev=$value
                 fi
-                PARAM_LIST="${PARAM_LIST} ${param}=${value}"
+                if [ "$param" = "extra_boot_params" ]; then
+                    # Do not add extra_boot_params to PARAM_LIST;
+                    # it is injected directly into BOOT_ARGS_COMMON below.
+                    EXTRA_BOOT_PARAMS="${value}"
+                else
+                    PARAM_LIST="${PARAM_LIST} ${param}=${value}"
+                fi
             fi
         done
     fi
@@ -550,25 +557,12 @@ function generate_boot_cfg {
     fi
     BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${PARAM_LIST}"
 
-    # Search the install kernel command line for the 'extra_boot_params='
-    # option. If present, propagate the value into our BOOT_ARGS_COMMON, so
-    # that any extra boot parameters are also provided during the boot from
-    # miniboot ISO.
-    # Multiple parameters can be separated by ',' here; we want to
-    # split them out to be space-separated when adding to kernel arguments.
-    # e.g.: for extra_boot_params=arg1=1,arg2=2, set kernel params: arg1=1 arg2=2
-    local option
-    for option in ${PARAM_LIST}; do
-        if [ "${option%%=*}" = "extra_boot_params" ]; then
-            # Do not include the 'extra_boot_params' string.
-            # Strip out any commas and replace with space.
-            extra_boot_params=${option#*=}               # remove 'extra_boot_params='
-            extra_boot_params=${extra_boot_params//,/ }  # replace all ',' with ' '
-            ilog "Adding extra_boot_params to BOOT_ARGS_COMMON: ${extra_boot_params}"
-            BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${extra_boot_params}"
-            break
-        fi
-    done
+    # If extra_boot_params was provided, inject its value directly into
+    # BOOT_ARGS_COMMON as kernel boot parameters.
+    if [ -n "${EXTRA_BOOT_PARAMS}" ]; then
+        log_info "Adding extra_boot_params to BOOT_ARGS_COMMON: ${EXTRA_BOOT_PARAMS}"
+        BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} ${EXTRA_BOOT_PARAMS}"
+    fi
 
     # Uncomment for debugging:
     #BOOT_ARGS_COMMON="${BOOT_ARGS_COMMON} instsh=2 instpost=shell"
