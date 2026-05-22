@@ -391,13 +391,6 @@ function reconfigure_password {
 }
 
 function re_gen_sshkey {
-    if [ ! -f "$CLONED_FLAG" ]; then
-        # Do nothing as a normal enrollment
-        return 0
-    fi
-
-    log_info "Cloned install detected. Regenerating SSH host keys..."
-
     # Remove old host keys
     log_info "Removing existing SSH host keys..."
     rm -f /etc/ssh/ssh_host_*
@@ -852,6 +845,21 @@ check_services_status
 # done only by cloud-init, and puppet generated ifcfg file does not know about this until reboot.
 touch /var/run/.enroll-init-reconfigure
 
+# Updating identifications if system is installed from a clone. As the
+# central cloud requests the Openstack region name after the update of
+# the OAM network, those tasks need to be done before the OAM update.
+if [ -f "$CLONED_FLAG" ]; then
+    log_info "Cloned install detected. Regenerating SSH host keys..."
+    re_gen_sshkey
+
+    log_info "Running post clone identity reset..."
+    /usr/local/bin/post_clone_identity_reset.py
+    check_rc_die $? "post_clone_identity_reset.py failed"
+
+    log_info "Reloading credentials after identity reset..."
+    load_credentials
+fi
+
 if check_reconfigure_OAM; then
     # Check directly on ifcfg file, to figure out the label/alias, which works for both IPv4 and IPv6 addresses:
     current_oam_if_name_with_label=$(grep net:oam /etc/network/interfaces.d/ifcfg-* | grep -oP '(?<=interfaces.d/ifcfg-).*?(?=:stx-description )')
@@ -866,7 +874,6 @@ else
 fi
 
 reconfigure_password
-re_gen_sshkey
 
 touch /var/lib/factory-install/state/enroll-init
 
