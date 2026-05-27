@@ -39,16 +39,12 @@ RUN set -ex && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Enable stx repo only. Packages installs below this point will use
-# only the managed locally-built & 3rd-party repos.
+# Enable stx and debian repos, then install required packages
 RUN set -ex && \
-    cp /etc/apt/sources.list.d/stx.list.disabled /etc/apt/sources.list.d/stx.list
-
-# Install required packages
-RUN set -ex && \
+    cp /etc/apt/sources.list.d/stx.list.disabled /etc/apt/sources.list.d/stx.list && \
+    cp -f /etc/apt/sources.list.d/debian.list.disabled /etc/apt/sources.list.d/debian.list && \
     apt-get update -y && \
-    apt-get upgrade -y && \
-    apt-get install -y \
+    apt-get install -y --allow-downgrades \
         autoconf-archive \
         autogen \
         automake \
@@ -70,9 +66,9 @@ RUN set -ex && \
         libcap-dev \
         libelf-dev \
         libncurses-dev \
-        libhwloc-dev=1.11.12-3 \
+        libhwloc-dev \
         libjson-c-dev \
-        libssl-dev \
+        libssl-dev/trixie \
         linux-headers-stx-amd64 \
         linux-perf \
         make \
@@ -92,6 +88,7 @@ RUN set -ex && \
         wget \
         xz-utils \
         && \
+    rm -f /etc/apt/sources.list.d/debian.list && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
