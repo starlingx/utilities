@@ -23,7 +23,7 @@ Package: opae-libs
 Architecture: amd64
 Description: OPAE runtime
 Depends:
-  libhwloc5 (<< 2),
+  libhwloc15 (>= 2.12.0),
   libjson-c5,
   uuid-dev,
   ${shlibs:Depends},
