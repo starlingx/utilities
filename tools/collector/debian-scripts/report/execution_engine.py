@@ -1,6 +1,6 @@
 ########################################################################
 #
-# Copyright (c) 2022 - 2023 Wind River Systems, Inc.
+# Copyright (c) 2022 - 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 
 # regex expression used to get the hostname from the host dir name
 # eg: chops '_20221201.213332' off of controller-0_20221201.213332
-regex_chop_bundle_date = r"_\d{8}\.\d{6}"
-regex_get_bundle_date = r".*_\d{8}\.\d{6}$"
+regex_chop_bundle_date = r"_\d{8}\.?\d{6}"
+regex_get_bundle_date = r".*_\d{8}\.?\d{6}$"
 
 
 class ExecutionEngine:
@@ -108,6 +108,7 @@ class ExecutionEngine:
             # Ignore all directories that are not a properly dated
             # collect file
             if not re.match(regex_get_bundle_date, basename):
+                logger.debug("skipping non-bundle directory: %s", basename)
                 continue
 
             # skip over files (the tarballs)
@@ -135,6 +136,9 @@ class ExecutionEngine:
                     self.hosts["workers"][hostname] = folder
                 elif "storage" in subfunction:
                     self.hosts["storages"][hostname] = folder
+            else:
+                logger.warning("%s is missing var/extra/host.info — "
+                               "host type unknown", hostname)
 
             # skip non controller hosts since that could not be active
             if hostname[0:10] != "controller":
@@ -248,10 +252,52 @@ class ExecutionEngine:
                                     else:
                                         file.write(line + "\n")
             else:
-                if plugin.state["algorithm"] == algorithms.SYSTEM_INFO:
-                    # Get system info of the active controller first
-                    # and then put the system info of each host in the
-                    # system info output folder.
+                alg = plugin.state["algorithm"]
+
+                # Algorithms that follow the standard pattern:
+                # func(hosts, start, end, ...) → list of strings
+                # Output file name matches algorithm name.
+                standard_algorithms = {
+                    algorithms.SWACT_ACTIVITY: swact_activity,
+                    algorithms.PUPPET_ERRORS: puppet_errors,
+                    algorithms.PROCESS_FAILURES: process_failures,
+                    algorithms.HEARTBEAT_LOSS: heartbeat_loss,
+                    algorithms.STATE_CHANGES: state_changes,
+                }
+
+                # Algorithms that also accept an exclude list
+                exclude_algorithms = {
+                    algorithms.MAINTENANCE_ERR: ("maintenance_errors",
+                                                 maintenance_errors),
+                    algorithms.DAEMON_FAILURES: ("daemon_failures",
+                                                 daemon_failures),
+                }
+
+                if alg in standard_algorithms:
+                    func = standard_algorithms[alg]
+                    self._create_output_file(
+                        alg, plugin_output_dir,
+                        func(self.hosts, self.opts.start,
+                             self.opts.end,
+                             dropped_logs=dropped_logs_file),
+                        processing
+                    )
+
+                elif alg in exclude_algorithms:
+                    output_name, func = exclude_algorithms[alg]
+                    self._create_output_file(
+                        output_name, plugin_output_dir,
+                        func(self.hosts, self.opts.start,
+                             self.opts.end,
+                             plugin.state["exclude"],
+                             dropped_logs=dropped_logs_file),
+                        processing
+                    )
+
+                # Special cases: these have unique orchestration logic
+                # that doesn't fit the standard pattern.
+
+                elif alg == algorithms.SYSTEM_INFO:
                     system_info_output = os.path.join(plugin_output_dir,
                                                       "system_info")
                     if os.path.exists(system_info_output):
@@ -261,7 +307,8 @@ class ExecutionEngine:
                     host_dir = None
                     if self.active_controller_directory is None:
                         hostname = re.sub(regex_chop_bundle_date, "",
-                                          os.path.basename(self.host_dirs[0]))
+                                          os.path.basename(
+                                              self.host_dirs[0]))
                         host_dir = self.host_dirs[0]
                     else:
                         hostname = self.active_controller_hostname
@@ -271,19 +318,22 @@ class ExecutionEngine:
                                 system_info_output,
                                 self.hosts, True)
 
-                    start_index = self.active_controller_directory is None
+                    start_index = (
+                        self.active_controller_directory is None)
 
                     for host_dir in self.host_dirs[start_index:]:
-                        if host_dir != self.active_controller_directory:
-                            hostname = re.sub(regex_chop_bundle_date, "",
-                                              os.path.basename(host_dir))
+                        if host_dir != \
+                                self.active_controller_directory:
+                            hostname = re.sub(
+                                regex_chop_bundle_date, "",
+                                os.path.basename(host_dir))
                             system_info(hostname,
                                         host_dir,
                                         system_info_output,
                                         None,
                                         False)
 
-                elif plugin.state["algorithm"] == algorithms.AUDIT:
+                elif alg == algorithms.AUDIT:
                     hosts = {}
                     hosts.update(self.hosts["workers"])
                     hosts.update(self.hosts["storages"])
@@ -297,41 +347,14 @@ class ExecutionEngine:
                                 plugin.state["start"],
                                 plugin.state["end"],
                                 os.path.join(
-                                    folderpath, "var", "log", "dcmanager",
-                                    "audit.log"
+                                    folderpath, "var", "log",
+                                    "dcmanager", "audit.log"
                                 ),
                             ),
                             processing,
                         )
 
-                elif plugin.state["algorithm"] == algorithms.SWACT_ACTIVITY:
-                    self._create_output_file(
-                        "swact_activity", plugin_output_dir,
-                        swact_activity(self.hosts, self.opts.start,
-                                       self.opts.end,
-                                       dropped_logs=dropped_logs_file),
-                        processing
-                    )
-
-                elif plugin.state["algorithm"] == algorithms.PUPPET_ERRORS:
-                    self._create_output_file(
-                        "puppet_errors", plugin_output_dir,
-                        puppet_errors(self.hosts, self.opts.start,
-                                      self.opts.end,
-                                      dropped_logs=dropped_logs_file),
-                        processing
-                    )
-
-                elif plugin.state["algorithm"] == algorithms.PROCESS_FAILURES:
-                    self._create_output_file(
-                        "process_failures", plugin_output_dir,
-                        process_failures(self.hosts, self.opts.start,
-                                         self.opts.end,
-                                         dropped_logs=dropped_logs_file),
-                        processing
-                    )
-
-                elif plugin.state["algorithm"] == algorithms.ALARM:
+                elif alg == algorithms.ALARM:
                     for host_dir in self.host_dirs:
 
                         alarms, logs = alarm(
@@ -343,19 +366,20 @@ class ExecutionEngine:
                         if alarms is None and logs is None:
                             continue
 
-                        alarm_output = os.path.join(plugin_output_dir, "alarm")
-                        log_output = os.path.join(plugin_output_dir, "log")
+                        alarm_output = os.path.join(
+                            plugin_output_dir, "alarm")
+                        log_output = os.path.join(
+                            plugin_output_dir, "log")
 
-                        # creating output alarm file
                         with open(alarm_output, "w") as file:
                             for k, v in alarms.items():
                                 file.write(f"{k}:\n")
                                 for date in v["dates"]:
                                     file.write(f"   {date}\n")
-                        # creating output log file
                         with open(log_output, "w") as file:
                             for k, v in logs.items():
-                                file.write(f"{k}: {v['count']}\n")
+                                file.write(
+                                    f"{k}: {v['count']}\n")
                             file.write("\n")
                             for k, v in logs.items():
                                 file.write(f"{k}:\n")
@@ -364,44 +388,11 @@ class ExecutionEngine:
                         if self.opts.verbose:
                             logger.info(processing)
                         elif self.opts.debug:
-                            logger.debug(processing + ", output at " +
-                                         os.path.abspath(alarm_output) +
-                                         ", " + os.path.abspath(log_output))
-
-                elif plugin.state["algorithm"] == algorithms.HEARTBEAT_LOSS:
-                    self._create_output_file(
-                        "heartbeat_loss", plugin_output_dir,
-                        heartbeat_loss(self.hosts, self.opts.start,
-                                       self.opts.end,
-                                       dropped_logs=dropped_logs_file),
-                        processing
-                    )
-                elif plugin.state["algorithm"] == algorithms.MAINTENANCE_ERR:
-                    self._create_output_file(
-                        "maintenance_errors", plugin_output_dir,
-                        maintenance_errors(self.hosts, self.opts.start,
-                                           self.opts.end,
-                                           plugin.state["exclude"],
-                                           dropped_logs=dropped_logs_file),
-                        processing
-                    )
-                elif plugin.state["algorithm"] == algorithms.DAEMON_FAILURES:
-                    self._create_output_file(
-                        "daemon_failures", plugin_output_dir,
-                        daemon_failures(self.hosts, self.opts.start,
-                                        self.opts.end,
-                                        plugin.state["exclude"],
-                                        dropped_logs=dropped_logs_file),
-                        processing
-                    )
-                elif plugin.state["algorithm"] == algorithms.STATE_CHANGES:
-                    self._create_output_file(
-                        "state_changes", plugin_output_dir,
-                        state_changes(self.hosts, self.opts.start,
-                                      self.opts.end,
-                                      dropped_logs=dropped_logs_file),
-                        processing
-                    )
+                            logger.debug(
+                                processing + ", output at " +
+                                os.path.abspath(alarm_output) +
+                                ", " +
+                                os.path.abspath(log_output))
 
         # Dump a summary of data found by the plugins
         if os.path.exists(plugin_output_dir):
