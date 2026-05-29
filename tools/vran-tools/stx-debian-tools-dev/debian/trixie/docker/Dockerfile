@@ -1,12 +1,13 @@
 ARG BASE
 FROM ${BASE}
 
-# Install stx-dev repo (StarlingX-Debian repo)
-COPY stx-dev.list /etc/apt/sources.list.d/stx-dev.list.disabled
+# Install stx-tools-dev repo (StarlingX-Debian repo)
+COPY stx-tools-dev.list /etc/apt/sources.list.d/stx-tools-dev.list.disabled
 
 #
 # repos:
 #   /etc/apt/sources.list.d/
+#     debian.list.disabled         - vanilla debian repo
 #     stx-x.list.disabled          - starlingx binary & build repos
 #
 # To enable a repo list:
@@ -39,10 +40,13 @@ RUN set -ex && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Enable stx and debian repos, then install required packages
+# Enable stx and debian repos for package install
 RUN set -ex && \
     cp /etc/apt/sources.list.d/stx.list.disabled /etc/apt/sources.list.d/stx.list && \
-    cp -f /etc/apt/sources.list.d/debian.list.disabled /etc/apt/sources.list.d/debian.list && \
+    cp -f /etc/apt/sources.list.d/debian.list.disabled /etc/apt/sources.list.d/debian.list
+
+# Install dev tools package dependencies
+RUN set -ex && \
     apt-get update -y && \
     apt-get install -y --allow-downgrades \
         autoconf-archive \
@@ -63,6 +67,7 @@ RUN set -ex && \
         gettext \
         isomd5sum \
         kmod \
+        libaccel-config1 \
         libcap-dev \
         libelf-dev \
         libncurses-dev \
@@ -92,10 +97,37 @@ RUN set -ex && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Install dev tools
+RUN set -ex && \
+    cp -f /etc/apt/sources.list.d/debian.list.disabled /etc/apt/sources.list.d/debian.list && \
+    apt-get update -y && \
+    apt-get install -y \
+        accel-config \
+        accel-config-test \
+        acpica-tools \
+        dmidecode \
+        ethtool \
+        git \
+        git-review \
+        iproute2 \
+        linux-cpupower \
+        net-tools \
+        opae-libs opae-tools opae-tools-extra opae-devel \
+        pcm \
+        python3-opae.admin python3-opae.pacsign \
+        tcpdump \
+        trace-cmd \
+        tree \
+        unzip \
+        && \
+    rm -f /etc/apt/sources.list.d/debian.list && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Enable StarlingX-Debian repo
 # Packages installs below this point will use DEB packages from the StarlingX-Debian repo.
 RUN set -ex && \
-    cp -f /etc/apt/sources.list.d/stx-dev.list.disabled /etc/apt/sources.list.d/stx.list && \
+    cp -f /etc/apt/sources.list.d/stx-tools-dev.list.disabled /etc/apt/sources.list.d/stx.list && \
     apt-get update && \
     apt-get clean && \
     rm -rf \
@@ -103,3 +135,8 @@ RUN set -ex && \
         /var/log/* \
         /var/tmp/* \
         /tmp/*
+
+# Enable upstream Debian repo so users may install other dev tools if needed.
+# Packages installs below this point might differ from those on StarlingX.
+RUN set -ex && \
+    cp /etc/apt/sources.list.d/debian.list.disabled /etc/apt/sources.list.d/debian.list

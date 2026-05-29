@@ -1,0 +1,2 @@
+deb [trusted=yes check-valid-until=0] https://mirror.starlingx.windriver.com/mirror/starlingx/master/debian/monolithic/latest_build/inputs/packages ./
+deb [trusted=yes check-valid-until=0] https://mirror.starlingx.windriver.com/mirror/starlingx/master/debian/monolithic/latest_build/outputs/std/packages ./
