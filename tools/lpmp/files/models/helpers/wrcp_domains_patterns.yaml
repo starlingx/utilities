@@ -1,0 +1,139 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   WRCP Domains Patterns Definitions
+# Purpose: Shared timeline pattern library for use by other models
+#          via 'include' directive. Defines reusable pattern sets for
+#          maintenance, SM, puppet, kernel, collectd, pmond, hostwd,
+#          network, auth, bash, and daemon log domains.
+#
+########################################################################
+#
+# Usage: Include in other models with:
+#   include: "helpers/wrcp_domains_patterns.yaml"
+#
+# Then reference patterns in timeline blocks with:
+#   timeline: "{maintenance}"   # uses the maintenance pattern set
+#
+########################################################################
+
+settings:
+  timeline_patterns:
+    maintenance:
+      - ["Reboot","reboot"]
+      - "Host Add Completed"
+      - "Unlock Action"
+      - "Lock Action"
+      # - "reboot request succeeded"
+      - "Booting (timeout:"
+      - "is MTCALIVE"
+      - "is ENABLED"
+      # - "Heartbeat Miss"
+      # - "Heartbeat Loss"          - covered by Error
+      # - "critical enable failure" - covered by Error
+      - "Graceful Recovery Wait"
+      - "force failed by SM"
+      # - "regained MTCALIVE from host that has rebooted"
+      - "Administrative SWACT Requested"
+      - "Swact Request complete ; Swact in progress"
+      - "Query Services Failed"
+      - "Rejecting 'swact' - 'add' In-Progress"
+      - "pmon: 'ceph' process failed and is being auto recovered"
+      - "ip address resolution failed"
+      - "failed out-of-service test"
+      - "Forcing Full Enable Sequence"
+
+    mtce_failures:
+      - "Error"
+
+    mtce_processes:
+      - "Daemon Start-Up"
+      - "GoEnabled Testing Complete"
+      - "Host Services Complete"
+      - "ip address resolution failed"
+      - "FAILED: /etc/goenabled.d"
+
+    sm:
+      - "Request mtce to reset peer"
+      - "declared dead"
+      - "Entering fail-pending state"
+      - "lose heartbeat"
+      - "Loss of heartbeat ALL"
+      - "fail-pending state"
+      - "fail-failed state"
+      - "sm: debug Started"
+      - "sm: debug Shutdown complete"
+      - "Blind guess"
+      - "survivor"
+      # - "Cluster hbs last updated 0 secs ago"
+      # - "Cluster hbs last updated"
+      # - "nodes reachable"
+      - "Trap connection has been broken"
+      - "is deprovisioned successfully"
+
+    pmond:
+    - "manage_process_failure  :Error :"
+    - "process has failed"
+    - "connected to host watchdog"
+    - "process-restart ; by request"
+    - "self-restart ; by request"
+    - "spawn failed"
+    - "unrecoverable"
+    - "Could not connect to hostwd port"
+    - "ip address resolution failed"
+
+    hostwd:
+    - "Initiating reboot"
+    - "Process Quorum Health"
+    - "Quorum failed"
+    - "kdump is"
+    - "Failed to enable watchdog"
+    - "Host watchdog*not receiving messages"
+    - "not receiving messages"
+    - "PMON reports unrecoverable system"
+    - "Host Watchdog received bad or corrupted message"
+    - "Host Watchdog declaring system unhealthy"
+
+    collectd:
+    - "warning -> failure"
+    # - "debounce 'warning -> failure'""
+    - "failure -> okay"
+    #- debounce 'failure -> okay' ""
+
+    puppet:
+    - "Failed to run the puppet manifest"
+
+    auth:
+    - "sm_no_trap_conn_loss_exit"
+
+    bash:
+    - "sm_no_trap_conn_loss_exit"
+
+    kernel:
+      - "Kernel command line:"
+
+    network:
+      - "Link Down"
+      - "Link Up"
+
+    daemon:
+      - "Unable to get IP from host"
+      - "User Login Management"
+      - "Docker Application Container Engine"
+      - "LUKS device is successfully opened"
+      - "strongSwan"
+      - "StarlingX System Inventory Agent"
+      - "controller_config"
+      - "worker_config"
+      - "storage_config"
+      - "controllerconfig service"
+      - "Configuring controller node"
+      - "Applying puppet .* manifest"
+      - "Unified Software Management"
+      - "Network Time Service"
+      # - "controller_config\\[.*\\]: info \\[DONE\\]"

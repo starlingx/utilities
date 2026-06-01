@@ -1,0 +1,268 @@
+# =============================================================================
+# LPMP Pair-Matching-Only Example
+# =============================================================================
+# Demonstrates pure pair block usage for duration measurement between start/stop events.
+# All blocks use 'start' and 'stop' fields for timing analysis.
+# =============================================================================
+
+# Global settings optimized for pair matching
+settings:
+  max_time_delta: 120                   # Max seconds between start/stop pairs
+  block_time_tolerance: 10.0            # Time tolerance for out-of-order log entries
+  start_date: "2024-01-06T08:00:00"     # Filter logs from this timestamp
+  loops: 1                              # Single analysis pass
+  max_log_length: 180                   # Standard log line length
+  profile: true                         # Model-level default for profile files
+  optional: false                       # Model-level default for optional blocks
+
+blocks:
+  # ==========================================================================
+  # Basic Pair Blocks
+  # ==========================================================================
+
+  # Simple service startup timing
+  - label: "Database Service"
+    file: "db.log*"
+    start: "Database starting"
+    stop: "Database ready"
+    max_time_delta: 180                 # Allow up to 3 minutes for DB startup
+    profile: true
+    optional: false
+
+  # Web service timing
+  - label: "Web Server"
+    file: "web.log*"
+    start: "Web server starting"
+    stop: "Web server ready"
+    max_time_delta: 60                  # Web server should start quickly
+    profile: true
+
+  # ==========================================================================
+  # Variable Substitution in Pairs
+  # ==========================================================================
+
+  # Host-specific unlock timing
+  - label: "Host Unlock Duration"
+    file: "mtcAgent.log*"
+    start: "{hostname} Unlock Action"
+    stop: "{hostname} is ENABLED"
+    max_time_delta: 300                 # Allow 5 minutes for unlock
+    profile: true
+    optional: false
+
+  # Custom variable pair (use --var service=myapp)
+  - label: "Custom Service Duration"
+    file: "service.log*"
+    start: "Service {service} starting"
+    stop: "Service {service} ready"
+    max_time_delta: 90
+    optional: true
+
+  # ==========================================================================
+  # Regex Pair Patterns
+  # ==========================================================================
+
+  # Transaction timing with regex
+  - label: "Database Transaction"
+    file: "db.log*"
+    start: r"BEGIN TRANSACTION \d+"
+    stop: r"COMMIT TRANSACTION \d+"
+    max_time_delta: 300                 # Transactions can be long
+    profile: true
+    optional: true
+
+  # Process lifecycle with PID matching
+  - label: "Process Lifecycle"
+    file: "system.log*"
+    start: r"Process (\d+) started"
+    stop: r"Process \1 terminated"      # Backreference to match same PID
+    max_time_delta: 600
+    optional: true
+
+  # ==========================================================================
+  # OR Pattern Pairs
+  # ==========================================================================
+
+  # Service with multiple start patterns
+  - label: "Flexible Service Start"
+    file: "service.log*"
+    start: ["Service initializing", "Service starting", "Service launching"]
+    stop: ["Service ready", "Service active", "Service online"]
+    max_time_delta: 120
+    optional: true
+
+  # Maintenance with alternative completion patterns
+  - label: "System Maintenance"
+    file: "maintenance.log*"
+    start: "Maintenance mode enabled"
+    stop: ["Maintenance completed", "Maintenance mode disabled", "System ready"]
+    max_time_delta: 1800                # Allow 30 minutes for maintenance
+    profile: true
+    optional: true
+
+  # ==========================================================================
+  # Multi-File Pair Matching
+  # ==========================================================================
+
+  # Boot sequence across multiple logs
+  - label: "System Boot Duration"
+    file: ["kern.log*", "daemon.log*", "syslog*"]
+    start: "Kernel command line:"
+    stop: ["Boot completed", "System ready", "Ready for login"]
+    max_time_delta: 600                 # Allow 10 minutes for full boot
+    profile: true
+
+  # Network configuration across sources
+  - label: "Network Setup Duration"
+    file: ["network.log*", "daemon.log*"]
+    start: ["Network initialization", "Starting network"]
+    stop: ["Network ready", "All interfaces up"]
+    max_time_delta: 180
+    optional: true
+
+  # ==========================================================================
+  # Timing Constraint Examples
+  # ==========================================================================
+
+  # Fast service - tight timing
+  - label: "Quick Cache Service"
+    file: "cache.log*"
+    start: "Cache service starting"
+    stop: "Cache service ready"
+    max_time_delta: 10                  # Should start within 10 seconds
+    profile: true
+    optional: true
+
+  # Slow service - loose timing
+  - label: "Data Processing Service"
+    file: "processor.log*"
+    start: "Data processor initializing"
+    stop: "Data processor ready"
+    max_time_delta: 900                 # Allow 15 minutes for data loading
+    profile: true
+    optional: true
+
+  # ==========================================================================
+  # Controller-Specific Pairs
+  # ==========================================================================
+
+  # Controller cluster formation
+  - label: "Controller Cluster Setup"
+    file: "cluster.log*"
+    start: "Cluster member {hostname} joining"
+    stop: "Cluster member {hostname} active"
+    controller: true                    # Controller-only block
+    max_time_delta: 240
+    profile: true
+    optional: true
+
+  # Database cluster timing (controllers only)
+  - label: "Database Cluster Formation"
+    file: "postgres.log*"
+    start: "Database cluster initializing"
+    stop: "Database cluster ready"
+    controller: true
+    max_time_delta: 300
+    optional: true
+
+  # ==========================================================================
+  # Complex Service Dependencies
+  # ==========================================================================
+
+  # Authentication service with dependencies
+  - label: "Authentication Service"
+    file: "auth.log*"
+    start: "Authentication service starting"
+    stop: "Authentication service ready"
+    max_time_delta: 150
+    profile: true
+
+  # Load balancer configuration
+  - label: "Load Balancer Setup"
+    file: "haproxy.log*"
+    start: "HAProxy configuration loading"
+    stop: "HAProxy ready for connections"
+    max_time_delta: 60
+    optional: true
+
+  # ==========================================================================
+  # Compressed and Rotated Log Pairs
+  # ==========================================================================
+
+  # Application deployment across rotated logs
+  - label: "Application Deployment"
+    file: ["deploy.log", "deploy.log.1", "deploy.log.1.gz"]
+    start: "Deployment started"
+    stop: ["Deployment successful", "Application deployed"]
+    max_time_delta: 1200                # Allow 20 minutes for deployment
+    profile: true
+    optional: true
+
+  # Backup operation timing
+  - label: "System Backup"
+    file: "backup*.log*"
+    start: ["Backup initiated", "Starting backup"]
+    stop: ["Backup completed", "Backup successful"]
+    max_time_delta: 3600                # Allow 1 hour for backup
+    profile: true
+    optional: true
+
+  # ==========================================================================
+  # Error Handling Pairs
+  # ==========================================================================
+
+  # Service with potential failure
+  - label: "Risky Service"
+    file: "risky.log*"
+    start: "Risky service starting"
+    stop: ["Risky service ready", "Risky service failed", "Service timeout"]
+    max_time_delta: 300
+    profile: true
+    optional: true                      # May fail, so optional
+
+  # Recovery operation timing
+  - label: "System Recovery"
+    file: "recovery.log*"
+    start: "Recovery initiated"
+    stop: ["Recovery completed", "Recovery failed", "Recovery timeout"]
+    max_time_delta: 1800                # Allow 30 minutes for recovery
+    profile: true
+    optional: true
+
+# =============================================================================
+# PAIR MATCHING CHARACTERISTICS
+# =============================================================================
+# 1. ALL blocks must be pair blocks (start/stop fields required)
+# 2. Measures duration between start and stop events
+# 3. max_time_delta applies to each start/stop pair
+# 5. Results show duration for each successful pair match
+# 6. Excellent for performance analysis and SLA monitoring
+# =============================================================================
+
+# =============================================================================
+# TIMING TOLERANCE SETTINGS
+# =============================================================================
+# block_time_tolerance: Allows blocks to be processed out of chronological order
+# max_time_delta: Maximum time allowed between start and stop events
+#
+# Precedence: Command line > Block level > Model level > Defaults
+# =============================================================================
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+# Basic pair analysis:
+#   lpmptool -m pair_only_example.yaml -l /var/log
+#
+# With custom variables:
+#   lpmptool -m pair_only_example.yaml --var service=webapp --hostname worker-1
+#
+# Bundle mode:
+#   lpmptool -b /path/to/bundle -m pair_only_example.yaml
+#
+# Override timing constraints:
+#   lpmptool -m pair_only_example.yaml --max-time-delta 300
+#
+# Controller-specific analysis:
+#   lpmptool -m pair_only_example.yaml --hostname controller-0
+# =============================================================================

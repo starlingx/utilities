@@ -1,0 +1,56 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   SM Timeline Model
+# Purpose: Collect timeline events across service management, auth,
+#          bash, kernel, mtcClient, and process monitor log domains.
+#
+########################################################################
+#
+# Includes: wrcp_domains_patterns.yaml (shared timeline patterns)
+#
+# Block Fields:
+#   label      - (required) block identifier
+#   file       - (required) log file glob pattern(s)
+#   timeline   - list of patterns to collect (any order)
+#   controller - only process on controller hosts (default: false)
+#
+########################################################################
+
+include: "helpers/wrcp_domains_patterns.yaml"
+
+blocks:
+  - label: "S M"
+    file: "sm.log*"
+    controller: true
+    timeline: "{sm}"
+
+  - label: "Auth"
+    file: "auth.log*"
+    controller: true
+    timeline: "{auth}"
+
+  - label: "Bash"
+    file: "bash.log*"
+    controller: true
+    timeline: "{bash}"
+
+  - label: "Kernel Boot"
+    file: "kern.log*"
+    timeline: "{kernel}"
+
+  - label: "mtcClient"
+    file: "mtcClient.log*"
+    timeline: "{mtce_processes}"
+
+  - label: "Process Monitor"
+    file: "pmond.log*"
+    timeline: "{mtce_processes}"
+
+settings:
+  start_date: 2026-02-12T04:00:00

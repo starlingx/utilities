@@ -1,0 +1,51 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Maintenance Reinstall Model
+# Purpose: Profile maintenance reinstall operations using timeline
+#          mode to track reinstall, unlock, enable, and delete events
+#          across mtcAgent and sysinv logs.
+#
+########################################################################
+#
+# Variable Substitution:
+#   {host}  - replaced by --hostname value (default: controller-0)
+#
+# Block Fields:
+#   label      - (required) block identifier
+#   file       - (required) log file glob pattern(s)
+#   timeline   - list of patterns to collect (any order)
+#   controller - only process on controller hosts (default: false)
+#
+########################################################################
+
+settings:
+  timeline_patterns:
+    maintenance:
+      - "Error: {host}"
+      - "{host} Reinstall Action"
+      - "{host} mtcAlive ; going 'online'"
+      - "{host} Task: Reinstall Succeeded"
+      - "{host} Unlock Action"
+      - "{host} is ENABLED"
+      - "{host} Delete Operation Started"
+      - "{host} Deleted"
+
+    sysinv:
+      - "Kubernetes exception in kube_get_node_status: \\(404\\)"
+
+blocks:
+  - label: "Mtce"
+    file: "mtcAgent.log*"
+    controller: true
+    timeline: "{maintenance}"
+
+  - label: "sysinv"
+    file: "sysinv.log*"
+    controller: true
+    timeline: "{sysinv}"

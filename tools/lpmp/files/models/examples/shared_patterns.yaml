@@ -1,0 +1,168 @@
+# =============================================================================
+# LPMP Shared Patterns Library
+# =============================================================================
+# This file contains reusable pattern definitions that can be included
+# in other model files using the 'include' directive.
+#
+# Usage in main model file:
+#   include: "shared_patterns.yaml"
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+# 1. Include this file in your main model:
+#    include: "shared_patterns.yaml"
+#
+# 2. Reference patterns in timeline blocks:
+#    timeline: "{maintenance}"
+#    timeline: "{network}"
+#    timeline: "{services}"
+#
+# 3. Local model settings override shared settings
+#
+# 4. Multiple includes are supported:
+#    include: ["shared_patterns.yaml", "custom_patterns.yaml"]
+#
+# 5. Patterns support all LPMP features:
+#    - Variable substitution: {hostname}, {custom_var}
+#    - Regular expressions: r"pattern \d+"
+#    - OR patterns: ["option1", "option2"]
+# =============================================================================
+
+settings:
+  # Shared timeline pattern libraries
+  timeline_patterns:
+    # System maintenance and management patterns
+    maintenance:
+      - "Host Add Completed"
+      - "*** Heartbeat Miss ***"
+      - "critical enable failure"
+      - "maintenance mode enabled"
+      - "maintenance mode disabled"
+      - "{hostname} Unlock Action"
+      - "{hostname} Lock Action"
+      - r"{hostname} is (ENABLED|DISABLED|DEGRADED)"
+      - "Host personality set"
+      - "Inventory update completed"
+
+    # Network and connectivity patterns
+    network:
+      - "Link Down"
+      - "Link Up"
+      - "Interface Error"
+      - "Network interface up"
+      - "Network interface down"
+      - r"eth\d+ link (up|down)"
+      - r"bond\d+ (up|down)"
+      - "DHCP lease obtained"
+      - "DNS resolution failed"
+      - "Connection timeout"
+
+    # Service lifecycle patterns
+    services:
+      - "Service starting"
+      - "Service ready"
+      - "Service stopped"
+      - "Service failed"
+      - "Service restarted"
+      - ["Service error", "Service fault"]
+      - r"systemd.*service (started|stopped|failed)"
+      - "Process spawned"
+      - "Process terminated"
+
+    # Storage and filesystem patterns
+    storage:
+      - "Filesystem mounted"
+      - "Filesystem unmounted"
+      - "Disk error"
+      - "I/O error"
+      - "Storage device added"
+      - "Storage device removed"
+      - r"sd[a-z]+ error"
+      - "RAID rebuild started"
+      - "RAID rebuild completed"
+
+    # Security and authentication patterns
+    security:
+      - "Authentication successful"
+      - "Authentication failed"
+      - "Certificate expired"
+      - "Certificate renewed"
+      - "SSH connection established"
+      - "SSH connection closed"
+      - "Login attempt"
+      - "Password changed"
+      - "Permission denied"
+
+    # Boot and initialization patterns
+    boot_sequence:
+      - "Kernel command line:"
+      - "Loading kernel modules"
+      - "System initialization started"
+      - "System initialization complete"
+      - "Network interface up"
+      - "Services started"
+      - "Boot completed"
+      - "Ready for user login"
+
+    # Error and warning patterns
+    errors:
+      - r"ERROR:.*"
+      - r"CRITICAL:.*"
+      - r"FATAL:.*"
+      - "Out of memory"
+      - "Disk full"
+      - "Connection refused"
+      - "Timeout occurred"
+      - ["Exception", "Traceback"]
+
+    # Performance and monitoring patterns
+    performance:
+      - r"CPU usage: \d+%"
+      - r"Memory usage: \d+%"
+      # - r'Load average: [\d\.]+'
+      - "High CPU detected"
+      - "High memory usage"
+      - "Performance degradation"
+      - "Threshold exceeded"
+
+    # Database patterns
+    database:
+      - "Database connection established"
+      - "Database connection lost"
+      - "Query executed"
+      - "Transaction started"
+      - "Transaction committed"
+      - "Transaction rolled back"
+      - "Database backup started"
+      - "Database backup completed"
+      - "Index rebuild started"
+      - "Index rebuild completed"
+
+    # Kubernetes/Container patterns (if applicable)
+    kubernetes:
+      - "Pod created"
+      - "Pod deleted"
+      - "Container started"
+      - "Container stopped"
+      - "Image pulled"
+      - "Deployment scaled"
+      - "Service exposed"
+      - "ConfigMap updated"
+      - "Secret created"
+
+    # Custom application patterns (examples)
+    application:
+      - "Application started"
+      - "Application stopped"
+      - "Configuration loaded"
+      - "Plugin initialized"
+      - "Cache cleared"
+      - "Session created"
+      - "Session expired"
+      - "Backup created"
+      - "Update applied"
+
+  # Shared global settings that can be inherited
+  max_time_delta: 45
+  block_time_tolerance: 3.0
+  max_log_length: 180

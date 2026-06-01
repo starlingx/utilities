@@ -1,0 +1,109 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Log Pattern Matching Profiler Model: Heartbeat Loss Failure Analysis
+#
+# Purpose:
+#   This model tracks the complete sequence of a heartbeat loss failure
+#   scenario between controllers, capturing both hbsAgent and mtcAgent
+#   perspectives of the failure progression.
+#
+# Block Fields:
+#   - label: Human-readable description of the pattern block
+#   - file: Log file(s) to search (supports wildcards)
+#   - patterns: Sequential patterns that must be found in order
+#   - max_time_delta: Maximum time (seconds) between sequential patterns
+#
+# Pattern Syntax:
+#   - {host}: Variable substitution for target hostname
+#   - {peer_controller}: Automatically calculated peer controller name
+#   - .*: Regex wildcard matching any characters
+#   - Patterns support full Python regex syntax
+#
+########################################################################
+
+blocks:
+  # Initial heartbeat degradation detected by hbsAgent
+  - label: "HBS Cluster Heartbeat Miss Detection"
+    file: ["hbsAgent.log*"]
+    max_time_delta: 30
+    patterns:
+      - "{host} Clstr heartbeat miss 2"
+      - "{host} Clstr heartbeat miss 3"
+      - "{host} Clstr heartbeat miss 4"
+
+  # Pulse miss tracking in hbsAgent
+  - label: "HBS Pulse Miss Progression"
+    file: ["hbsAgent.log*"]
+    max_time_delta: 5
+    patterns:
+      - "{host} Clstr Pulse Miss.*\\(  2\\)"
+      - "{host} Clstr Pulse Miss.*\\(  3\\)"
+      - "{host} Clstr Pulse Miss.*\\(  4\\)"
+
+  # Maintenance agent detects heartbeat failure
+  - label: "MTC Heartbeat Failure Detection"
+    file: ["mtcAgent.log*"]
+    patterns:
+      - "{host} heartbeat loss \\(Mgmnt\\)"
+      - "{host} Mgmnt \\*\\*\\* Heartbeat Loss \\*\\*\\*"
+      - "{host} Mgmnt network heartbeat failure"
+
+  # Graceful recovery initiation
+  - label: "MTC Graceful Recovery Start"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 2
+    patterns:
+      - "{host} starting graceful recovery"
+      - "{host} Graceful Recovery \\(0\\)"
+
+  # Host state change to failed
+  - label: "Host State Change to Failed"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 1
+    patterns:
+      - "{host} unlocked-disabled-failed"
+
+  # Heartbeat service stop commands
+  - label: "Heartbeat Service Stop Commands"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 2
+    patterns:
+      - "{host} stop host service sent to.*hbsAgent"
+
+  # Recovery progression tracking
+  - label: "Recovery Progress Tracking"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 30
+    patterns:
+      - "{host} Graceful Recovery \\(1 of 5\\)"
+      - "{host} Task: Graceful Recovery"
+
+  # Optional: MNFA (Multi-Node Failure Avoidance) activation
+  - label: "MNFA Activation"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 5
+    optional: true
+    patterns:
+      - "{host} MNFA new candidate.*enabled hosts"
+
+  # Optional: Alarm generation for heartbeat loss
+  - label: "Heartbeat Loss Alarm"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 5
+    optional: true
+    patterns:
+      - "alarm id \\(200\\.022\\).*host={host}"
+
+  # Optional: PXE boot monitoring warnings
+  - label: "PXE Boot Monitoring"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 10
+    optional: true
+    patterns:
+      - "{host} pxeboot mtcAlive miss count"

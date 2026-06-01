@@ -1,0 +1,226 @@
+# =============================================================================
+# LPMP Complete Reference - All Features
+# =============================================================================
+# This file demonstrates ALL supported block types, settings, and features.
+# Use this as a reference for creating your own models.
+# =============================================================================
+
+# Include shared pattern library
+include: "shared_patterns.yaml"
+
+# GLOBAL SETTINGS (All Optional)
+settings:
+  # Timing constraints
+  max_time_delta: 60                    # Max seconds between patterns (default: 45)
+  block_time_tolerance: 8.0             # Time tolerance for out-of-order log entries (default: 5.0)
+
+  # Output control
+  start_date: "2024-01-06T20:00:00"     # Start analysis from timestamp
+  loops: 2                              # Number of analysis passes (default: 1)
+  max_log_length: 200                   # Max log line length in output (default: 180)
+
+  # Block defaults
+  profile: true                         # Enable per-block profile files (default: false)
+  optional: false                       # Make all blocks optional (default: false)
+
+  # Custom timeline patterns
+  timeline_patterns:
+    custom_events:
+      - "Custom event started"
+      - "Custom event completed"
+      - r"Custom pattern \d+"
+
+# BLOCKS - All block types and configurations
+blocks:
+  # ==========================================================================
+  # PATTERN BLOCKS - Sequential event timing
+  # ==========================================================================
+
+  # Basic pattern block with all labels
+  - label: "System Initialization"
+    file: ["daemon.log*", "syslog*"]     # Multiple files with wildcards
+    patterns:
+      - "Starting system initialization"
+      - "Loading kernel modules"
+      - "System initialization complete"
+    optional: false                     # Override model setting
+    profile: true                       # Write per-block profile file
+    max_time_delta: 120                 # Block-specific timing constraint
+    controller: false                   # Process on all host types (default: false)
+
+  # OR patterns and regex examples
+  - label: "Host State Change"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{hostname} Unlock Action"                    # Variable substitution
+      - r"{hostname} is (ENABLED|DEGRADED)"          # Regex with variable
+      - ["Host unlocked", "Host enabled"]            # OR pattern
+    max_time_delta: 300
+
+  # Complex multi-file pattern
+  - label: "Service Status"
+    file: ["service.log", "service.log.1.gz", "syslog"]
+    patterns:
+      - ["Service ready", "Service active", "Service online"]
+      - r"Status: (RUNNING|ACTIVE)"
+    profile: false
+    optional: true
+
+  # Present block - captures log if found, silently skips if not (no warnings)
+  - label: "Optional Debug Info"
+    file: "debug.log*"
+    patterns:
+      - "Debug checkpoint reached"
+    present: true                       # Capture if found, silently skip if not
+    max_time_delta: 30                  # Continue from last match if not found within delta
+
+  # ==========================================================================
+  # PAIR BLOCKS - Duration measurement
+  # ==========================================================================
+
+  # Basic pair block with all labels
+  - label: "Service Startup Duration"
+    file: "service.log*"
+    start: "Service starting"
+    stop: "Service ready"
+    max_time_delta: 45                  # Override model setting
+    optional: true                      # Override model setting
+    profile: true
+    controller: false
+
+  # Regex pair patterns
+  - label: "Database Transaction"
+    file: "db.log*"
+    start: r"BEGIN TRANSACTION \d+"
+    stop: r"COMMIT TRANSACTION \d+"
+    max_time_delta: 300
+
+  # Variable substitution in pairs
+  - label: "Host Maintenance"
+    file: "mtcAgent.log*"
+    start: "{hostname} maintenance started"
+    stop: "{hostname} maintenance completed"
+    optional: true
+
+  # ==========================================================================
+  # TIMELINE BLOCKS - Event collection
+  # ==========================================================================
+
+  # Timeline using shared patterns
+  - label: "Maintenance Timeline"
+    file: "mtcAgent*"
+    timeline: "{maintenance}"           # References shared_patterns.yaml
+    optional: false
+    profile: true
+
+  # Timeline with direct patterns
+  - label: "Network Events"
+    file: ["network.log*", "daemon.log*"]
+    timeline:
+      - "Link Down"
+      - "Link Up"
+      - "Interface Error"
+      - r"eth\d+ link (up|down)"
+      - ["Connection lost", "Connection timeout"]
+    optional: true
+
+  # Timeline with variables
+  - label: "Host Events"
+    file: "system.log*"
+    timeline:
+      - "{hostname} boot complete"
+      - "{hostname} shutdown initiated"
+      - r"{hostname} error: .*"
+    profile: true
+
+  # ==========================================================================
+  # CONTROLLER-ONLY BLOCKS
+  # ==========================================================================
+
+  # Controller-specific operations
+  - label: "Controller Services"
+    file: "controller.log*"
+    patterns:
+      - "Controller daemon starting"
+      - "Controller services ready"
+    controller: true                    # Only runs on controller hosts
+    max_time_delta: 60
+    optional: true
+
+  # Controller database cluster
+  - label: "Database Cluster"
+    file: "postgres.log*"
+    start: "Cluster member {hostname} joining"
+    stop: "Cluster member {hostname} active"
+    controller: true
+    max_time_delta: 180
+    optional: true
+
+# =============================================================================
+# BLOCK FIELD REFERENCE
+# =============================================================================
+# Common fields for all block types:
+#   label: "Block Name"          - Required: Block identifier
+#   file: "logfile.log*"         - Required: Log file(s) to search
+#   optional: true/false         - Optional: Skip with warning if not found (default: false)
+#   present: true/false          - Optional: Capture if found, silently skip if not (default: false)
+#                                  No warnings logged when pattern not found
+#                                  Only applies to pattern blocks
+#                                  If not found and max_time_delta reached, continue from last match
+#   profile: true/false          - Optional: Generate per-block profile file (default: false)
+#   max_time_delta: 60           - Optional: Max seconds between patterns (default: 45)
+#   controller: true/false       - Optional: Only process on controller hosts (default: false)
+#
+# Pattern block specific:
+#   patterns: [...]              - Required: List of patterns to match sequentially
+#
+# Pair block specific:
+#   start: "pattern"             - Required: Start pattern
+#   stop: "pattern"              - Required: Stop pattern
+#
+# Timeline block specific:
+#   timeline: [...]              - Required: List of patterns to collect (any order)
+# =============================================================================
+
+# =============================================================================
+# VARIABLE SUBSTITUTION
+# =============================================================================
+# Built-in variables:
+#   {hostname} - Default: "controller-0", override with --hostname
+#
+# Custom variables (defined with --var key=value):
+#   {env}, {cluster}, {version}, etc.
+#
+# Usage examples:
+#   - "{hostname} started in {env} environment"
+#   - r"{hostname}.*{cluster}.*version {version}"
+#
+# Command line:
+#   lpmptool -m model.yaml --hostname worker-1 --var env=test
+# =============================================================================
+
+# =============================================================================
+# TIMING CONSTRAINTS
+# =============================================================================
+# Precedence (highest to lowest):
+# 1. Command line --max-time-delta, --block-time-tolerance
+# 2. Block-level max_time_delta (block-level only)
+# 3. Model settings max_time_delta, block_time_tolerance
+# 4. Defaults: 45s (max_time_delta), 3.0s (block), 5.0s (pair)
+# =============================================================================
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+# Basic usage:
+#   lpmptool -m complete_reference.yaml -l /var/log
+#
+# With variables:
+#   lpmptool -m complete_reference.yaml --hostname worker-1 --var env=prod
+#
+# Bundle mode:
+#   lpmptool -b /path/to/bundle -m complete_reference.yaml --lab mylab
+#
+# Timing overrides:
+#   lpmptool -m complete_reference.yaml --max-time-delta 120 --block-time-tolerance 10
+# =============================================================================

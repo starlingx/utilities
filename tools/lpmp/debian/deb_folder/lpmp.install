@@ -1,0 +1,6 @@
+usr/local/bin/lpmptool /usr/local/bin
+var/lib/lpmp_models /var/lib
+var/lib/lpmp_models/helpers /var/lib/lpmp_models
+var/lib/lpmp_models/examples /var/lib/lpmp_models
+etc/lpmp.d /etc
+usr/lib/python3/dist-packages/lpmp /usr/lib/python3/dist-packages

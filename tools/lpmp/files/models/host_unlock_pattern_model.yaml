@@ -1,0 +1,191 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Host Unlock Pattern Model
+# Purpose: Profile host unlock timing from unlock action through
+#          reboot, service restart, and pod recovery.
+#          Supports any host with any arbitrary hostname.
+#          Bundle mode only (requires --bundle).
+#
+# Usage:
+#   lpmptool -b /path/to/bundle -m host_unlock_pattern_model --host controller-0
+#   lpmptool -b /path/to/bundle -m host_unlock_pattern_model --host worker-3
+#   lpmptool -b /path/to/bundle -m host_unlock_pattern_model --host storage-0
+#   lpmptool -b /path/to/bundle -m host_unlock_pattern_model --var host=worker-1
+#
+########################################################################
+#
+# Variable Substitution:
+#   {hostname}  - replaced by --hostname value (default: controller-0)
+#   {host}      - replaced by --var host=<target_hostname> (REQUIRED)
+#   {varname}   - replaced by --var varname=value
+#
+# Block Fields:
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   patterns       - list of sequential patterns to match
+#   optional       - skip with warning if not found (default: false)
+#   present        - capture if found, silently skip if not (default: false)
+#   profile        - generate per-block profile file (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - ["a", "b"]               - OR match (first found wins)
+#   - r"regex \d+"             - regex match
+#
+########################################################################
+
+# Optional global settings
+settings:
+  host: "{host}"
+  max_time_delta: 100
+
+blocks:
+
+  - label: "Unlock Action Staged"
+    file: "sysinv.log*"
+    patterns:
+      - "{host} Action staged: unlock"
+
+  - label: "mtcAgent Unlock Action"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{host} Unlock Action"
+
+  - label: "Stopped Graphical"
+    file: "daemon.log*"
+    optional: true
+    override: "{host}"
+    patterns:
+      - "Stopped target Graphical Interface"
+
+  - label: "Stopped Kubelet Server"
+    file: "daemon.log*"
+    present: true
+    override: "{host}"
+    patterns:
+      - "Stopped Kubernetes Kubelet Server"
+
+  - label: "containerd Stop Started"
+    file: "daemon.log*"
+    override: "{host}"
+    present: true
+    patterns:
+      - "Stopping containerd container"
+
+  - label: "mtcClient Shutdown"
+    file: "mtcClient.log*"
+    override: "{host}"
+    present: true
+    patterns:
+      - ["Received SIGTERM", "Received SIGINT"]
+
+  - label: "mtcClient Stopped"
+    file: "daemon.log*"
+    optional: true
+    override: "{host}"
+    patterns:
+      - "Stopped StarlingX Maintenance Command Handler Client"
+
+  - label: "Stopped Containers Completed"
+    file: "daemon.log*"
+    present: true
+    override: "{host}"
+    patterns:
+      - "Stopping all containers completed"
+
+  - label: "Stop Pods Completed"
+    file: "daemon.log*"
+    present: true
+    override: "{host}"
+    patterns:
+      - "Stopping all pods completed"
+
+  - label: "Last Daemon Log"
+    file: "daemon.log*"
+    present: true
+    override: "{host}"
+    patterns:
+      - "Stopped target Network is Online"
+
+  - label: "Blackout"
+    file: "kern.log*"
+    max_time_delta: 600
+    profile: true
+    override: "{host}"
+    patterns:
+      - "Kernel command line:"
+
+  - label: "Systemd Startup"
+    file: "daemon.log*"
+    present: true
+    override: "{host}"
+    patterns:
+      - "Starting Create System Users"
+
+  - label: "mtcClient Start-Up"
+    file: "mtcClient.log*"
+    override: "{host}"
+    optional: true
+    max_time_delta: 600
+    patterns:
+      - "Daemon Start-Up"
+
+  - label: "K8s CPU Plugin Start"
+    file: "daemon.log*"
+    override: "{host}"
+    present: true
+    max_time_delta: 600
+    patterns:
+      - "Started Kubernetes Isolated CPU Plugin Daemon"
+
+  # max time delta is not working
+  - label: "Network Online"
+    file: "daemon.log*"
+    present: true
+    override: "{host}"
+    max_time_delta: 60.0
+    patterns:
+      - "Reached target Network is Online"
+
+  - label: "Host Manufacturer"
+    file: "mtcAgent.log*"
+    present: true
+    override: "{host}"
+    patterns:
+      - "{host} manufacturer is"
+
+  - label: "Host Enable State"
+    file: "mtcAgent.log*"
+    max_time_delta: 200
+    patterns:
+      - ["{host} is ENABLED", "{host} is DEGRADED", "{host} is UNHEALTHY" , "{host} is FAILED"]
+
+  - label: "Unlock KPI"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - "{host} kpi:action: unlock start"
+
+  - label: "VIM Host State"
+    file: "nfv-vim.log*"
+    optional: true
+    patterns:
+      - ["nfvi_host_name={host}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=enabled, nfvi_host_avail_status=available",
+        "nfvi_host_name={host}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=enabled, nfvi_host_avail_status=degraded",
+        "nfvi_host_name={host}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=disabled, nfvi_host_avail_status=failed"]
+
+  - label: "K8s Pod Recovery Done"
+    file: "daemon.log*"
+    profile: true
+    override: "{host}"
+    optional: true
+    max_time_delta: 300
+    patterns:
+      - "k8s-pod-recovery.service: Succeeded"

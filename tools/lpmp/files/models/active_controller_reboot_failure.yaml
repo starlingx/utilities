@@ -1,0 +1,185 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Active Controller Reboot Failure Mode
+# Purpose: Profile the failure sequence when the active controller is
+#          rebooted (sudo reboot -f), capturing the reboot trigger,
+#          log silence (blackout), survivor detection, uncontrolled
+#          swact, service takeover, DRBD role changes, and recovery
+#          of the rebooted controller.
+#
+# Usage:
+#   lpmptool -m active_controller_reboot_failure \
+#            -b /path/to/bundle \
+#            --include controller-1 \
+#            -s <date before reboot>
+#
+# Notes:
+#   - Run from the SURVIVING controller (controller-1 by default)
+#   - run model against both controllers if which controller is unknown
+#   - The model uses override to read the rebooted controller's logs
+#     for the reboot command and kernel boot (blackout measurement)
+#   - {hostname} = surviving controller (default: controller-1)
+#   - {peer_controller} = rebooted controller (auto: controller-0)
+#
+# Variable Substitution:
+#   {hostname}        - surviving controller (--hostname, default: controller-1)
+#   {peer_controller} - rebooted controller (auto-calculated)
+#
+########################################################################
+
+settings:
+  controller: true
+  max_time_delta: 45
+
+blocks:
+
+  # ---- SURVIVOR DETECTION: {hostname} sees the loss ----
+
+  - label: "SM Declared Dead"
+    file: "sm.log*"
+    patterns:
+      - "{hostname}.*declared dead"
+
+  - label: "hbsAgent Miss"
+    file: "hbsAgent.log*"
+    max_time_delta: 5
+    optional: true
+    context: [2,100]
+    patterns:
+      - "Pulse Miss"
+
+  - label: "SM Heartbeat Loss"
+    file: "sm.log*"
+    max_time_delta: 5
+    patterns:
+      - "lose heartbeat"
+
+  - label: "SM Fail Pending"
+    file: "sm.log*"
+    max_time_delta: 5
+    patterns:
+      - "Entering fail-pending state"
+
+  # ---- SWACT: survivor takes over ----
+
+  - label: "Uncontrolled Swact Start"
+    file: "sm.log*"
+    max_time_delta: 10
+    patterns:
+      - "Uncontrolled swact start"
+
+  - label: "Service Domain Waiting"
+    file: "sm.log*"
+    max_time_delta: 5
+    patterns:
+      - "Set state backup->waiting"
+
+  - label: "Host State Active"
+    file: "sm.log*"
+    max_time_delta: 5
+    patterns:
+      - "host state is active"
+
+  # ---- SERVICE TAKEOVER: services go-active on survivor ----
+  # These all fire within ~17ms in unpredictable order.
+  # Use a single required block for the first one, rest optional.
+
+  - label: "First Service Group Go-Active"
+    file: "sm.log*"
+    max_time_delta: 10
+    patterns:
+      - "was in the standby state"
+
+  - label: "Controller Services Go-Active"
+    file: "sm.log*"
+    max_time_delta: 5
+    optional: true
+    patterns:
+      - "Service group \\(controller-services\\) was in the standby state"
+
+  - label: "OAM Services Go-Active"
+    file: "sm.log*"
+    max_time_delta: 5
+    optional: true
+    patterns:
+      - "Service group \\(oam-services\\) was in the standby state"
+
+  # ---- DRBD ROLE CHANGES: survivor becomes primary ----
+
+  - label: "DRBD PingAck Failure"
+    file: "kern.log*"
+    max_time_delta: 15
+    patterns:
+      - "PingAck did not arrive in time"
+
+  - label: "DRBD Role Change to Primary"
+    file: "kern.log*"
+    max_time_delta: 10
+    patterns:
+      - "role\\( Secondary -> Primary \\)"
+
+  # ---- SERVICES ENABLED on survivor ----
+
+  - label: "Patching Services Active"
+    file: "sm.log*"
+    max_time_delta: 30
+    optional: true
+    patterns:
+      - "Service group \\(patching-services\\) was in the go-active state"
+
+  - label: "Storage Monitoring Active"
+    file: "sm.log*"
+    max_time_delta: 30
+    optional: true
+    patterns:
+      - "Service group \\(storage-monitoring-services\\) was in the go-active state"
+
+  # ---- REBOOTED CONTROLLER RECOVERY ----
+
+  - label: "Blackout - Kernel Boot"
+    file: "kern.log*"
+    override: "{peer_controller}"
+    max_time_delta: 600
+    profile: true
+    patterns:
+      - "Kernel command line:"
+
+  - label: "mtcClient Start-Up"
+    file: "mtcClient.log*"
+    override: "{peer_controller}"
+    max_time_delta: 300
+    patterns:
+      - "Daemon Start-Up"
+
+  - label: "Config Failure"
+    file: "mtcAgent.log*"
+    present: true
+    patterns:
+      - "{peer_controller} configuration fail"
+
+  - label: "Peer MTCALIVE"
+    file: "mtcAgent.log*"
+    patterns:
+      - ["{peer_controller} is MTCALIVE", "mtcAlive ; going"]
+
+  - label: "Peer Enabled"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - ["{peer_controller} is ENABLED", "{peer_controller} is DEGRADED", "{peer_controller} is FAILED"]
+
+  - label: "K8s Pod Recovery Done"
+    file: "daemon.log*"
+    override: "{peer_controller}"
+    max_time_delta: 200
+    optional: true
+    profile: true
+    patterns:
+      - "k8s-pod-recovery.service: Succeeded"
+

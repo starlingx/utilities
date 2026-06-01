@@ -1,0 +1,54 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   SM Provision Storage Services
+# Purpose: Measure duration of service management storage service
+#          provisioning using pair blocks (start/stop patterns)
+#          for each storage-related service in sm.log.
+#
+########################################################################
+#
+# Block Fields:
+#   label - (required) block identifier; also used as {label} variable
+#   file  - (required) log file glob pattern(s)
+#   start - start pattern for duration measurement
+#   stop  - stop pattern for duration measurement
+#
+########################################################################
+
+blocks:
+
+  - label: "storage-networking"
+    file: ["sm.log*"]
+    start: 'Provision service storage-services:{label}'
+    stop: ':{label} is provisioned successfully'
+
+  - label: "drbd-cephmon"
+    file: ["sm.log*"]
+    start: 'Provision service controller-services:{label}'
+    stop: ':{label} is provisioned successfully'
+
+  - label: "ceph-mon"
+    file: ["sm.log*"]
+    start: 'Provision service controller-services:{label}'
+    stop: ':{label} is provisioned successfully'
+
+  - label: "mgr-restful-plugin"
+    file: ["sm.log*"]
+    start: 'Start provisioning storage-services:{label}'
+    stop: ':{label} is provisioned successfully'
+
+  - label: "ceph-manager"
+    file: ["sm.log*"]
+    start: 'Start provisioning storage-monitoring-services:{label}'
+    stop: ':{label} is provisioned successfully'
+
+  - label: "ceph-osd"
+    file: ["sm.log*"]
+    start: 'Provision service storage-services:{label}'
+    stop: ':{label} is provisioned successfully'

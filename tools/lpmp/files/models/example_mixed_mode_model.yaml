@@ -1,0 +1,90 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Example Mixed Mode Model
+# Purpose: Demonstrates a mixed model with pattern blocks and pair
+#          blocks in any order. Pattern blocks match sequential events;
+#          pair blocks measure start/stop durations. All blocks are
+#          processed sequentially — each searches after the previous
+#          block's timestamp. Timeline blocks cannot be mixed with
+#          other block types.
+#
+########################################################################
+#
+# Block Fields (pattern blocks):
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   patterns       - list of sequential patterns to match
+#   optional       - skip with warning if not found (default: false)
+#   profile        - generate per-block profile file (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#   controller     - only process on controller hosts (default: false)
+#
+# Block Fields (pair blocks):
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   start          - start pattern for duration measurement
+#   stop           - stop pattern for duration measurement
+#   optional       - skip with warning if not found (default: false)
+#   profile        - generate per-block profile file (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#   controller     - only process on controller hosts (default: false)
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - ["a", "b"]               - OR match (first found wins)
+#   - r"regex \d+"             - regex match
+#
+########################################################################
+
+# Model-level settings (all optional)
+settings:
+  # Timing constraints
+  max_time_delta: 60                    # Max seconds between patterns (default: 45)
+  block_time_tolerance: 10.0            # Time tolerance for out-of-order log entries (default: 5.0)
+
+  # Output control
+  start_date: "2026-01-01T00:00:00"    # Start timestamp filter (no default)
+  loops: 3                              # Number of analysis passes (default: 1, 0=until EOF)
+  max_log_length: 200                   # Max log line length in output (default: 180)
+
+  # Block defaults
+  profile: true                         # Enable per-block profile files (default: false)
+  optional: false                       # Make all blocks optional (default: false)
+
+# Blocks: pattern and pair blocks can be freely interleaved
+blocks:
+  # Pattern block - anchor event
+  - label: "System Initialization"
+    file: ["daemon.log", "syslog"]
+    patterns:
+      - "Starting system"
+      - ["Ready", "Complete"]            # OR patterns
+    optional: false
+    profile: true
+    max_time_delta: 120
+    controller: false
+
+  # Pair block measuring service startup duration
+  - label: "Service Startup Duration"
+    file: "service.log*"
+    start: "Service starting"
+    stop: "Service ready"
+    optional: true
+    profile: false
+    max_time_delta: 30
+    controller: false
+
+  # Pair block measuring network initialization
+  - label: "Network Initialization"
+    file: "daemon.log*"
+    start: "network interface starting"
+    stop: "network interface up"
+    optional: false
+    profile: true
+    controller: false

@@ -1,0 +1,72 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Swact Soak Model
+# Purpose: Profile administrative SWACT operations from swact request
+#          through query, in-progress, and completion across
+#          controller hosts.
+#
+########################################################################
+#
+# Variable Substitution:
+#   {hostname}        - replaced by --hostname value (default: controller-0)
+#   {peer_controller} - replaced by --var peer_controller=value
+#
+# Block Fields:
+#   label          - (required) block identifier
+#   file           - (required) log file glob pattern(s)
+#   patterns       - list of sequential patterns to match
+#   present        - capture if found, silently skip if not (default: false)
+#   max_time_delta - max seconds between patterns (default: settings value)
+#   override       - override hostname for log file search
+#
+########################################################################
+
+blocks:
+  - label: "Swact Request"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{hostname} Administrative SWACT Requested"
+
+  - label: "JSON Origin Pattern"
+    file: "mtcAgent.log*"
+    present: true
+    patterns:
+      - 'Json2: String:.*origin'
+
+  - label: "Swact Query Complete"
+    file: ["mtcAgent.log*"]
+    patterns:
+      - "{hostname} Swact Query complete"
+
+  - label: "Swact Query Failed"
+    file: ["mtcAgent.log*"]
+    present: true
+    patterns:
+      - "{peer_controller} Query Services Failed"
+
+  - label: "Swact In Progress"
+    file: ["mtcAgent.log*"]
+    patterns:
+      - "{hostname} Swact Request complete ; Swact in progress"
+
+  - label: "Shutdown mtcAgent"
+    file: ["mtcAgent.log*"]
+    patterns:
+      - "Received SIGINT"
+
+  - label: "Swact Complete"
+    file: ["mtcAgent.log*"]
+    max_time_delta: 200
+    override: "{peer_controller}"
+    patterns:
+      - "{peer_controller} Swact: Complete"
+
+settings:
+  controller: true
+  max_time_delta: 100

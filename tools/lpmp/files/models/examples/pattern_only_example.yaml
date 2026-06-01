@@ -1,0 +1,183 @@
+# =============================================================================
+# LPMP Pattern-Only Example
+# =============================================================================
+# Demonstrates pure pattern block usage for sequential event timing analysis.
+# All blocks use 'patterns' field for sequential pattern matching.
+# =============================================================================
+
+# Global settings demonstrating all pattern-relevant options
+settings:
+  max_time_delta: 90                    # Max seconds between patterns in sequence
+  block_time_tolerance: 4.0             # Allow 4s tolerance for block reordering
+  start_date: "2024-01-06T08:00:00"     # Filter logs from this timestamp
+  loops: 1                              # Single analysis pass
+  max_log_length: 200                   # Truncate long log lines
+  profile: false                        # Model-level default for profile files
+  optional: false                       # Model-level default for optional blocks
+
+blocks:
+  # ==========================================================================
+  # Basic Pattern Blocks
+  # ==========================================================================
+
+  # Single pattern - system boot trigger
+  - label: "Boot Trigger"
+    file: "kern.log*"
+    patterns:
+      - "Kernel command line:"
+    optional: false                     # Must be found (override model default)
+
+  # Multi-step sequential patterns
+  - label: "System Initialization"
+    file: ["daemon.log*", "syslog*"]
+    patterns:
+      - "Starting system initialization"
+      - "Loading kernel modules"
+      - "Mounting filesystems"
+      - "System initialization complete"
+    max_time_delta: 120                 # Override model setting for this block
+    profile: true                       # Create detailed timing file
+
+  # ==========================================================================
+  # OR Pattern Examples
+  # ==========================================================================
+
+  # Simple OR pattern - alternative boot messages
+  - label: "Boot Method"
+    file: "kern.log*"
+    patterns:
+      - ["Normal boot", "Recovery boot", "Safe mode boot"]
+    optional: true
+
+  # Mixed OR and sequential patterns
+  - label: "Network Initialization"
+    file: ["network.log*", "daemon.log*"]
+    patterns:
+      - ["Network subsystem starting", "Initializing network"]
+      - "Loading network drivers"
+      - ["All interfaces up", "Network ready", "Link established"]
+    max_time_delta: 60
+
+  # ==========================================================================
+  # Variable Substitution Examples
+  # ==========================================================================
+
+  # Using built-in hostname variable
+  - label: "Host Configuration"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{hostname} configuration loading"
+      - "{hostname} personality set"
+      - "{hostname} configuration complete"
+    optional: true
+
+  # Custom variables (use --var env=prod --var cluster=west)
+  - label: "Environment Setup"
+    file: "config.log*"
+    patterns:
+      - "Environment: {env}"
+      - "Cluster: {cluster}"
+      - "Configuration validated"
+    optional: true
+
+  # ==========================================================================
+  # Regex Pattern Examples
+  # ==========================================================================
+
+  # Regex patterns for flexible matching
+  - label: "Service Status"
+    file: "service.log*"
+    patterns:
+      - r"Service \w+ starting"
+      - r"PID: \d+"
+      - r"Service \w+ ready"
+    max_time_delta: 45
+    optional: true
+
+  # Complex regex with variables
+  - label: "Host State Changes"
+    file: "mtcAgent.log*"
+    patterns:
+      - r"{hostname} state: \w+"
+      - r"{hostname} is (ENABLED|DISABLED|DEGRADED)"
+    optional: true
+
+  # ==========================================================================
+  # File Handling Examples
+  # ==========================================================================
+
+  # Compressed and rotated logs
+  - label: "Database Events"
+    file: ["db.log", "db.log.1", "db.log.1.gz", "db.log.2.gz"]
+    patterns:
+      - "Database connection pool initialized"
+      - "Schema validation complete"
+      - "Database ready for connections"
+    max_time_delta: 180
+    optional: true
+
+  # Wildcard file matching
+  - label: "Application Startup"
+    file: "app*.log*"
+    patterns:
+      - "Application framework loading"
+      - "Plugins initialized"
+      - "Application ready"
+    profile: true
+    optional: true
+
+  # ==========================================================================
+  # Timing Constraint Examples
+  # ==========================================================================
+
+  # Fast sequence - tight timing
+  - label: "Quick Service"
+    file: "quick.log*"
+    patterns:
+      - "Quick service starting"
+      - "Quick service ready"
+    max_time_delta: 5                   # Must complete within 5 seconds
+    optional: true
+
+  # Slow sequence - loose timing
+  - label: "Slow Service"
+    file: "slow.log*"
+    patterns:
+      - "Slow service initializing"
+      - "Loading large dataset"
+      - "Processing complete"
+      - "Slow service ready"
+    max_time_delta: 600                 # Allow up to 10 minutes
+    profile: true
+    optional: true
+
+  # ==========================================================================
+  # Controller-Specific Pattern
+  # ==========================================================================
+
+  # Only runs on controller nodes
+  - label: "Controller Services"
+    file: "controller.log*"
+    patterns:
+      - "Controller daemon starting"
+      - "Cluster membership established"
+      - "Controller services ready"
+    controller: true                    # Controller-only block
+    max_time_delta: 90
+    optional: true
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+# Basic usage:
+#   lpmptool -m pattern_only_example.yaml -l /var/log
+#
+# With custom variables:
+#   lpmptool -m pattern_only_example.yaml --var env=prod --var cluster=west
+#
+# Bundle mode:
+#   lpmptool -b /path/to/bundle -m pattern_only_example.yaml
+#
+# Override timing:
+#   lpmptool -m pattern_only_example.yaml --max-time-delta 120 --block-time-tolerance 10
+# =============================================================================

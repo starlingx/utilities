@@ -1,0 +1,57 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   SM Deprovision Storage Services
+# Purpose: Measure duration of service management storage service
+#          deprovisioning using pair blocks (start/stop patterns)
+#          for each storage-related service in sm.log.
+#
+########################################################################
+#
+# Block Fields:
+#   label - (required) block identifier; also used as {label} variable
+#   file  - (required) log file glob pattern(s)
+#   start - start pattern for duration measurement
+#   stop  - stop pattern for duration measurement
+#
+# Pattern Syntax:
+#   - "string"                  - literal match
+#   - ["a", "b"]               - OR match (first found wins)
+#
+########################################################################
+
+blocks:
+  - label: "ceph-osd"
+    file: ["sm.log*"]
+    start: 'Deprovision service storage-services:{label}'
+    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+
+  - label: "ceph-manager"
+    file: ["sm.log*"]
+    start: 'Start deprovisioning storage-monitoring-services:{label}'
+    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+
+  - label: "mgr-restful-plugin"
+    file: ["sm.log*"]
+    start: 'Start deprovisioning storage-services:{label}'
+    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+
+  - label: "ceph-mon"
+    file: ["sm.log*"]
+    start: 'Deprovision service controller-services:{label}'
+    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+
+  - label: "drbd-cephmon"
+    file: ["sm.log*"]
+    start: 'Deprovision service controller-services:{label}'
+    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+
+  - label: "storage-networking"
+    file: ["sm.log*"]
+    start: 'Deprovision service storage-services:{label}'
+    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]

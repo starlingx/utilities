@@ -1,0 +1,33 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Collectd Memory Usage Timeline
+# Purpose: Profile and graph collectd platform memory usage events
+#          from collectd.log using timeline mode.
+#
+########################################################################
+#
+# Block Fields:
+#   label    - (required) block identifier
+#   file     - (required) log file glob pattern(s)
+#   timeline - list of patterns to collect (any order)
+#
+# Settings:
+#   graph    - label used for timeline graph output
+#
+########################################################################
+
+blocks:
+  - label: "{graph}"
+    file: "collectd.log*"
+    timeline:
+    - "platform memory usage: Usage"
+
+
+settings:
+  graph: "{graph}"
