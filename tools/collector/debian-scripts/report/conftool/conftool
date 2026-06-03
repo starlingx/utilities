@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+# Host Configuration Summary Tool (conftool)
+# Extracts and summarizes host configuration from a StarlingX collect
+# bundle host directory. Produces JSON and human-readable text output
+# for LLM-assisted root-cause analysis.
+# Domains are pluggable — each domain under domains/ provides its own
+# loader, summary builder, and output writers.
+# Examples:
+#     conftool -b /path/to/ALL_NODES_20251216.115202
+#     conftool -b /path/to/bundle -H controller-1
+#     conftool -b /path/to/bundle -d network -v
+#     conftool -b /path/to/bundle -d network -d container -o /tmp/output
+########################################################################
+
+import argparse
+import json
+import os
+import sys
+
+# Don't produce a __pycache__ dir
+sys.dont_write_bytecode = True
+
+from domains import DOMAIN_NAMES              # noqa: E402
+from domains import get_all_domains           # noqa: E402
+from domains import get_domain                # noqa: E402
+from host_utils import extract_host_identity  # noqa: E402
+from host_utils import find_host_dir          # noqa: E402
+from host_utils import get_verbose_level      # noqa: E402
+from host_utils import set_verbose_level      # noqa: E402
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='conftool',
+        description='Host configuration summary from a collect bundle host directory.')
+    parser.add_argument('--bundle', '-b', required=True,
+                        help='Path to collect bundle directory')
+    parser.add_argument('--hostname', '-H', default='controller-0',
+                        help='Hostname to load (default: controller-0)')
+    parser.add_argument('--domain', '-d', action='append', dest='domains',
+                        choices=DOMAIN_NAMES, metavar='DOMAIN',
+                        help=f"Domain(s) to process (choices: {', '.join(DOMAIN_NAMES)}). "
+                             f"Default: all")
+    parser.add_argument('--output', '-o', default=None,
+                        help='Output base directory (default: <bundle>/config)')
+    parser.add_argument('--verbose', '-v', action='count', default=0,
+                        help='Increase verbosity (-v, -vv, -vvv)')
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.bundle):
+        print(f"Error: not a directory: {args.bundle}", file=sys.stderr)
+        sys.exit(1)
+
+    set_verbose_level(args.verbose)
+
+    # Resolve which domains to run
+    if args.domains:
+        domains = [(name, get_domain(name)) for name in dict.fromkeys(args.domains)]
+    else:
+        domains = get_all_domains()
+
+    if get_verbose_level() >= 3:
+        print(f"Searching for {args.hostname} in {args.bundle}")
+
+    host_dir = find_host_dir(args.bundle, args.hostname)
+    if not host_dir:
+        print(f"Error: no host directory found for '{args.hostname}' "
+              f"in {args.bundle}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Host dir: {host_dir}")
+
+    # Show input files at -vv
+    if get_verbose_level() >= 2:
+        for _name, domain in domains:
+            for label, rel in domain.INPUT_FILES:
+                path = os.path.join(host_dir, rel)
+                exists = os.path.isfile(path)
+                icon = '✓' if exists else '✗'
+                size = ''
+                if exists and get_verbose_level() >= 3:
+                    size = f"  ({os.path.getsize(path)} bytes)"
+                print(f"  {icon} {label}{size}")
+
+    # Build raw config (shared across domains)
+    hostname, collected = extract_host_identity(host_dir)
+    config = {'hostname': hostname, 'collected': collected, 'warnings': []}
+
+    # Load all requested domains
+    for _name, domain in domains:
+        domain.load_config(host_dir, config)
+
+    if get_verbose_level() >= 2:
+        ifaces = [i for i in config.get('interfaces', []) if i['name'] != 'lo']
+        pods = config.get('pod_interfaces', [])
+        up = sum(1 for i in ifaces if i['state'] == 'UP')
+        print(f"  Parsed: {len(ifaces)} interfaces ({up} UP), "
+              f"{len(pods)} pod veths, "
+              f"{len(config.get('warnings', []))} warnings")
+
+    # Build summaries and write outputs
+    output_base = args.output or os.path.join(args.bundle, 'config')
+    output_dir = os.path.join(output_base, args.hostname)
+    os.makedirs(output_dir, exist_ok=True)
+
+    all_text_lines = []
+    has_fail = False
+
+    for _name, domain in domains:
+        summary = domain.build_summary(config)
+
+        # JSON
+        json_path = os.path.join(output_dir, f'{domain.FILE_PREFIX}.json')
+        domain.write_json(summary, json_path)
+        print(f"JSON: {json_path}")
+
+        # Text
+        text_lines = []
+        domain.write_text(summary, text_lines)
+        all_text_lines.extend(text_lines)
+
+        text_path = os.path.join(output_dir, f'{domain.FILE_PREFIX}.txt')
+        text_content = '\n'.join(text_lines) + '\n'
+        with open(text_path, 'w') as f:
+            f.write(text_content)
+        print(f"Text: {text_path}")
+
+        # Track cross-check failures
+        checks = summary.get('cross_check', [])
+        if any(c['status'] == 'FAIL' for c in checks):
+            has_fail = True
+
+    # At -v, cat all text output
+    if get_verbose_level() >= 1:
+        combined = '\n'.join(all_text_lines) + '\n'
+        print()
+        print(combined, end='')
+
+    if has_fail:
+        sys.exit(1)
+
+
+def run_tests(with_cov=False):
+    """Run the conftool test suite."""
+    import unittest
+    test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test')
+
+    if with_cov:
+        try:
+            import coverage
+        except ImportError:
+            print("Warning: 'coverage' not installed, "
+                  "running tests without coverage")
+            with_cov = False
+
+    if with_cov:
+        source_modules = [
+            'host_utils',
+            'domains',
+            'domains.network',
+            'domains.network.config',
+            'domains.network.output',
+            'domains.container',
+            'domains.container.config',
+            'domains.container.output',
+            'domains.software',
+            'domains.software.config',
+            'domains.software.output',
+            'domains.platform',
+            'domains.platform.config',
+            'domains.platform.output',
+            'domains.storage',
+            'domains.storage.config',
+            'domains.storage.output',
+        ]
+        cov = coverage.Coverage(source=source_modules)
+        cov.start()
+
+    loader = unittest.TestLoader()
+    suite = loader.discover(test_dir, pattern='test_*.py')
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+
+    if with_cov:
+        cov.stop()
+        cov.save()
+        print("\n" + "=" * 60)
+        print("CODE COVERAGE REPORT")
+        print("=" * 60)
+        cov.report(skip_empty=True, show_missing=False)
+        print("=" * 60)
+
+    sys.exit(0 if result.wasSuccessful() else 1)
+
+if __name__ == '__main__':
+    # Handle --test before normal argument parsing
+    if '--test' in sys.argv:
+        with_cov = '--cov' in sys.argv
+        run_tests(with_cov)
+    else:
+        main()

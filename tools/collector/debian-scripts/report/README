@@ -295,3 +295,57 @@ File content is shown on the right panel, as previous layouts.
 For files that do not have a specific extension, a new tab will be opened.
 If they cannot be opened, a download popup will be shown, or it will be directly downloaded,
 depending on the browser settings.
+
+
+Test Suite
+----------
+
+The report tool includes a built-in test suite that can be run to
+verify the tool is functioning correctly.
+
+    report.py --test              Run all 42 unit tests
+    report.py --test --cov        Run tests with code coverage report
+
+Test coverage includes:
+  - correlator.py      (42%)  - failure/event/alarm correlation logic
+  - plugin.py          (62%)  - plugin file parsing and validation
+  - plugin_algs/alarm  (92%)  - FM database alarm parsing
+  - plugin_algs/substr (60%)  - log file substring search and filtering
+
+Tests are located in the test/ directory:
+    test/
+    ├── run_tests.py          Standalone test runner
+    ├── test_alarm.py         Alarm algorithm tests
+    ├── test_correlator.py    Correlator logic tests
+    ├── test_plugin.py        Plugin parsing/validation tests
+    └── test_substring.py     Substring algorithm tests
+
+Running the standalone test runner:
+
+    cd test && python3 run_tests.py
+    cd test && python3 run_tests.py --with-cov
+
+
+Code Structure
+--------------
+
+    report.py              CLI entry point, bundle extraction, plugin loading
+    execution_engine.py    Host discovery, algorithm dispatch, correlator
+    correlator.py          Cross-references plugin output for failures/events
+    plugin.py              Plugin file parser (label=value format)
+    algorithms.py          Algorithm name constants
+    render.py              HTML report generation
+    plugin_algs/           Algorithm implementations
+    plugins/               Plugin definition files (config-as-code)
+    test/                  Unit test suite
+
+
+Bundle Format Compatibility
+---------------------------
+
+The report tool supports both bundle date formats:
+
+    New format (with period):   controller-0_20250211.212225
+    Old format (no period):     controller-0_20240429185424
+
+Both are handled transparently by the date regex pattern.

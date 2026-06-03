@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-# #######################################################################
+########################################################################
 #
-# Copyright (c) 2022 -2026 Wind River Systems, Inc.
+# Copyright (c) 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# #######################################################################
+########################################################################
 #
-# This file contains the functions for the system info plugin algorithm.
+# Tests for the substring algorithm (plugin_algs/substring.py).
 #
-# The system info plugin algorithm gathers top level system information,
-# such at the build type, sw version, and more.
-#
-# #######################################################################
-"""Tests for the substring algorithm (plugin_algs/substring.py)."""
+########################################################################
+
 import os
 import shutil
 import sys
