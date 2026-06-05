@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2023,2025 Wind River Systems, Inc.
+# Copyright (c) 2023-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -132,5 +132,6 @@ class BaseTestCase(TestCase):
             'timestamp': "1671181200",  # %t
             'hostname': "test_host",  # %h
             'comm': "process_name_for_k8s_handler",  # %e
+            'rlimit_core': "9223372036854775808",  # %c
             'container_pid': "123456",  # %p
         }

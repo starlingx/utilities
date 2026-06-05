@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2025 Wind River Systems, Inc.
+# Copyright (c) 2025-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -17,7 +17,7 @@
 # Default-Stop:      0 1 6
 # Short-Description: reaffine tasks on AIO
 # Description:       This script will dynamically reaffine tasks
-#   and k8s-infra cgroup cpuset on AIO nodes only. This accomodates
+#   and k8sinfra cgroup cpuset on AIO nodes only. This accomodates
 #   CPU intensive phases of work. Tasks are initially allowed to float
 #   across all cores. Once system is at steady-state, this will ensure
 #   that K8S pods are constrained to platform cores and do not run on
@@ -56,7 +56,7 @@ CPUMAP_FUNCTIONS=${CPUMAP_FUNCTIONS:-"/etc/init.d/cpumap_functions.sh"}
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
 # Global parameters
-CGDIR_K8S=/sys/fs/cgroup/cpuset/k8s-infra
+CGDIR_K8S=/sys/fs/cgroup/cpuset/k8sinfra
 CGDIR_DOCKER=/sys/fs/cgroup/cpuset/docker
 INIT_INTERVAL_SECONDS=10
 CHECK_INTERVAL_SECONDS=30
@@ -181,7 +181,7 @@ function update_cgroup_cpuset_platform {
 }
 
 # Check criteria for K8s platform ready on this node.
-# i.e., k8s-infra is configured, kubelet is running
+# i.e., k8sinfra is configured, kubelet is running
 function is_k8s_platform_ready {
     local PASS=0
     local FAIL=1
@@ -189,9 +189,9 @@ function is_k8s_platform_ready {
     # Global variable
     NOT_READY_REASON=""
 
-    # Check that cgroup cpuset k8s-infra has been configured
+    # Check that cgroup cpuset k8sinfra has been configured
     if [ ! -e ${CGDIR_K8S} ]; then
-        NOT_READY_REASON="k8s-infra not configured"
+        NOT_READY_REASON="k8sinfra not configured"
         return ${FAIL}
     fi
 
@@ -412,7 +412,7 @@ function affine_drbd_tasks {
 }
 
 # Return list of reaffineable pids. This includes all processes, but excludes
-# kernel threads, vSwitch, and anything in the cgroup cpusets: k8s-infra, docker,
+# kernel threads, vSwitch, and anything in the cgroup cpusets: k8sinfra, docker,
 # and machine.slice (i.e., qemu-kvm).
 function reaffineable_pids {
     local pids_excl
@@ -423,7 +423,7 @@ function reaffineable_pids {
                 sed 's/,$/\n/')
     pidlist=$(ps --ppid ${pids_excl} -p ${pids_excl} --deselect \
                 -o pid=,cgroup= | \
-                awk '!/cpuset:\/(k8s-infra|docker|machine.slice)/ {print $1; }')
+                awk '!/cpuset:\/(k8sinfra|docker|machine.slice)/ {print $1; }')
     echo "${pidlist[@]}"
 }
 
