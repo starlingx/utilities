@@ -9,7 +9,7 @@ chpasswd:
 
 runcmd:
   - |
-    # MODE options: factory-install, onsite-enrollment, onsite-factory-restore
+    # MODE options: factory-install, onsite-enrollment, onsite-factory-restore, onsite-restore
     MODE=factory-install
 
     echo $(date): Initiating ${MODE}
@@ -23,6 +23,9 @@ runcmd:
       run-parts --verbose --exit-on-error /opt/nocloud/factory-install/scripts
     elif [ "${MODE}" = "onsite-factory-restore" ]; then
       run-parts --verbose --exit-on-error /opt/nocloud/onsite-factory-restore/scripts
+    elif [ "${MODE}" = "onsite-restore" ]; then
+      run-parts --verbose --exit-on-error /opt/nocloud/cloud-init-config/scripts
+      run-parts --verbose --exit-on-error /opt/nocloud/onsite-restore/scripts
     else
       echo "ERROR: Unknown MODE: ${MODE}"
     fi

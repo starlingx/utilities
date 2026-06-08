@@ -135,24 +135,27 @@ class TestPlatformReconfig(unittest.TestCase):
         self.module.validate_input(None, "test_key")
         self.mock_exit.assert_called_once_with(1)
 
+    def test_copy_config_files_no_dir(self):
+        """Returns None when the config dir is absent."""
+        self.mock_isdir.return_value = False
+        result = self.module.copy_config_files()
+        self.assertIsNone(result)
+
     def test_copy_config_files_empty_dir(self):
-        """Test copying config files from empty directory."""
+        """Returns None when the config dir exists but is empty."""
         self.mock_isdir.return_value = True
         self.mock_listdir.return_value = []
         result = self.module.copy_config_files()
         self.assertIsNone(result)
 
-    def test_copy_config_files_with_files(self):
-        """Test copying config files with files present."""
+    def test_copy_config_files_uses_flat_config_dir(self):
+        """copy_config_files reads from a single shared config/ directory."""
         self.mock_isdir.return_value = True
-        self.mock_listdir.return_value = ["test.yaml"]
+        self.mock_listdir.return_value = ["bootstrap-values.yaml"]
         self.mock_tempfile.return_value = "/home/sysadmin/tmpXXXXXX"
-        result = self.module.copy_config_files()
-        self.assertIsNotNone(result)
-        self.mock_tempfile.assert_called_once()
-        self.mock_copytree.assert_called_once()
-        self.mock_rename.assert_called_once()
-        self.mock_subprocess.assert_called_once()
+        self.module.copy_config_files()
+        src = self.mock_copytree.call_args[0][0]
+        self.assertTrue(src.endswith("/config"))
 
     def test_extract_config_values(self):
         """Test extracting all configuration values."""

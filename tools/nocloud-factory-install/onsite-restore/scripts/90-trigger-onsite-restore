@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# This script includes the following operations:
+# - Wait until the OAM connection to the system controller is ready.
+# - Sync local time from remote HTTP Date header.
+# - Get Keystone auth token.
+# - Request the system controller to perform an on-site backup restore for
+#   this subcloud (PATCH /v1.0/subcloud-backup?verb=restore with on_site=true).
+#
+
+import base64
+from email.utils import parsedate_to_datetime
+import glob
+import os
+import subprocess
+import sys
+import time
+
+import netaddr
+import requests
+import urllib3
+
+NOCLOUD = "/opt/nocloud"
+if NOCLOUD not in sys.path:
+    sys.path.insert(0, NOCLOUD)
+
+from nocloud_utils.utils import extract_yaml_value  # noqa: E402
+from nocloud_utils.utils import find_file  # noqa: E402
+from nocloud_utils.utils import log_error  # noqa: E402
+from nocloud_utils.utils import log_info  # noqa: E402
+
+# Suppress InsecureRequestWarning for unverified HTTPS requests
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+USER = "sysadmin"
+HOME = f"/home/{USER}"
+# Same dir 10-platform-reconfig writes to so we pick up the YAMLs it staged.
+CONFIG_BASE = f"{HOME}/enroll-config"
+
+DCMANAGER_PORT = 8119
+KEYSTONE_PORT = 5000
+KEYSTONE_ENDPOINT_RETRY_TIMEOUT_SECONDS = 5 * 60
+KEYSTONE_ENDPOINT_RETRY_INTERVAL_SECONDS = 20
+OAM_CONNECTION_RETRY_TIMEOUT_SECONDS = 8 * 60
+OAM_CONNECTION_RETRY_INTERVAL_SECONDS = 30
+
+DEFAULT_RESTORE_TIMEOUT = 5400
+RESTORE_API_TIMEOUT = 600
+
+# Status file consumed by 95-trigger-local-install to choose --backup-source
+STATUS_FILE = "/run/onsite-restore-status"
+
+
+class EnrollmentConfig:
+    """Container for shared configuration data."""
+
+    def __init__(self):
+        self.bootstrap_values = None
+        self.systemcontroller_oam = None
+        self.config_dir = None
+
+
+class BaseClass:
+    """Base class for common operations."""
+
+    def __init__(self, config=None):
+        if config:
+            self.bootstrap_values = config.bootstrap_values
+            self.systemcontroller_oam = config.systemcontroller_oam
+            self.config_dir = config.config_dir
+        else:
+            self.bootstrap_values = None
+            self.systemcontroller_oam = None
+            self.config_dir = self._find_config_dir()
+
+    @property
+    def systemcontroller_url(self):
+        """Get the system controller URL with proper IPv6 formatting."""
+        formatted_ip = (
+            f"[{self.systemcontroller_oam}]"
+            if netaddr.IPAddress(self.systemcontroller_oam).version == 6
+            else self.systemcontroller_oam
+        )
+        return f"https://{formatted_ip}"
+
+    def _find_config_dir(self):
+        """Find the most recent config directory."""
+        if not os.path.exists(CONFIG_BASE):
+            log_error(f"Config base directory not found: {CONFIG_BASE}")
+            sys.exit(1)
+        pattern = f"{CONFIG_BASE}/*"
+        dirs = [
+            d
+            for d in sorted(glob.glob(pattern), reverse=True)
+            if os.path.isdir(d)
+        ]
+        if not dirs:
+            log_error(f"No config directories found in {CONFIG_BASE}")
+            sys.exit(1)
+        return dirs[0]
+
+    def find_file_in_config(self, pattern):
+        """Find a file matching the pattern."""
+        return find_file(pattern, self.config_dir)
+
+    def extract_yaml(self, filepath, key):
+        """Extract a value from a YAML file."""
+        return extract_yaml_value(filepath, key)
+
+    def load_common_files(self):
+        """Load common configuration files and return config object."""
+        self.bootstrap_values = self.find_file_in_config("*bootstrap-values*")
+        if not self.bootstrap_values:
+            log_error("bootstrap-values file not found")
+            sys.exit(1)
+        log_info(f"Found bootstrap-values: {self.bootstrap_values}")
+
+        self.systemcontroller_oam = self.extract_yaml(
+            self.bootstrap_values, "systemcontroller_oam_address"
+        )
+        if not self.systemcontroller_oam:
+            log_error(
+                "systemcontroller_oam_address not found in bootstrap-values"
+            )
+            sys.exit(1)
+        log_info(
+            f"Found systemcontroller_oam_address: "
+            f"{self.systemcontroller_oam}"
+        )
+
+        config = EnrollmentConfig()
+        config.bootstrap_values = self.bootstrap_values
+        config.systemcontroller_oam = self.systemcontroller_oam
+        config.config_dir = self.config_dir
+        return config
+
+
+class SubcloudSetup(BaseClass):
+    """Handle subcloud SSL certificate setup."""
+
+    def __init__(self):
+        super().__init__()
+
+    def get_ssl_ca_cert_path(self):
+        """Get the SSL CA certificate path."""
+        if not self.bootstrap_values:
+            log_error("bootstrap-values file not found")
+            sys.exit(1)
+
+        ssl_ca_cert = self.extract_yaml(self.bootstrap_values, "ssl_ca_cert")
+        if not ssl_ca_cert:
+            return None
+        log_info(f"Searching for ssl_ca_cert file: {ssl_ca_cert}")
+
+        cert_path = os.path.join(self.config_dir, ssl_ca_cert)
+        if not os.path.exists(cert_path):
+            log_error(f"ssl_ca_cert file not found: {cert_path}")
+            sys.exit(1)
+        log_info(f"Found ssl_ca_cert file: {cert_path}")
+
+        return cert_path
+
+    def install_ssl_ca(self):
+        """Install SSL CA certificate."""
+        cert_path = self.get_ssl_ca_cert_path()
+        if cert_path:
+            log_info(f"Installing SSL CA certificate: {cert_path}")
+            try:
+                cmd = (
+                    "source /etc/platform/openrc; "
+                    f"system ca-certificate-install {cert_path}"
+                )
+                subprocess.run(cmd, shell=True, check=True)  # nosec
+                log_info("SSL CA certificate installed successfully")
+            except subprocess.CalledProcessError as e:
+                log_error(f"Failed to install SSL CA certificate: {e}")
+                sys.exit(1)
+
+    def execute(self):
+        """Execute subcloud setup and return config."""
+        config = self.load_common_files()
+        self.install_ssl_ca()
+        return config
+
+
+class CentralCloudAuth(BaseClass):
+    """Handle authentication with central cloud."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.admin_password = None
+        self.auth_token = None
+
+    def load_config_values(self):
+        """Load configuration values for authentication."""
+        self.admin_password = self.extract_yaml(
+            self.bootstrap_values, "admin_password"
+        )
+        if not self.admin_password:
+            log_error("admin_password not found in bootstrap-values")
+            sys.exit(1)
+        log_info("Found admin_password")
+
+    def _sync_clock(self, date_header):
+        """Sync system clock and hwclock."""
+        try:
+            subprocess.run(["date", "-s", date_header], check=True)
+            log_info("Time synced from remote")
+        except subprocess.CalledProcessError as e:
+            log_error(f"Failed to sync system time: {e}")
+
+        if os.path.exists("/sbin/hwclock"):
+            try:
+                subprocess.run(["/sbin/hwclock", "--systohc"], check=True)
+                log_info("Hardware clock synced")
+            except subprocess.CalledProcessError as e:
+                log_error(f"Warning: Failed to sync hardware clock: {e}")
+
+    def sync_time_from_remote(self):
+        """Sync local time from remote HTTP Date header with retry."""
+        log_info("Attempting to sync time from remote system controller")
+        start_time = time.monotonic()
+        last_exception = None
+
+        while (
+            time.monotonic() - start_time
+            < OAM_CONNECTION_RETRY_TIMEOUT_SECONDS
+        ):
+            try:
+                # verify=False needed before cert is installed; the subsequent
+                # Keystone authentication still verifies the SSL.
+                response = requests.head(
+                    f"{self.systemcontroller_url}:{KEYSTONE_PORT}",
+                    verify=False,  # nosec
+                    timeout=10,
+                )
+                if "Date" in response.headers:
+                    remote_dt = parsedate_to_datetime(response.headers["Date"])
+                    remote_epoch = int(remote_dt.timestamp())
+                    current_epoch = int(time.time())
+
+                    diff = remote_epoch - current_epoch
+                    abs_diff = abs(diff)
+                    if abs_diff > 20:
+                        log_info("Updating system time")
+                        self._sync_clock(response.headers["Date"])
+                    return
+            except Exception as e:
+                last_exception = e
+
+            interval = OAM_CONNECTION_RETRY_INTERVAL_SECONDS
+            log_info(
+                f"Remote not ready for time sync, retrying in {interval}s..."
+            )
+            time.sleep(OAM_CONNECTION_RETRY_INTERVAL_SECONDS)
+
+        log_error(f"Time sync failed after retries: {last_exception}")
+        sys.exit(1)
+
+    def get_keystone_auth_token(self):
+        """Get Keystone authentication token."""
+        keystone_url = f"{self.systemcontroller_url}:{KEYSTONE_PORT}/v3"
+        auth_url = f"{keystone_url}/auth/tokens"
+        auth_data = {
+            "auth": {
+                "identity": {
+                    "methods": ["password"],
+                    "password": {
+                        "user": {
+                            "name": "admin",
+                            "domain": {"name": "Default"},
+                            "password": self.admin_password,
+                        }
+                    },
+                },
+                "scope": {
+                    "project": {"name": "admin", "domain": {"name": "Default"}}
+                },
+            }
+        }
+        log_info(f"Requesting auth token from: {auth_url}")
+        start_time = time.monotonic()
+        last_exception = None
+        while (
+            time.monotonic() - start_time
+            < KEYSTONE_ENDPOINT_RETRY_TIMEOUT_SECONDS
+        ):
+            try:
+                response = requests.post(auth_url, json=auth_data, timeout=30)
+                response.raise_for_status()
+                self.auth_token = response.headers.get("X-Subject-Token")
+                if not self.auth_token:
+                    log_error("Auth token not found in response headers")
+                    sys.exit(1)
+                log_info("Successfully retrieved auth token")
+                return self.auth_token
+            except requests.exceptions.SSLError as e:
+                interval = KEYSTONE_ENDPOINT_RETRY_INTERVAL_SECONDS
+                last_exception = e
+                log_info(
+                    "SSL verification failed, cert may not be ready yet. "
+                    f"Retrying in {interval}s..."
+                )
+                time.sleep(interval)
+            except requests.exceptions.RequestException as e:
+                log_error(f"Failed to get auth token: {e}")
+                sys.exit(1)
+        log_error(f"Failed to get auth token after retries: {last_exception}")
+        sys.exit(1)
+
+    def execute(self):
+        """Execute authentication process."""
+        self.load_config_values()
+        self.sync_time_from_remote()
+        self.get_keystone_auth_token()
+        return self.auth_token
+
+
+class OnsiteRestoreTrigger(BaseClass):
+    """Trigger an on-site backup restore via dcmanager."""
+
+    def __init__(self, config, auth_token):
+        super().__init__(config)
+        self.auth_token = auth_token
+        self.restore_values_file = None
+        self.subcloud_name = None
+        self.sysadmin_password = None
+        self.local_only = False
+        self.restore_timeout = DEFAULT_RESTORE_TIMEOUT
+
+    def load_restore_config(self):
+        """Load restore configuration files."""
+        self.restore_values_file = self.find_file_in_config("*restore-values*")
+        if not self.restore_values_file:
+            log_error("restore-values file not found")
+            sys.exit(1)
+        log_info(f"Found restore-values: {self.restore_values_file}")
+
+        self.subcloud_name = self.extract_yaml(self.bootstrap_values, "name")
+        if not self.subcloud_name:
+            log_error("Subcloud name not found in bootstrap-values")
+            sys.exit(1)
+        log_info(f"Subcloud name: {self.subcloud_name}")
+
+        self.sysadmin_password = self.extract_yaml(
+            self.bootstrap_values, "sysadmin_password"
+        )
+        if not self.sysadmin_password:
+            log_error("sysadmin_password not found in bootstrap-values")
+            sys.exit(1)
+        log_info("Found sysadmin_password")
+
+        local_only = self.extract_yaml(self.restore_values_file, "local_only")
+        self.local_only = (
+            str(local_only).strip().lower() in ("true", "yes", "1", "on")
+        )
+        log_info(f"local_only: {self.local_only}")
+
+        timeout = self.extract_yaml(
+            self.restore_values_file, "restore_timeout"
+        )
+        if timeout is not None:
+            self.restore_timeout = int(timeout)
+        log_info(f"restore_timeout: {self.restore_timeout}")
+
+    def trigger_restore(self):
+        """Send PATCH to dcmanager to start the on-site restore."""
+        url = (
+            f"{self.systemcontroller_url}:{DCMANAGER_PORT}"
+            "/v1.0/subcloud-backup?verb=restore"
+        )
+        log_info(f"Sending on-site restore request to: {url}")
+
+        headers = {"X-Auth-Token": self.auth_token}
+
+        data = {
+            "subcloud": self.subcloud_name,
+            "on_site": "true",
+            "local_only": "true" if self.local_only else "false",
+            "sysadmin_password": base64.b64encode(
+                self.sysadmin_password.encode("utf-8")
+            ).decode("utf-8"),
+        }
+
+        files = None
+        try:
+            files = {
+                "restore_values": (
+                    "restore-values.yaml",
+                    open(self.restore_values_file, "rb"),
+                    "text/plain",
+                ),
+            }
+
+            response = requests.patch(
+                url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=RESTORE_API_TIMEOUT,
+            )
+            response.raise_for_status()
+            log_info(
+                f"On-site restore accepted for subcloud {self.subcloud_name}"
+            )
+            return response.json() if response.content else {}
+        except requests.exceptions.HTTPError as e:
+            body = e.response.text if e.response is not None else ""
+            log_error(f"On-site restore request failed: {e} body={body}")
+            sys.exit(1)
+        except requests.exceptions.RequestException as e:
+            log_error(f"On-site restore request failed: {e}")
+            sys.exit(1)
+        finally:
+            if files:
+                for file_tuple in files.values():
+                    file_tuple[1].close()
+
+    def write_status_file(self):
+        """Write a status file consumed by 95-trigger-local-install."""
+        local_only_str = "true" if self.local_only else "false"
+        with open(STATUS_FILE, "w", encoding="utf-8") as f:
+            f.write(f"local_only={local_only_str}\n")
+        log_info(f"Wrote status file: {STATUS_FILE}")
+
+    def execute(self):
+        """Execute on-site restore trigger."""
+        self.load_restore_config()
+        self.trigger_restore()
+        self.write_status_file()
+
+
+if __name__ == "__main__":
+    config = SubcloudSetup().execute()
+    auth_token = CentralCloudAuth(config).execute()
+    OnsiteRestoreTrigger(config, auth_token).execute()

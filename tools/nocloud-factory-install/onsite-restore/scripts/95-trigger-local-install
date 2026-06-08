@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Trigger a local reinstall and on-site restore after dcmanager has staged
+# the backup (or, for local_only, has accepted the request). Reads the
+# status file written by 90-trigger-onsite-restore to choose the correct
+# --backup-source.
+#
+
+exec 1> >(tee -a /var/log/cloud-init-output.log)
+exec 2> >(tee -a /var/log/cloud-init-output.log >&2)
+
+STATUS_FILE="/run/onsite-restore-status"
+
+function log_fatal {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - onsite-restore -") FATAL: ${*}"
+    exit 1
+}
+
+function log_info {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - onsite-restore -") INFO: $*"
+}
+
+function check_rc_die {
+    local -i rc=${1}
+    local msg="${2}"
+    if [ ${rc} -ne 0 ]; then
+        log_fatal "${msg} [rc=${rc}]"
+    fi
+}
+
+log_info "Starting onsite restore local install trigger"
+
+system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+if [ "$system_mode" != "simplex" ]; then
+    log_fatal "Onsite restore is only supported on simplex systems"
+fi
+
+if [ ! -x /usr/local/bin/local-install-trigger.sh ]; then
+    log_fatal "local-install-trigger.sh not found or not executable"
+fi
+
+if [ ! -f "${STATUS_FILE}" ]; then
+    log_fatal "Status file ${STATUS_FILE} not found; 90-trigger-onsite-restore must run first"
+fi
+
+# shellcheck disable=SC1090
+source "${STATUS_FILE}"
+
+if [ "${local_only}" = "true" ]; then
+    BACKUP_SOURCE="local"
+elif [ "${local_only}" = "false" ]; then
+    BACKUP_SOURCE="remote"
+else
+    log_fatal "Invalid local_only value in ${STATUS_FILE}: '${local_only}'"
+fi
+
+log_info "Invoking local-install-trigger.sh with --restore-mode auto --backup-source ${BACKUP_SOURCE}"
+/usr/local/bin/local-install-trigger.sh --restore-mode auto --backup-source "${BACKUP_SOURCE}"
+check_rc_die $? "local-install-trigger.sh failed"
