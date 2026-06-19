@@ -436,6 +436,33 @@ run_kube_cert_rotation() {
     fi
 }
 
+# Regenerate certificates that share private keys with the source system.
+# On a cloned install, all certs/keys are copied from the source. Even if
+# they are not near expiry, they must be regenerated to ensure unique key
+# material on the clone target.
+regenerate_certs_for_cloned_system() {
+    # 1. Regenerate apiserver-kubelet-client cert+key via kubeadm.
+    #    This works offline (only needs ca.crt/ca.key on disk).
+    #    Do NOT rm the files first or apiserver cannot start.
+    log_info "Renewing apiserver-kubelet-client certificate and key..."
+    kubeadm certs renew apiserver-kubelet-client
+    check_rc_die $? "Failed to renew apiserver-kubelet-client"
+
+    # 2. Regenerate kubelet client cert+key (also restarts kubelet and
+    #    SIGHUPs apiserver to pick up the renewed certs)
+    log_info "Regenerating kubelet client certificate and key..."
+    recover_kubelet_cert
+    check_rc_die $? "Failed to regenerate kubelet client certificate"
+
+    # Wait for kubectl to recover after kubelet restart
+    if ! wait_for_kubectl; then
+        send_ipmi_event "$EVENT_RENEW_FAIL_KUBECTL"
+        log_fatal "Kubectl did not recover after clone cert regeneration."
+    fi
+
+    log_info "Certificates for this cloned system have been regenerated."
+}
+
 recover_kubelet_cert() {
     log_info "Recovering kubelet client certificate..."
     WORKDIR="/home/sysadmin/kubelet"
@@ -839,6 +866,11 @@ else
         log_fatal "REST API or Docker registry certs did not renew within timeout."
     fi
     log_info "Leaf certificate recovery complete and healthy."
+fi
+
+if [ -f "$CLONED_FLAG" ]; then
+    log_info "Cloned install detected. Regenerating shared-key certificates..."
+    regenerate_certs_for_cloned_system
 fi
 
 check_system_local_ca_cert
