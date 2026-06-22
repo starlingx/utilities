@@ -918,6 +918,47 @@ def run_tests(with_cov=False):
     sys.exit(0 if result.wasSuccessful() else 1)
 
 
+def run_conftool(hostnames, bundle_dir):
+    """Run conftool for each discovered host to extract config summaries.
+
+    Non-fatal: if conftool fails for any host, log and continue.
+    Output goes to <bundle_dir>/config/<hostname>/
+    """
+    conftool_dir = os.path.join(report_dir, "conftool")
+    conftool_path = os.path.join(conftool_dir, "conftool")
+
+    if not os.path.exists(conftool_path):
+        logger.debug("conftool not found at %s — skipping", conftool_path)
+        return
+
+    completed_hosts = []
+    for hostname in hostnames:
+        try:
+            result = subprocess.run(
+                [sys.executable, conftool_path,
+                 '-b', bundle_dir, '-H', hostname],
+                capture_output=True, text=True, timeout=120,
+                cwd=conftool_dir
+            )
+            if result.returncode in (0, 1):
+                logger.debug("conftool: %s completed", hostname)
+                completed_hosts.append(hostname)
+            else:
+                logger.debug("conftool: %s failed (rc=%d): %s",
+                             hostname, result.returncode,
+                             result.stderr.strip())
+        except subprocess.TimeoutExpired:
+            logger.warning("conftool: %s timed out (120s)", hostname)
+        except Exception as e:
+            logger.debug("conftool: %s error: %s", hostname, e)
+
+    if completed_hosts:
+        config_dir = os.path.join(bundle_dir, "config")
+        logger.info("")
+        logger.info("Config: %s", config_dir)
+        logger.info("")
+
+
 def main():
     """Main entry point for the Report tool."""
 
@@ -994,6 +1035,9 @@ def main():
 
     # Run analysis
     engine.execute(plugins, output_dir)
+
+    # Run conftool to extract host configuration summaries
+    run_conftool(engine.hostnames, obj.input_dir)
 
     # Generate HTML report
     render.main(input_dir, output_dir)

@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
-# #######################################################################
+########################################################################
 #
-# Copyright (c) 2022 -2026 Wind River Systems, Inc.
+# Copyright (c) 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# #######################################################################
+########################################################################
 #
-# This file contains the functions for the system info plugin algorithm.
+# Report tool global test suite with coverage reporting.
 #
-# The system info plugin algorithm gathers top level system information,
-# such at the build type, sw version, and more.
+# Usage:
+#     ./run_tests.py              # Run all tests
+#     ./run_tests.py --with-cov   # Run with coverage report
 #
-# #######################################################################
-
-"""
-Run all report tool tests with coverage reporting.
-
-Usage:
-    ./run_tests.py              # Run all tests
-    ./run_tests.py --with-cov   # Run with coverage report
-
-Requirements:
-    pip install coverage pytest pytest-cov
-"""
+# Requirements:
+#     pip install coverage pytest pytest-cov
+#
+########################################################################
 
 import os
 import subprocess
