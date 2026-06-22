@@ -6,16 +6,23 @@
 
 SUBDIRS += k8s-ca-read
 
-.PHONY: all build clean
+BUNDLE  := ../scripts/network_platform_audit
+BUNDLER := tools/bundle_network_platform_audit.py
+
+.PHONY: all build bundle clean
 
 all: build
 
-build:
+build: bundle
 	for d in $(SUBDIRS); do \
 		$(MAKE) -C $$d; \
 	done
+
+bundle:
+	python3 $(BUNDLER) -o $(BUNDLE)
 
 clean:
 	for d in $(SUBDIRS); do \
 		$(MAKE) -C $$d clean; \
 	done
+	rm -f $(BUNDLE)
