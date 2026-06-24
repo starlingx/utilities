@@ -3,6 +3,7 @@
 #
 # sysinv/system CLI helpers, table parsers, and startup_checks.
 
+from collections import defaultdict
 import ipaddress
 import os
 import re
@@ -17,6 +18,33 @@ from network_platform_audit.run import run_log_only
 from network_platform_audit.run import run_silent
 from network_platform_audit.ssh import open_ssh_session
 from network_platform_audit.ssh import remote_run
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+def _run_system_list(cmd, runner=None):
+    """Run a system *-list command with --nowrap, fallback without if unsupported.
+
+    Inserts --nowrap after the subcommand name. If the command fails (rc!=0),
+    retries without --nowrap.
+    """
+    if runner is None:
+        runner = run_log_only
+    if isinstance(cmd, list):
+        nowrap_cmd = cmd[:2] + ["--nowrap"] + cmd[2:]
+        fallback_cmd = cmd
+    else:
+        parts = cmd.split(None, 2)
+        nowrap_cmd = parts[0] + " " + parts[1] + " --nowrap" + (" " + parts[2] if len(parts) > 2 else "")
+        fallback_cmd = cmd
+
+    rc, out, err = runner(nowrap_cmd)
+    if rc == 0:
+        return rc, out, err
+    # --nowrap not supported, retry without
+    return runner(fallback_cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +117,7 @@ def startup_checks():
 
     # 7) Build host list
     log("[..] querying system host-list...")
-    rc, out, _ = run_log_only("system host-list")
+    rc, out, _ = _run_system_list("system host-list")
     if rc != 0:
         sys.exit("Error: 'system host-list' failed. Keystone/sysinv may not be available. "
                  "Ensure platform services are running before executing this script.")
@@ -128,10 +156,8 @@ def startup_checks():
 def _parse_generic_table(output, key_col=None):
     """Generic sysinv table parser - returns list of dicts.
 
-    Handles multi-line rows: sysinv wraps long field values across lines.
-    Continuation lines have the same pipe structure but all non-value columns
-    are empty (e.g. uuid column is blank). We detect them by checking that
-    the first data column is empty and join them into the previous row.
+    With --nowrap, tables have single-line headers and single-line data rows.
+    We still handle multi-line cases as a safety fallback.
     """
     rows = []
     lines = output.splitlines()
@@ -148,32 +174,38 @@ def _parse_generic_table(output, key_col=None):
     if header_idx is None:
         return rows
 
-    col_names = [p.strip() for p in lines[header_idx].split("|") if p.strip()]
-
-    raw_rows = []
-    for line in lines[header_idx + 2:]:
-        if not line.strip() or line.startswith("+"):
-            continue
+    def _split_cells(line):
         parts = line.split("|")
-        if parts and parts[0] == "":
+        if parts and parts[0].strip() == "":
             parts = parts[1:]
         if parts and parts[-1].strip() == "":
             parts = parts[:-1]
-        cells = [c.strip() for c in parts]
+        return [c.strip() for c in parts]
 
+    col_names = _split_cells(lines[header_idx])
+
+    # Skip to data: consume any header continuations + separator
+    data_start = header_idx + 1
+    while data_start < len(lines):
+        ln = lines[data_start].strip()
+        if ln.startswith("+"):
+            data_start += 1
+            break
+        data_start += 1
+
+    for line in lines[data_start:]:
+        if not line.strip() or line.strip().startswith("+"):
+            continue
+        cells = _split_cells(line)
         if len(cells) < len(col_names):
             continue
-
-        if cells[0] == "" and raw_rows:
+        if cells[0] == "" and rows:
+            # Data continuation row - merge into previous
             for idx, cell in enumerate(cells):
                 if idx < len(col_names) and cell:
-                    prev = raw_rows[-1][idx]
-                    raw_rows[-1][idx] = prev + cell
+                    rows[-1][col_names[idx]] = rows[-1].get(col_names[idx], "") + cell
         else:
-            raw_rows.append(list(cells[:len(col_names)]))
-
-    for cells in raw_rows:
-        rows.append(dict(zip(col_names, cells)))
+            rows.append(dict(zip(col_names, cells[:len(col_names)])))
     return rows
 
 
@@ -183,69 +215,15 @@ def _parse_host_table(output):
 
 
 def _parse_if_table(output):
-    """Parse system host-if-list pipe-delimited table into list of dicts.
-
-    Expected columns: uuid, name, class, type, vlan id, ports, uses i/f,
-                      used by i/f, attributes
-
-    The header spans two rows due to column name wrapping, e.g.:
-      | vlan | uses i/ | used by |
-      | id   | f       | i/f     |
-    We merge both header rows before parsing data rows.
-    """
-    ifaces = []
-    lines = output.splitlines()
-
-    header_idx = None
-    for i, line in enumerate(lines):
-        if "| name" in line and "class" in line:
-            header_idx = i
-            break
-    if header_idx is None:
-        return ifaces
-
-    def split_pipe(line):
-        parts = line.split("|")
-        if parts and parts[0] == "":
-            parts = parts[1:]
-        if parts and parts[-1].strip() == "":
-            parts = parts[:-1]
-        return parts
-
-    row1 = split_pipe(lines[header_idx])
-    col_names = [c.strip() for c in row1]
-
-    if header_idx + 1 < len(lines):
-        next_line = lines[header_idx + 1]
-        if next_line.strip().startswith("|") and not next_line.startswith("+"):
-            row2 = split_pipe(next_line)
-            merged = []
-            for i, c1 in enumerate(row1):
-                c2 = row2[i].strip() if i < len(row2) else ""
-                needs_space = bool(c1.strip() and c2 and c1.strip()[-1].isalnum())
-                combined = (c1.strip() + (" " if needs_space else "") + c2).strip()
-                merged.append(combined)
-            col_names = merged
-            header_idx += 1
-
-    for line in lines[header_idx + 1:]:
-        if not line.strip() or line.startswith("+"):
-            continue
-        raw_parts = line.split("|")
-        if raw_parts and raw_parts[0] == "":
-            raw_parts = raw_parts[1:]
-        if raw_parts and raw_parts[-1].strip() == "":
-            raw_parts = raw_parts[:-1]
-        values = [v.strip() for v in raw_parts]
-        if len(values) >= len(col_names):
-            row = dict(zip(col_names, values))
-            attrs = row.get("attributes", "")
-            mtu_match = re.search(r"MTU=(\d+)", attrs)
-            if mtu_match:
-                row["mtu"] = mtu_match.group(1)
-            uses_raw = row.get("uses i/f", "[]")
-            row["uses_list"] = re.findall(r"'([^']+)'", uses_raw)
-            ifaces.append(row)
+    """Parse system host-if-list table into list of dicts with MTU and uses_list."""
+    ifaces = _parse_generic_table(output, key_col="name")
+    for row in ifaces:
+        attrs = row.get("attributes", "")
+        mtu_match = re.search(r"MTU=(\d+)", attrs)
+        if mtu_match:
+            row["mtu"] = mtu_match.group(1)
+        uses_raw = row.get("uses i/f", "[]")
+        row["uses_list"] = re.findall(r"'([^']+)'", uses_raw)
     return ifaces
 
 
@@ -264,7 +242,7 @@ def local_hostname():
 
 def _get_if_list(hostname):
     """Return parsed interface list for a host (one API call)."""
-    rc, out, _ = run_log_only(["system", "host-if-list", hostname])
+    rc, out, _ = _run_system_list(["system", "host-if-list", hostname])
     if rc != 0 or not out:
         return []
     return _parse_if_table(out)
@@ -367,24 +345,40 @@ def _run_on_host(hostname, cmd, silent=False):
 
 def _get_addr_list(hostname):
     """Return parsed address list for a host. Always runs locally."""
-    rc, out, _ = run_log_only(["system", "host-addr-list", hostname])
+    rc, out, _ = _run_system_list(["system", "host-addr-list", hostname])
     if rc != 0 or not out:
         return []
     return _parse_generic_table(out, key_col="address")
 
 
 def _get_sw_version(hostname):
-    """Read sw_version from /etc/platform/platform.conf on the given host.
+    """Return the deployed sw_version as (major, minor, patch) ints.
 
-    Returns a tuple (major, minor) of ints on success, or None on failure.
+    platform.conf's sw_version only carries major.minor (no patch level), so
+    the patch must come from the deployed release in `software list`.
+    There can be multiple releases listed; only the
+    one with State == deployed is used.
+
+    `software list` doesn't exist on older releases, so fall back to
+    platform.conf's major.minor (patch defaults to 0) in that case.
+
+    Returns None on failure or if no deployed release is found.
     """
+    rc, out, _ = _run_on_host(hostname, "software list", silent=True)
+    if rc == 0 and out:
+        for release in _parse_generic_table(out, key_col="Release"):
+            if release.get("State", "").strip().lower() != "deployed":
+                continue
+            m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", release.get("Release", ""))
+            if m:
+                return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+
     rc, out, _ = _run_on_host(hostname, "cat /etc/platform/platform.conf", silent=True)
-    if rc != 0 or not out:
-        return None
-    m = re.search(r"sw_version\s*=\s*(\d+)\.(\d+)", out)
-    if not m:
-        return None
-    return (int(m.group(1)), int(m.group(2)))
+    if rc == 0 and out:
+        m = re.search(r"^sw_version=(\d+)\.(\d+)", out, re.MULTILINE)
+        if m:
+            return (int(m.group(1)), int(m.group(2)), 0)
+    return None
 
 
 def _get_iface_networks(hostname, kernel_ifname):
@@ -410,72 +404,65 @@ def _get_iface_networks(hostname, kernel_ifname):
 # ---------------------------------------------------------------------------
 
 def _get_addrpool_list():
-    """Return parsed addrpool list with full field values.
-
-    system addrpool-list truncates column headers across two header rows, e.g.:
-      | floating_ | controller0_ | controller1_addres |
-      | address   | address      | s                  |
-    We join the two header rows to reconstruct the full column names before
-    parsing the data rows.
-    """
-    rc, out, _ = run_log_only("system addrpool-list")
-    if rc != 0 or not out:
-        return []
-
-    lines = out.splitlines()
-
-    header_idx = None
-    for i, line in enumerate(lines):
-        if "| name" in line and "uuid" in line:
-            header_idx = i
-            break
-    if header_idx is None:
-        return _parse_generic_table(out, key_col="name")
-
-    def split_pipe(line):
-        parts = line.split("|")
-        if parts and parts[0] == "":
-            parts = parts[1:]
-        if parts and parts[-1].strip() == "":
-            parts = parts[:-1]
-        return parts
-
-    row1 = split_pipe(lines[header_idx])
-
-    col_names = [c.strip() for c in row1]
-    if header_idx + 1 < len(lines):
-        next_line = lines[header_idx + 1]
-        if next_line.strip().startswith("|") and not next_line.startswith("+"):
-            row2 = split_pipe(next_line)
-            merged = []
-            for i, c1 in enumerate(row1):
-                c2 = row2[i].strip() if i < len(row2) else ""
-                merged.append((c1.strip() + c2).strip())
-            col_names = merged
-
-    data_start = header_idx + 1
-    while data_start < len(lines) and not lines[data_start].startswith("+"):
-        data_start += 1
-    data_start += 1
-
-    sep_line = lines[data_start - 1] if data_start > 0 else ""
-
-    merged_header = "| " + " | ".join(col_names) + " |"
-    new_lines = lines[:header_idx] + [merged_header, sep_line] + lines[data_start:]
-    new_out = "\n".join(new_lines)
-
-    return _parse_generic_table(new_out, key_col="name")
-
-
-def _get_network_list():
-    rc, out, _ = run_log_only("system network-list")
+    """Return parsed addrpool list with full field values."""
+    rc, out, _ = _run_system_list("system addrpool-list")
     if rc != 0 or not out:
         return []
     return _parse_generic_table(out, key_col="name")
 
 
-def _get_network_addrpool_list():
-    rc, out, _ = run_log_only("system network-addrpool-list")
+def _get_network_list():
+    rc, out, _ = _run_system_list("system network-list")
     if rc != 0 or not out:
         return []
+    return _parse_generic_table(out, key_col="name")
+
+
+def _get_iface_network_count(hostname):
+    """Return {ifname: network_type_count} from system interface-network-list.
+
+    Returns an empty dict if the command is unavailable.
+    """
+    rc, out, _ = _run_system_list(["system", "interface-network-list", hostname])
+    if rc != 0:
+        return {}
+    if not out:
+        return {}
+    rows = _parse_generic_table(out, key_col="ifname")
+    result = defaultdict(int)
+    for row in rows:
+        ifname = row.get("ifname", "")
+        if ifname:
+            result[ifname] += 1
+    return dict(result)
+
+
+def _get_network_addrpool_list():
+    rc, out, err = _run_system_list("system network-addrpool-list")
+    if rc != 0:
+        if "invalid choice: 'network-addrpool-list'" in err:
+            return None
+        return []
+    if not out:
+        return []
     return _parse_generic_table(out, key_col="network_name")
+
+
+def build_pools_by_network_type(net_addrpools, addrpools):
+    """Return {network_name: [pool_dict, ...]} using already-fetched data.
+
+    Uses the canonical network name from network-addrpool-list as the key,
+    which is a system constant (not user-customizable like addrpool.name).
+    Returns an empty dict when net_addrpools is None (command unavailable).
+    """
+    if net_addrpools is None:
+        return {}
+    pool_by_name = {p.get("name", ""): p for p in (addrpools or [])}
+    result = defaultdict(list)
+    for na in net_addrpools:
+        net_name = na.get("network_name", na.get("network", ""))
+        pool_name = na.get("addrpool_name", na.get("pool", ""))
+        pool = pool_by_name.get(pool_name)
+        if pool and net_name:
+            result[net_name].append(pool)
+    return dict(result)

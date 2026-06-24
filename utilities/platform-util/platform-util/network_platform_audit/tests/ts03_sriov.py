@@ -135,6 +135,229 @@ def _vf_covered_by_vfio_resource(vf_pci, vf_idx, resources, pf_kernel):
     return False
 
 
+def _parse_devbind_status(devbind_out):
+    """Parse `dpdk-devbind.py --status` output into (dpdk_pci, kernel_pci) maps."""
+    dpdk_pci = {}
+    kernel_pci = {}
+    section = None
+    for line in devbind_out.splitlines():
+        if "DPDK-compatible driver" in line:
+            section = "dpdk"
+        elif "kernel driver" in line:
+            section = "kernel"
+        elif not line.strip() or line.startswith("=") or line.startswith("No "):
+            continue
+        else:
+            pci_m = re.match(r"(\S+:\S+\.\S+)\s", line)
+            if not pci_m:
+                continue
+            pci = pci_m.group(1)
+            drv_m = re.search(r"\bdrv=(\S+)", line)
+            if_m = re.search(r"\bif=(\S+)", line)
+            drv = drv_m.group(1) if drv_m else ""
+            ifname = if_m.group(1) if if_m else ""
+            if section == "dpdk":
+                dpdk_pci[pci] = drv
+            elif section == "kernel":
+                kernel_pci[pci] = {"drv": drv, "ifname": ifname}
+    return dpdk_pci, kernel_pci
+
+
+def _parse_pf_entry(hostname, res_name, pf_entry):
+    """Parse a pfNames entry into (pf_kernel, vf_indices); vf_indices is None for 'all VFs'."""
+    if "#" in pf_entry:
+        pf_kernel, idx_str = pf_entry.split("#", 1)
+        vf_indices = set()
+        for part in idx_str.split(","):
+            part = part.strip()
+            if "-" in part:
+                try:
+                    a, b = part.split("-", 1)
+                    vf_indices.update(range(int(a), int(b) + 1))
+                except ValueError:
+                    log(f"  [WARN] {hostname}/{res_name}: malformed VF range {part!r} in pfNames - skipping")
+            elif part.isdigit():
+                vf_indices.add(int(part))
+    else:
+        pf_kernel = pf_entry
+        vf_indices = None
+    return pf_kernel, vf_indices
+
+
+def _find_pf_pci(pf_kernel, kernel_pci):
+    for pci, info in kernel_pci.items():
+        if info.get("ifname") == pf_kernel:
+            return pci
+    return None
+
+
+def _log_pf_driver_status(cat, hostname, res_name, pf_kernel, exp_driver, idx_range, pf_pci, dpdk_pci, kernel_pci):
+    if pf_pci:
+        log_result(
+            f"  {hostname}/{res_name}"
+            f" (PF={pf_kernel}, exp_driver={exp_driver}, {idx_range}):"
+            f" PF in kernel-driver section (not bound to vfio-pci)",
+            "PASS",
+        )
+    else:
+        pf_in_dpdk = any(
+            pci for pci in dpdk_pci
+            if pci in kernel_pci and kernel_pci[pci].get("ifname") == pf_kernel
+        ) or pf_kernel in dpdk_pci
+        if pf_in_dpdk:
+            log_result(
+                f"  {hostname}/{res_name}"
+                f" (PF={pf_kernel}): PF is bound to vfio-pci - should be in kernel section",
+                "FAILED",
+            )
+            state.category_failures[cat].append(
+                f"{hostname}/{res_name}: PF {pf_kernel} is bound to vfio-pci"
+            )
+        else:
+            log(f"  [INFO] {hostname}/{res_name}: PF {pf_kernel} not found in devbind output")
+
+
+def _resolve_vf_pci_by_idx(hostname, pf_pci, pf_kernel):
+    vf_pci_by_idx = {}
+    if not (pf_pci or pf_kernel):
+        return vf_pci_by_idx
+
+    if not pf_pci:
+        rc2, if_out, _ = _run_on_host(
+            hostname,
+            f"cat /sys/class/net/{pf_kernel}/device/uevent",
+            silent=True,
+        )
+        slot_m = re.search(r"PCI_SLOT_NAME=(.+)", if_out or "")
+        if slot_m:
+            pf_pci = slot_m.group(1).strip()
+
+    if pf_pci:
+        rc2, vfn_ls, _ = _run_on_host(
+            hostname,
+            f"ls -la /sys/bus/pci/devices/{pf_pci}/virtfn* 2>/dev/null",
+            silent=True,
+        )
+        for vfn_line in (vfn_ls or "").splitlines():
+            idx_m = re.search(
+                r"virtfn(\d+)\s*->\s*\S*?([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f])", vfn_line)
+            if idx_m:
+                vf_pci_by_idx[int(idx_m.group(1))] = idx_m.group(2)
+
+    return vf_pci_by_idx
+
+
+def _check_vf_driver_binding(hostname, res_name, idx, vf_pci, exp_driver, dpdk_pci, kernel_pci,
+                             sysinv_vfio_pci, pf_kernel, resources):
+    """Return (is_correct, wrong_entry_or_None) for a single VF index."""
+    if exp_driver == "vfio-pci":
+        if vf_pci in dpdk_pci and dpdk_pci[vf_pci].lower() == "vfio-pci":
+            return True, None
+        actual = dpdk_pci.get(vf_pci) or kernel_pci.get(vf_pci, {}).get("drv", "unbound")
+        return False, f"vf{idx}({vf_pci}):{actual}"
+
+    info = kernel_pci.get(vf_pci, {})
+    actual_drv = info.get("drv", "")
+    if actual_drv.lower() == exp_driver:
+        if info.get("ifname"):
+            return True, None
+        return True, f"vf{idx}({vf_pci}):{actual_drv}-no_if(warn)"
+
+    actual = actual_drv or dpdk_pci.get(vf_pci, "unbound")
+    sysinv_vfio_set = sysinv_vfio_pci.get(pf_kernel, set())
+    if actual == "vfio-pci" and (
+        vf_pci in sysinv_vfio_set
+        or _vf_covered_by_vfio_resource(vf_pci, idx, resources, pf_kernel)
+    ):
+        log(f"  [INFO] {hostname}/{res_name}: vf{idx}({vf_pci})"
+            f" is vfio-pci - sysinv vf child or pcidp resource"
+            f" (mixed config, expected)")
+        return True, None
+
+    return False, f"vf{idx}({vf_pci}):{actual}"
+
+
+def _check_resource_pf_entry(cat, hostname, resource, pf_entry, dpdk_pci, kernel_pci, sysinv_vfio_pci, resources):
+    res_name = resource.get("resourceName", "?")
+    selectors = resource.get("selectors", {})
+    exp_drivers = selectors.get("drivers", [])
+    exp_driver = exp_drivers[0].lower() if exp_drivers else ""
+
+    pf_kernel, vf_indices = _parse_pf_entry(hostname, res_name, pf_entry)
+
+    idx_range = (
+        f"VF indices {sorted(vf_indices)[:4]}{'...' if len(vf_indices) > 4 else ''}"
+        if vf_indices else "all VFs"
+    )
+
+    pf_pci = _find_pf_pci(pf_kernel, kernel_pci)
+
+    _log_pf_driver_status(cat, hostname, res_name, pf_kernel, exp_driver, idx_range, pf_pci, dpdk_pci, kernel_pci)
+
+    vf_pci_by_idx = _resolve_vf_pci_by_idx(hostname, pf_pci, pf_kernel)
+
+    indices_to_check = (
+        sorted(vf_indices) if vf_indices is not None
+        else sorted(vf_pci_by_idx.keys())
+    )
+
+    actual_drv_counts = {}
+    for idx in indices_to_check:
+        pci = vf_pci_by_idx.get(idx)
+        if pci:
+            if pci in dpdk_pci:
+                drv = dpdk_pci[pci]
+            else:
+                drv = kernel_pci.get(pci, {}).get("drv", "unbound")
+            actual_drv_counts[drv] = actual_drv_counts.get(drv, 0) + 1
+
+    correct = 0
+    wrong = []
+    for idx in indices_to_check:
+        vf_pci = vf_pci_by_idx.get(idx)
+        if not vf_pci:
+            wrong.append(f"vf{idx}:not_found_in_sysfs")
+            continue
+        is_correct, wrong_entry = _check_vf_driver_binding(
+            hostname, res_name, idx, vf_pci, exp_driver, dpdk_pci, kernel_pci,
+            sysinv_vfio_pci, pf_kernel, resources,
+        )
+        if is_correct:
+            correct += 1
+        if wrong_entry is not None:
+            wrong.append(wrong_entry)
+
+    total = len(indices_to_check)
+    devbind_dist = ", ".join(
+        f"{drv}:{cnt}" for drv, cnt in sorted(actual_drv_counts.items())
+    ) if actual_drv_counts else "no VFs resolved"
+
+    real_wrong = [w for w in wrong if "-no_if(warn)" not in w]
+    warn_no_if = [w for w in wrong if "-no_if(warn)" in w]
+
+    if total == 0:
+        log(f"  [INFO] {hostname}/{res_name} (PF={pf_kernel}): no VF indices to check")
+    elif len(real_wrong) == 0:
+        suffix = f" ({len(warn_no_if)} VFs without netdev if=)" if warn_no_if else ""
+        log_result(
+            f"  {hostname}/{res_name}"
+            f" (PF={pf_kernel}, exp_driver={exp_driver}, {idx_range}):"
+            f" {correct}/{total} VFs correct - devbind shows {devbind_dist}{suffix}",
+            "PASS",
+        )
+    else:
+        log_result(
+            f"  {hostname}/{res_name}"
+            f" (PF={pf_kernel}, exp_driver={exp_driver}, {idx_range}):"
+            f" {correct - len(warn_no_if)}/{total} VFs correct - devbind shows {devbind_dist}",
+            "FAILED",
+        )
+        state.category_failures[cat].append(
+            f"{hostname}/{res_name}: {len(real_wrong)} VF(s) wrong in devbind "
+            f"(expected {exp_driver}): {real_wrong[:8]}"
+        )
+
+
 def _test_sriov_pcidp_vs_devbind(cat, hostname, sysinv_vfio_pci=None):
     """3.4 - Cross-check /etc/pcidp/config.json vs dpdk-devbind.py --status."""
     if sysinv_vfio_pci is None:
@@ -160,195 +383,14 @@ def _test_sriov_pcidp_vs_devbind(cat, hostname, sysinv_vfio_pci=None):
         log(f"  [WARN] dpdk-devbind.py --status failed on {hostname} - skipping cross-check")
         return
 
-    dpdk_pci = {}
-    kernel_pci = {}
-    section = None
-    for line in devbind_out.splitlines():
-        if "DPDK-compatible driver" in line:
-            section = "dpdk"
-        elif "kernel driver" in line:
-            section = "kernel"
-        elif not line.strip() or line.startswith("=") or line.startswith("No "):
-            continue
-        else:
-            pci_m = re.match(r"(\S+:\S+\.\S+)\s", line)
-            if not pci_m:
-                continue
-            pci = pci_m.group(1)
-            drv_m = re.search(r"\bdrv=(\S+)", line)
-            if_m = re.search(r"\bif=(\S+)", line)
-            drv = drv_m.group(1) if drv_m else ""
-            ifname = if_m.group(1) if if_m else ""
-            if section == "dpdk":
-                dpdk_pci[pci] = drv
-            elif section == "kernel":
-                kernel_pci[pci] = {"drv": drv, "ifname": ifname}
+    dpdk_pci, kernel_pci = _parse_devbind_status(devbind_out)
 
     for resource in resources:
-        res_name = resource.get("resourceName", "?")
-        selectors = resource.get("selectors", {})
-        pf_names = selectors.get("pfNames", [])
-        exp_drivers = selectors.get("drivers", [])
-        exp_driver = exp_drivers[0].lower() if exp_drivers else ""
-
+        pf_names = resource.get("selectors", {}).get("pfNames", [])
         for pf_entry in pf_names:
-            if "#" in pf_entry:
-                pf_kernel, idx_str = pf_entry.split("#", 1)
-                vf_indices = set()
-                for part in idx_str.split(","):
-                    part = part.strip()
-                    if "-" in part:
-                        try:
-                            a, b = part.split("-", 1)
-                            vf_indices.update(range(int(a), int(b) + 1))
-                        except ValueError:
-                            log(f"  [WARN] {hostname}/{res_name}: malformed VF range {part!r} in pfNames - skipping")
-                    elif part.isdigit():
-                        vf_indices.add(int(part))
-            else:
-                pf_kernel = pf_entry
-                vf_indices = None
-
-            prefix = f"  {hostname}/{res_name} (PF={pf_kernel})"
-
-            idx_range = (
-                f"VF indices {sorted(vf_indices)[:4]}{'...' if len(vf_indices) > 4 else ''}"
-                if vf_indices else "all VFs"
+            _check_resource_pf_entry(
+                cat, hostname, resource, pf_entry, dpdk_pci, kernel_pci, sysinv_vfio_pci, resources
             )
-
-            pf_pci = None
-            for pci, info in kernel_pci.items():
-                if info.get("ifname") == pf_kernel:
-                    pf_pci = pci
-                    break
-
-            if pf_pci:
-                log_result(
-                    f"  {hostname}/{res_name}"
-                    f" (PF={pf_kernel}, exp_driver={exp_driver}, {idx_range}):"
-                    f" PF in kernel-driver section (not bound to vfio-pci)",
-                    "PASS",
-                )
-            else:
-                pf_in_dpdk = any(
-                    pci for pci in dpdk_pci
-                    if pci in kernel_pci and kernel_pci[pci].get("ifname") == pf_kernel
-                ) or pf_kernel in dpdk_pci
-                if pf_in_dpdk:
-                    log_result(
-                        f"  {hostname}/{res_name}"
-                        f" (PF={pf_kernel}): PF is bound to vfio-pci - should be in kernel section",
-                        "FAILED",
-                    )
-                    state.category_failures[cat].append(
-                        f"{hostname}/{res_name}: PF {pf_kernel} is bound to vfio-pci"
-                    )
-                else:
-                    log(f"  [INFO] {hostname}/{res_name}: PF {pf_kernel} not found in devbind output")
-
-            vf_pci_by_idx = {}
-            if pf_pci or pf_kernel:
-                if not pf_pci:
-                    rc2, if_out, _ = _run_on_host(
-                        hostname,
-                        f"cat /sys/class/net/{pf_kernel}/device/uevent",
-                        silent=True,
-                    )
-                    slot_m = re.search(r"PCI_SLOT_NAME=(.+)", if_out or "")
-                    if slot_m:
-                        pf_pci = slot_m.group(1).strip()
-
-                if pf_pci:
-                    rc2, vfn_ls, _ = _run_on_host(
-                        hostname,
-                        f"ls -la /sys/bus/pci/devices/{pf_pci}/virtfn* 2>/dev/null",
-                        silent=True,
-                    )
-                    for vfn_line in (vfn_ls or "").splitlines():
-                        idx_m = re.search(
-                            r"virtfn(\d+)\s*->\s*\S*?([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f])", vfn_line)
-                        if idx_m:
-                            vf_pci_by_idx[int(idx_m.group(1))] = idx_m.group(2)
-
-            correct = 0
-            wrong = []
-            indices_to_check = (
-                sorted(vf_indices) if vf_indices is not None
-                else sorted(vf_pci_by_idx.keys())
-            )
-            actual_drv_counts = {}
-            for idx in indices_to_check:
-                pci = vf_pci_by_idx.get(idx)
-                if pci:
-                    if pci in dpdk_pci:
-                        drv = dpdk_pci[pci]
-                    else:
-                        drv = kernel_pci.get(pci, {}).get("drv", "unbound")
-                    actual_drv_counts[drv] = actual_drv_counts.get(drv, 0) + 1
-
-            for idx in indices_to_check:
-                vf_pci = vf_pci_by_idx.get(idx)
-                if not vf_pci:
-                    wrong.append(f"vf{idx}:not_found_in_sysfs")
-                    continue
-                if exp_driver == "vfio-pci":
-                    if vf_pci in dpdk_pci and dpdk_pci[vf_pci].lower() == "vfio-pci":
-                        correct += 1
-                    else:
-                        actual = dpdk_pci.get(vf_pci) or kernel_pci.get(vf_pci, {}).get("drv", "unbound")
-                        wrong.append(f"vf{idx}({vf_pci}):{actual}")
-                else:
-                    info = kernel_pci.get(vf_pci, {})
-                    actual_drv = info.get("drv", "")
-                    if actual_drv.lower() == exp_driver:
-                        if info.get("ifname"):
-                            correct += 1
-                        else:
-                            correct += 1
-                            wrong.append(f"vf{idx}({vf_pci}):iavf-no_if(warn)")
-                    else:
-                        actual = actual_drv or dpdk_pci.get(vf_pci, "unbound")
-                        sysinv_vfio_set = sysinv_vfio_pci.get(pf_kernel, set())
-                        if actual == "vfio-pci" and (
-                            vf_pci in sysinv_vfio_set
-                            or _vf_covered_by_vfio_resource(vf_pci, idx, resources, pf_kernel)
-                        ):
-                            correct += 1
-                            log(f"  [INFO] {hostname}/{res_name}: vf{idx}({vf_pci})"
-                                f" is vfio-pci - sysinv vf child or pcidp resource"
-                                f" (mixed config, expected)")
-                        else:
-                            wrong.append(f"vf{idx}({vf_pci}):{actual}")
-
-            total = len(indices_to_check)
-            devbind_dist = ", ".join(
-                f"{drv}:{cnt}" for drv, cnt in sorted(actual_drv_counts.items())
-            ) if actual_drv_counts else "no VFs resolved"
-
-            real_wrong = [w for w in wrong if "iavf-no_if(warn)" not in w]
-            warn_no_if = [w for w in wrong if "iavf-no_if(warn)" in w]
-
-            if total == 0:
-                log(f"  [INFO] {hostname}/{res_name} (PF={pf_kernel}): no VF indices to check")
-            elif len(real_wrong) == 0:
-                suffix = f" ({len(warn_no_if)} iavf VFs without netdev if=)" if warn_no_if else ""
-                log_result(
-                    f"  {hostname}/{res_name}"
-                    f" (PF={pf_kernel}, exp_driver={exp_driver}, {idx_range}):"
-                    f" {correct}/{total} VFs correct - devbind shows {devbind_dist}{suffix}",
-                    "PASS",
-                )
-            else:
-                log_result(
-                    f"  {hostname}/{res_name}"
-                    f" (PF={pf_kernel}, exp_driver={exp_driver}, {idx_range}):"
-                    f" {correct - len(warn_no_if)}/{total} VFs correct - devbind shows {devbind_dist}",
-                    "FAILED",
-                )
-                state.category_failures[cat].append(
-                    f"{hostname}/{res_name}: {len(real_wrong)} VF(s) wrong in devbind "
-                    f"(expected {exp_driver}): {real_wrong[:8]}"
-                )
 
 
 def _parse_numvfs(value):
@@ -361,6 +403,168 @@ def _parse_numvfs(value):
         return 0
 
 
+def _collect_sriov_ifaces(hostname, ifaces):
+    sriov_ifaces = []
+    for i in ifaces:
+        if i.get("class") in ("pci-sriov", "sriov"):
+            if i.get("type") == "vf":
+                continue
+            show_data = _get_if_show(hostname, i.get("name", ""))
+            numvfs = _parse_numvfs(show_data.get("sriov_numvfs"))
+            if numvfs > 0:
+                i["_show"] = show_data
+                sriov_ifaces.append(i)
+        elif i.get("type") == "ethernet":
+            show_data = _get_if_show(hostname, i.get("name", ""))
+            numvfs = _parse_numvfs(show_data.get("sriov_numvfs"))
+            if numvfs > 0:
+                i["_show"] = show_data
+                sriov_ifaces.append(i)
+    return sriov_ifaces
+
+
+def _check_iface_numvfs(cat, hostname, ifname, kernel_ifname, db_numvfs):
+    _, sysfs_out, _ = _run_on_host(
+        hostname,
+        f"cat /sys/class/net/{kernel_ifname}/device/sriov_numvfs"
+    )
+    try:
+        kernel_numvfs = int(sysfs_out.strip())
+    except ValueError:
+        kernel_numvfs = -1
+
+    log_result(
+        f"  {hostname}/{ifname} ({kernel_ifname}):"
+        f" DB={db_numvfs}, sysfs={kernel_numvfs}",
+        "PASS" if kernel_numvfs == db_numvfs else "FAILED",
+    )
+    if kernel_numvfs != db_numvfs:
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: sriov_numvfs DB={db_numvfs} sysfs={kernel_numvfs}"
+        )
+
+
+def _check_vf_driver_binding_count(cat, hostname, ifname, kernel_ifname, db_numvfs, vf_driver):
+    vf_driver_map = {
+        "netdevice": ("iavf", "igbvf", "ixgbevf", "mlx5_core", "virtio_net"),
+        "vfio":      ("vfio-pci",),
+    }
+
+    if not vf_driver:
+        log(f"  [INFO] {hostname}/{ifname}: no VF driver info in DB - skipping binding count")
+        return
+
+    accepted = vf_driver_map.get(vf_driver.lower(), (vf_driver.lower(),))
+    kernel_drv_str = "/".join(accepted)
+
+    sysfs_path = f"/sys/class/net/{kernel_ifname}/device/virtfn*/uevent"
+    log(f"  [sysfs] {hostname}: reading {sysfs_path}")
+    _, grep_out, _ = _run_on_host(
+        hostname,
+        f"grep -r '^DRIVER=' {sysfs_path} 2>/dev/null",
+        silent=True,
+    )
+    actual_by_driver = {}
+    for line in (grep_out or "").splitlines():
+        m = re.search(r"DRIVER=(.+)", line)
+        kernel_drv = m.group(1).strip().lower() if m else "unbound"
+        actual_by_driver[kernel_drv] = actual_by_driver.get(kernel_drv, 0) + 1
+
+    actual_count = sum(actual_by_driver.get(k, 0) for k in accepted)
+    vfio_count = actual_by_driver.get("vfio-pci", 0)
+    is_mixed_ok = (
+        actual_count != db_numvfs
+        and vfio_count > 0
+        and (actual_count + vfio_count) == db_numvfs
+    )
+    if is_mixed_ok:
+        log_result(
+            f"  {hostname}/{ifname}: sysinv_driver={vf_driver.lower()}"
+            f" (kernel={kernel_drv_str})"
+            f" - DB numvfs={db_numvfs}, sysfs uevent={actual_count} netdevice"
+            f" + {vfio_count} vfio-pci (mixed - expected)",
+            "PASS",
+        )
+    else:
+        log_result(
+            f"  {hostname}/{ifname}: sysinv_driver={vf_driver.lower()}"
+            f" (kernel={kernel_drv_str})"
+            f" - DB numvfs={db_numvfs}, sysfs uevent={actual_count}",
+            "PASS" if actual_count == db_numvfs else "FAILED",
+        )
+        if actual_count != db_numvfs:
+            state.category_failures[cat].append(
+                f"{hostname}/{ifname}: DB numvfs={db_numvfs} but sysfs shows "
+                f"{actual_count} VFs with {vf_driver} ({accepted})"
+            )
+
+
+def _log_pf_driver_info(hostname, ifname, kernel_ifname):
+    if hostname != local_hostname():
+        return
+    rc, ethtool_out, _ = run_log_only(["ethtool", "-i", kernel_ifname])
+    if rc == 0:
+        for field in ("driver", "version", "firmware-version"):
+            m = re.search(rf"{field}:\s*(.+)", ethtool_out)
+            if m:
+                log(f"  [INFO] {hostname}/{ifname} PF {field}: {m.group(1).strip()}")
+
+
+def _check_sriov_iface(cat, hostname, iface, ifaces):
+    ifname = iface.get("name", "?")
+    show_data = iface.get("_show") or _get_if_show(hostname, ifname)
+    db_numvfs = _parse_numvfs(show_data.get("sriov_numvfs"))
+    vf_driver = show_data.get("sriov_vf_driver", "")
+    prefix = f"  {hostname}/{ifname}"
+
+    port_name = show_data.get("ports", "")
+    if isinstance(port_name, str):
+        port_names = re.findall(r"'([^']+)'", port_name)
+        kernel_ifname = port_names[0] if port_names else None
+    else:
+        kernel_ifname = None
+
+    if not kernel_ifname:
+        matched = next((i for i in ifaces if i.get("name") == ifname), None)
+        kernel_ifname = (
+            _resolve_kernel_ifname(matched, ifaces) if matched else ifname
+        )
+
+    log(f"  [PF] {hostname}/{ifname}: kernel interface={kernel_ifname}"
+        f"  DB numvfs={db_numvfs}  vf_driver={vf_driver or 'n/a'}"
+        f"  used_by={iface.get('used_by', iface.get('used by i/f', '[]'))}")
+
+    _check_iface_numvfs(cat, hostname, ifname, kernel_ifname, db_numvfs)
+    _check_vf_driver_binding_count(cat, hostname, ifname, kernel_ifname, db_numvfs, vf_driver)
+
+
+def _process_sriov_host(cat, hostname):
+    ifaces = _get_if_list(hostname)
+    sriov_ifaces = _collect_sriov_ifaces(hostname, ifaces)
+
+    if not sriov_ifaces:
+        log_result(f"host {hostname}: no SR-IOV PF interfaces configured", "PASS")
+        return False
+
+    log(f"[HOST] {hostname} - SR-IOV interfaces found")
+
+    for iface in sriov_ifaces:
+        _check_sriov_iface(cat, hostname, iface, ifaces)
+
+    sysinv_vfio_pci = _build_sysinv_vfio_pci_map(hostname, ifaces)
+    _test_sriov_pcidp_vs_devbind(cat, hostname, sysinv_vfio_pci)
+
+    for iface in sriov_ifaces:
+        ifname = iface.get("name", "?")
+        show_data = iface.get("_show") or _get_if_show(hostname, ifname)
+        port_name = show_data.get("ports", "")
+        port_names = re.findall(r"'([^']+)'", port_name) if isinstance(port_name, str) else []
+        kernel_ifname = port_names[0] if port_names else ifname
+        _log_pf_driver_info(hostname, ifname, kernel_ifname)
+
+    return True
+
+
 def test_sriov():
     cat = "TestSuite 3 - SR-IOV and DPDK"
     desc = [
@@ -371,7 +575,7 @@ def test_sriov():
         "4) Cross-check /etc/pcidp/config.json vs dpdk-devbind.py --status (all hosts):",
         "   - Each resourceList entry declares a PF, VF index range, and expected driver",
         "   - For each VF index range: verify dpdk-devbind shows the correct driver",
-        "   - iavf VFs: must appear in 'kernel driver' section with if= populated",
+        "   - kernel-driver VFs (e.g. iavf): must appear in 'kernel driver' section with if= populated",
         "   - vfio-pci VFs: must appear in 'DPDK-compatible driver' section",
         "   - PF itself must remain in 'kernel driver' (not bound to vfio-pci)",
         "5) Log PF driver and firmware info (informational)",
@@ -389,142 +593,8 @@ def test_sriov():
             ssh_check_remote(cat, hostname, "SR-IOV kernel validation")
             continue
 
-        ifaces = _get_if_list(hostname)
-        sriov_ifaces = []
-        for i in ifaces:
-            if i.get("class") in ("pci-sriov", "sriov"):
-                if i.get("type") == "vf":
-                    continue
-                show_data = _get_if_show(hostname, i.get("name", ""))
-                numvfs = _parse_numvfs(show_data.get("sriov_numvfs"))
-                if numvfs > 0:
-                    i["_show"] = show_data
-                    sriov_ifaces.append(i)
-            elif i.get("type") == "ethernet":
-                show_data = _get_if_show(hostname, i.get("name", ""))
-                numvfs = _parse_numvfs(show_data.get("sriov_numvfs"))
-                if numvfs > 0:
-                    i["_show"] = show_data
-                    sriov_ifaces.append(i)
-
-        if not sriov_ifaces:
-            log_result(f"host {hostname}: no SR-IOV PF interfaces configured", "PASS")
-            continue
-
-        any_sriov_found = True
-        log(f"[HOST] {hostname} - SR-IOV interfaces found")
-
-        vf_driver_map = {
-            "netdevice": ("iavf", "igbvf", "ixgbevf", "mlx5_core", "virtio_net"),
-            "vfio":      ("vfio-pci",),
-        }
-
-        for iface in sriov_ifaces:
-            ifname = iface.get("name", "?")
-            show_data = iface.get("_show") or _get_if_show(hostname, ifname)
-            db_numvfs = _parse_numvfs(show_data.get("sriov_numvfs"))
-            vf_driver = show_data.get("sriov_vf_driver", "")
-            prefix = f"  {hostname}/{ifname}"
-
-            port_name = show_data.get("ports", "")
-            if isinstance(port_name, str):
-                port_names = re.findall(r"'([^']+)'", port_name)
-                kernel_ifname = port_names[0] if port_names else None
-            else:
-                kernel_ifname = None
-
-            if not kernel_ifname:
-                matched = next((i for i in ifaces if i.get("name") == ifname), None)
-                kernel_ifname = (
-                    _resolve_kernel_ifname(matched, ifaces) if matched else ifname
-                )
-
-            log(f"  [PF] {hostname}/{ifname}: kernel interface={kernel_ifname}"
-                f"  DB numvfs={db_numvfs}  vf_driver={vf_driver or 'n/a'}"
-                f"  used_by={iface.get('used_by', iface.get('used by i/f', '[]'))}")
-
-            _, sysfs_out, _ = _run_on_host(
-                hostname,
-                f"cat /sys/class/net/{kernel_ifname}/device/sriov_numvfs"
-            )
-            try:
-                kernel_numvfs = int(sysfs_out.strip())
-            except ValueError:
-                kernel_numvfs = -1
-
-            log_result(
-                f"  {hostname}/{ifname} ({kernel_ifname}):"
-                f" DB={db_numvfs}, sysfs={kernel_numvfs}",
-                "PASS" if kernel_numvfs == db_numvfs else "FAILED",
-            )
-            if kernel_numvfs != db_numvfs:
-                state.category_failures[cat].append(
-                    f"{hostname}/{ifname}: sriov_numvfs DB={db_numvfs} sysfs={kernel_numvfs}"
-                )
-
-            if not vf_driver:
-                log(f"  [INFO] {hostname}/{ifname}: no VF driver info in DB - skipping binding count")
-            else:
-                accepted = vf_driver_map.get(vf_driver.lower(), (vf_driver.lower(),))
-                kernel_drv_str = "/".join(accepted)
-
-                sysfs_path = f"/sys/class/net/{kernel_ifname}/device/virtfn*/uevent"
-                log(f"  [sysfs] {hostname}: reading {sysfs_path}")
-                _, grep_out, _ = _run_on_host(
-                    hostname,
-                    f"grep -r '^DRIVER=' {sysfs_path} 2>/dev/null",
-                    silent=True,
-                )
-                actual_by_driver = {}
-                for line in (grep_out or "").splitlines():
-                    m = re.search(r"DRIVER=(.+)", line)
-                    kernel_drv = m.group(1).strip().lower() if m else "unbound"
-                    actual_by_driver[kernel_drv] = actual_by_driver.get(kernel_drv, 0) + 1
-
-                actual_count = sum(actual_by_driver.get(k, 0) for k in accepted)
-                vfio_count = actual_by_driver.get("vfio-pci", 0)
-                is_mixed_ok = (
-                    actual_count != db_numvfs
-                    and vfio_count > 0
-                    and (actual_count + vfio_count) == db_numvfs
-                )
-                if is_mixed_ok:
-                    log_result(
-                        f"  {hostname}/{ifname}: sysinv_driver={vf_driver.lower()}"
-                        f" (kernel={kernel_drv_str})"
-                        f" - DB numvfs={db_numvfs}, sysfs uevent={actual_count} netdevice"
-                        f" + {vfio_count} vfio-pci (mixed - expected)",
-                        "PASS",
-                    )
-                else:
-                    log_result(
-                        f"  {hostname}/{ifname}: sysinv_driver={vf_driver.lower()}"
-                        f" (kernel={kernel_drv_str})"
-                        f" - DB numvfs={db_numvfs}, sysfs uevent={actual_count}",
-                        "PASS" if actual_count == db_numvfs else "FAILED",
-                    )
-                    if actual_count != db_numvfs:
-                        state.category_failures[cat].append(
-                            f"{hostname}/{ifname}: DB numvfs={db_numvfs} but sysfs shows "
-                            f"{actual_count} VFs with {vf_driver} ({accepted})"
-                        )
-
-        sysinv_vfio_pci = _build_sysinv_vfio_pci_map(hostname, ifaces)
-        _test_sriov_pcidp_vs_devbind(cat, hostname, sysinv_vfio_pci)
-
-        for iface in sriov_ifaces:
-            ifname = iface.get("name", "?")
-            show_data = iface.get("_show") or _get_if_show(hostname, ifname)
-            port_name = show_data.get("ports", "")
-            port_names = re.findall(r"'([^']+)'", port_name) if isinstance(port_name, str) else []
-            kernel_ifname = port_names[0] if port_names else ifname
-            if hostname == local_hostname():
-                rc, ethtool_out, _ = run_log_only(["ethtool", "-i", kernel_ifname])
-                if rc == 0:
-                    for field in ("driver", "version", "firmware-version"):
-                        m = re.search(rf"{field}:\s*(.+)", ethtool_out)
-                        if m:
-                            log(f"  [INFO] {hostname}/{ifname} PF {field}: {m.group(1).strip()}")
+        if _process_sriov_host(cat, hostname):
+            any_sriov_found = True
 
     if not any_sriov_found:
         log_result("no SR-IOV PF interfaces configured on any host", "PASS")

@@ -12,24 +12,11 @@ from network_platform_audit.log import print_category
 from network_platform_audit.run import run_log_only
 from network_platform_audit.run import tool_available
 from network_platform_audit.sysinv import _get_addrpool_list
+from network_platform_audit.sysinv import _get_network_addrpool_list
+from network_platform_audit.sysinv import build_pools_by_network_type
 
 
-def test_k8s_nodes():
-    cat = "TestSuite 13 - Kubernetes Nodes and Pods"
-    desc = [
-        "1) kubectl get nodes - verify no NotReady",
-        "2) kubectl get pods -n kube-system - critical pods Running",
-        "3) kubectl get endpoints -A - no empty endpoints for critical services",
-        "4) PodCIDR/ServiceCIDR vs sysinv addrpools overlap check",
-        "5) curl /healthz on Kubernetes API server VIP",
-    ]
-    print_category(cat, description=desc)
-
-    if not tool_available("kubectl"):
-        log("[FAIL] kubectl not available - required for Kubernetes checks")
-        state.category_failures[cat].append("kubectl not installed")
-        return
-
+def _check_nodes_ready(cat):
     rc, nodes_out, _ = _kubectl("get nodes --no-headers")
     if rc != 0:
         state.category_failures[cat].append("kubectl get nodes failed")
@@ -43,6 +30,8 @@ def test_k8s_nodes():
         else:
             log_result("all Kubernetes nodes Ready", "PASS")
 
+
+def _check_critical_pods_running(cat):
     rc_ks, pods_ks, _ = _kubectl("get pods -n kube-system --no-headers")
     rc_cs, pods_cs, _ = _kubectl("get pods -n calico-system --no-headers")
     all_pods_out = ""
@@ -69,6 +58,8 @@ def test_k8s_nodes():
     else:
         state.category_failures[cat].append("kubectl get pods failed for kube-system and calico-system")
 
+
+def _check_critical_service_endpoints(cat):
     rc, ep_out, _ = _kubectl("get endpoints -A --no-headers")
     if rc != 0:
         log_result("kubectl get endpoints -A", "FAILED")
@@ -89,6 +80,8 @@ def test_k8s_nodes():
         if not critical_empty:
             log_result("no empty critical service endpoints", "PASS")
 
+
+def _collect_k8s_cidrs():
     pod_cidrs, svc_cidrs = [], []
     rc, nodes_out, _ = _kubectl("get nodes -o jsonpath='{range .items[*]}{.spec.podCIDR}{\"\\n\"}{end}'")
     if rc == 0 and nodes_out:
@@ -105,12 +98,18 @@ def test_k8s_nodes():
         pod_cidrs += [c.strip() for c in kcm_out.splitlines() if c.strip()]
     pod_cidrs = list(set(pod_cidrs))
     svc_cidrs = list(set(svc_cidrs))
+    return pod_cidrs, svc_cidrs
 
-    addrpools = _get_addrpool_list()
+
+def _build_non_k8s_pool_nets(addrpools, pools_by_type):
+    k8s_pool_names = {
+        p.get("name", "")
+        for net_type in ("cluster-pod", "cluster-service")
+        for p in pools_by_type.get(net_type, [])
+    }
     pool_nets = []
     for pool in addrpools:
-        pool_name = pool.get("name", "").lower()
-        if "cluster-pod" in pool_name or "cluster-service" in pool_name:
+        if pool.get("name", "") in k8s_pool_names:
             continue
         network = pool.get("network", pool.get("subnet", ""))
         prefix = pool.get("prefix", pool.get("prefix_length", ""))
@@ -119,7 +118,10 @@ def test_k8s_nodes():
                 pool_nets.append(ipaddress.ip_network(f"{network}/{prefix}", strict=False))
             except ValueError:
                 pass
+    return pool_nets
 
+
+def _check_cidr_pool_overlap(cat, pod_cidrs, svc_cidrs, pool_nets):
     overlap_found = False
     if not pod_cidrs and not svc_cidrs:
         log("[WARN] could not collect PodCIDR or ServiceCIDR from any source "
@@ -142,6 +144,8 @@ def test_k8s_nodes():
         if not overlap_found:
             log_result("no PodCIDR/ServiceCIDR overlap with sysinv addrpools", "PASS")
 
+
+def _get_api_server_vip():
     api_vip = None
     api_port = "6443"
     try:
@@ -158,7 +162,10 @@ def test_k8s_nodes():
                 api_port = m.group(2)
     except Exception:
         pass
+    return api_vip, api_port
 
+
+def _check_api_server_healthz(cat, api_vip, api_port):
     if api_vip:
         url_vip = f"[{api_vip}]" if ":" in api_vip else api_vip
         rc, curl_out, _ = run_log_only(["curl", "-sk", f"https://{url_vip}:{api_port}/healthz"])
@@ -169,3 +176,42 @@ def test_k8s_nodes():
             state.category_failures[cat].append(f"API server {api_vip}:{api_port}/healthz did not return 'ok'")
     else:
         log("[INFO] could not determine API server VIP - skipping /healthz check")
+
+
+def test_k8s_nodes():
+    cat = "TestSuite 13 - Kubernetes Nodes and Pods"
+    desc = [
+        "1) kubectl get nodes - verify no NotReady",
+        "2) kubectl get pods -n kube-system - critical pods Running",
+        "3) kubectl get endpoints -A - no empty endpoints for critical services",
+        "4) PodCIDR/ServiceCIDR vs sysinv addrpools overlap check",
+        "5) curl /healthz on Kubernetes API server VIP",
+    ]
+    print_category(cat, description=desc)
+
+    if not tool_available("kubectl"):
+        log("[FAIL] kubectl not available - required for Kubernetes checks")
+        state.category_failures[cat].append("kubectl not installed")
+        return
+
+    _check_nodes_ready(cat)
+
+    _check_critical_pods_running(cat)
+
+    _check_critical_service_endpoints(cat)
+
+    pod_cidrs, svc_cidrs = _collect_k8s_cidrs()
+
+    addrpools = _get_addrpool_list()
+    net_addrpools = _get_network_addrpool_list()
+    pools_by_type = build_pools_by_network_type(net_addrpools, addrpools)
+    if net_addrpools is None:
+        log_result("system network-addrpool-list: command not available in this platform version", "WARN")
+        state.category_warnings[cat].append("system network-addrpool-list not available in this platform version")
+        return
+    pool_nets = _build_non_k8s_pool_nets(addrpools, pools_by_type)
+
+    _check_cidr_pool_overlap(cat, pod_cidrs, svc_cidrs, pool_nets)
+
+    api_vip, api_port = _get_api_server_vip()
+    _check_api_server_healthz(cat, api_vip, api_port)

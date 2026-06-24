@@ -17,6 +17,144 @@ from network_platform_audit.sysinv import get_host_names
 from network_platform_audit.sysinv import local_hostname
 
 
+def _check_admin_oper_up(cat, hostname, ifname, prefix, link_out):
+    flags_m = re.search(r"<([^>]+)>", link_out)
+    admin_up = "UP" in flags_m.group(1) if flags_m else False
+    oper_up = "state UP" in link_out or "LOWER_UP" in link_out
+
+    if admin_up:
+        log_result(f"{prefix}: admin UP", "PASS")
+    else:
+        log_result(f"{prefix}: admin UP", "FAILED")
+        state.category_failures[cat].append(f"{hostname}/{ifname}: not administratively UP")
+
+    if oper_up:
+        log_result(f"{prefix}: oper UP", "PASS")
+    else:
+        log_result(f"{prefix}: oper UP", "FAILED")
+        state.category_failures[cat].append(f"{hostname}/{ifname}: not operationally UP (no carrier)")
+
+
+def _check_ethernet_type(cat, hostname, ifname, prefix, kernel_ifname):
+    _, bond_out, _ = _run_on_host(
+        hostname, f"test -f /proc/net/bonding/{kernel_ifname} && echo yes || echo no", silent=True)
+    _, vlan_out, _ = _run_on_host(
+        hostname, f"test -f /proc/net/vlan/{kernel_ifname} && echo yes || echo no", silent=True)
+    bond_exists = 'yes' if 'yes' in bond_out else 'no'
+    vlan_exists = 'yes' if 'yes' in vlan_out else 'no'
+    log_to_file_only(f"    [detail] /proc/net/bonding/{kernel_ifname} exists: {bond_exists}"
+                     f"  /proc/net/vlan/{kernel_ifname} exists: {vlan_exists}")
+    if "yes" in bond_out or "yes" in vlan_out:
+        log_result(f"{prefix}: type ethernet vs kernel", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: DB type=ethernet but kernel shows bond/vlan")
+    else:
+        log_result(f"{prefix}: type ethernet vs kernel", "PASS")
+
+
+def _check_ae_type(cat, hostname, ifname, prefix):
+    rc2, _, _ = _run_on_host(hostname, ["test", "-f", f"/proc/net/bonding/{ifname}"], silent=True)
+    log_to_file_only(f"    [detail] /proc/net/bonding/{ifname} exists: {'yes' if rc2 == 0 else 'no'}")
+    if rc2 != 0:
+        log_result(f"{prefix}: type ae (bond) vs kernel", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: DB type=ae but /proc/net/bonding/{ifname} missing")
+    else:
+        log_result(f"{prefix}: type ae (bond) vs kernel", "PASS")
+
+
+def _check_ae_mode(cat, hostname, ifname, prefix, aemode):
+    _, bond_info, _ = _run_on_host(hostname, ["cat", f"/proc/net/bonding/{ifname}"], silent=True)
+    kernel_mode = ""
+    m = re.search(r"Bonding Mode:\s*(.+)", bond_info)
+    if m:
+        kernel_mode = m.group(1).strip()
+    log_to_file_only(
+        f"    [detail] /proc/net/bonding/{ifname}: Bonding Mode={kernel_mode!r}  DB aemode={aemode!r}")
+    mode_map = {
+        "active_standby": "fault-tolerance (active-backup)",
+        "balanced_xor":   "load balancing (xor)",
+        "802.3ad":        "IEEE 802.3ad",
+    }
+    expected = mode_map.get(aemode, aemode)
+    if expected.lower() in kernel_mode.lower() or aemode.lower() in kernel_mode.lower():
+        log_result(f"{prefix}: bond mode ({aemode})", "PASS")
+    else:
+        log_result(f"{prefix}: bond mode ({aemode}) vs kernel ({kernel_mode})", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: DB aemode={aemode} but kernel={kernel_mode}"
+        )
+
+
+def _check_ae_members(cat, hostname, ifname, prefix, uses):
+    _, bond_info, _ = _run_on_host(hostname, ["cat", f"/proc/net/bonding/{ifname}"], silent=True)
+    kernel_slaves = re.findall(r"Slave Interface:\s*(\S+)", bond_info)
+    log_to_file_only(
+        f"    [detail] /proc/net/bonding/{ifname}: Slave Interfaces={kernel_slaves}  DB uses={uses}")
+    missing = [m for m in uses if m not in kernel_slaves]
+    if missing:
+        log_result(f"{prefix}: bond members", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: bond members missing in kernel: {missing}"
+        )
+    else:
+        log_result(f"{prefix}: bond members", "PASS")
+
+
+def _check_vlan_type(cat, hostname, ifname, prefix, kernel_ifname):
+    _, vlan_test, _ = _run_on_host(
+        hostname, f"test -f /proc/net/vlan/{kernel_ifname} && echo yes", silent=True)
+    log_to_file_only(
+        f"    [detail] /proc/net/vlan/{kernel_ifname} exists: {'yes' if 'yes' in vlan_test else 'no'}")
+    if "yes" not in vlan_test:
+        log_result(f"{prefix}: type vlan vs kernel", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: DB type=vlan but /proc/net/vlan/{kernel_ifname} missing")
+    else:
+        log_result(f"{prefix}: type vlan vs kernel", "PASS")
+
+
+def _check_vlan_id(cat, hostname, ifname, prefix, kernel_ifname, vlan_id, platform_vlans):
+    _, vlan_info, _ = _run_on_host(hostname, ["cat", f"/proc/net/vlan/{kernel_ifname}"], silent=True)
+    m = re.search(r"VID:\s*(\d+)", vlan_info)
+    kernel_vid = m.group(1) if m else ""
+    log_to_file_only(
+        f"    [detail] /proc/net/vlan/{kernel_ifname}: VID={kernel_vid!r}  DB vlan_id={vlan_id!r}")
+    if kernel_vid == str(vlan_id):
+        log_result(f"{prefix}: vlan_id={vlan_id}", "PASS")
+    else:
+        log_result(f"{prefix}: vlan_id DB={vlan_id} kernel={kernel_vid}", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: DB vlan_id={vlan_id} but kernel={kernel_vid}"
+        )
+    platform_vlans.append(str(vlan_id))
+
+
+def _check_mtu(cat, hostname, ifname, prefix, kernel_ifname, link_out, imtu):
+    m = re.search(r"mtu (\d+)", link_out)
+    kernel_mtu = m.group(1) if m else ""
+    log_to_file_only(f"    [detail] ip link show {kernel_ifname}: mtu={kernel_mtu!r}  DB mtu={imtu!r}")
+    if kernel_mtu == str(imtu):
+        log_result(f"{prefix}: mtu={imtu}", "PASS")
+    else:
+        log_result(f"{prefix}: mtu DB={imtu} kernel={kernel_mtu}", "FAILED")
+        state.category_failures[cat].append(
+            f"{hostname}/{ifname}: DB mtu={imtu} but kernel mtu={kernel_mtu}"
+        )
+
+
+def _verify_platform_vlans(cat, hostname, platform_vlans):
+    _, vlan_config, _ = _run_on_host(hostname, "cat /proc/net/vlan/config", silent=True)
+    for vid in platform_vlans:
+        if vid in vlan_config:
+            log_result(f"  {hostname}: vlan_id={vid} in /proc/net/vlan/config", "PASS")
+        else:
+            log_result(f"  {hostname}: vlan_id={vid} in /proc/net/vlan/config", "FAILED")
+            state.category_failures[cat].append(
+                f"{hostname}: VLAN {vid} not found in /proc/net/vlan/config"
+            )
+
+
 def test_interfaces_vs_kernel():
     cat = "TestSuite 2 - Interface Validation"
     desc = [
@@ -56,6 +194,8 @@ def test_interfaces_vs_kernel():
                 continue
 
             kernel_ifname = _resolve_kernel_ifname(iface, ifaces)
+            if not kernel_ifname:
+                continue
             prefix = f"  {hostname}/{ifname} (kernel: {kernel_ifname})"
 
             rc, link_out, _ = _run_on_host(hostname, ["ip", "link", "show", kernel_ifname])
@@ -67,130 +207,28 @@ def test_interfaces_vs_kernel():
                 state.category_failures[cat].append(f"{hostname}/{ifname}: ip link show failed")
                 continue
 
-            flags_m = re.search(r"<([^>]+)>", link_out)
-            admin_up = "UP" in flags_m.group(1) if flags_m else False
-            oper_up = "state UP" in link_out or "LOWER_UP" in link_out
-
-            if admin_up:
-                log_result(f"{prefix}: admin UP", "PASS")
-            else:
-                log_result(f"{prefix}: admin UP", "FAILED")
-                state.category_failures[cat].append(f"{hostname}/{ifname}: not administratively UP")
-
-            if oper_up:
-                log_result(f"{prefix}: oper UP", "PASS")
-            else:
-                log_result(f"{prefix}: oper UP", "FAILED")
-                state.category_failures[cat].append(f"{hostname}/{ifname}: not operationally UP (no carrier)")
+            _check_admin_oper_up(cat, hostname, ifname, prefix, link_out)
 
             if iftype == "ethernet":
-                _, bond_out, _ = _run_on_host(
-                    hostname, f"test -f /proc/net/bonding/{kernel_ifname} && echo yes || echo no", silent=True)
-                _, vlan_out, _ = _run_on_host(
-                    hostname, f"test -f /proc/net/vlan/{kernel_ifname} && echo yes || echo no", silent=True)
-                bond_exists = 'yes' if 'yes' in bond_out else 'no'
-                vlan_exists = 'yes' if 'yes' in vlan_out else 'no'
-                log_to_file_only(f"    [detail] /proc/net/bonding/{kernel_ifname} exists: {bond_exists}"
-                                 f"  /proc/net/vlan/{kernel_ifname} exists: {vlan_exists}")
-                if "yes" in bond_out or "yes" in vlan_out:
-                    log_result(f"{prefix}: type ethernet vs kernel", "FAILED")
-                    state.category_failures[cat].append(
-                        f"{hostname}/{ifname}: DB type=ethernet but kernel shows bond/vlan")
-                else:
-                    log_result(f"{prefix}: type ethernet vs kernel", "PASS")
+                _check_ethernet_type(cat, hostname, ifname, prefix, kernel_ifname)
 
             if iftype == "ae":
-                rc2, _, _ = _run_on_host(hostname, ["test", "-f", f"/proc/net/bonding/{ifname}"], silent=True)
-                log_to_file_only(f"    [detail] /proc/net/bonding/{ifname} exists: {'yes' if rc2 == 0 else 'no'}")
-                if rc2 != 0:
-                    log_result(f"{prefix}: type ae (bond) vs kernel", "FAILED")
-                    state.category_failures[cat].append(
-                        f"{hostname}/{ifname}: DB type=ae but /proc/net/bonding/{ifname} missing")
-                else:
-                    log_result(f"{prefix}: type ae (bond) vs kernel", "PASS")
+                _check_ae_type(cat, hostname, ifname, prefix)
 
                 if aemode:
-                    _, bond_info, _ = _run_on_host(hostname, ["cat", f"/proc/net/bonding/{ifname}"], silent=True)
-                    kernel_mode = ""
-                    m = re.search(r"Bonding Mode:\s*(.+)", bond_info)
-                    if m:
-                        kernel_mode = m.group(1).strip()
-                    log_to_file_only(
-                        f"    [detail] /proc/net/bonding/{ifname}: Bonding Mode={kernel_mode!r}  DB aemode={aemode!r}")
-                    mode_map = {
-                        "active_standby": "fault-tolerance (active-backup)",
-                        "balanced_xor":   "load balancing (xor)",
-                        "802.3ad":        "IEEE 802.3ad",
-                    }
-                    expected = mode_map.get(aemode, aemode)
-                    if expected.lower() in kernel_mode.lower() or aemode.lower() in kernel_mode.lower():
-                        log_result(f"{prefix}: bond mode ({aemode})", "PASS")
-                    else:
-                        log_result(f"{prefix}: bond mode ({aemode}) vs kernel ({kernel_mode})", "FAILED")
-                        state.category_failures[cat].append(
-                            f"{hostname}/{ifname}: DB aemode={aemode} but kernel={kernel_mode}"
-                        )
+                    _check_ae_mode(cat, hostname, ifname, prefix, aemode)
 
                 if uses:
-                    _, bond_info, _ = _run_on_host(hostname, ["cat", f"/proc/net/bonding/{ifname}"], silent=True)
-                    kernel_slaves = re.findall(r"Slave Interface:\s*(\S+)", bond_info)
-                    log_to_file_only(
-                        f"    [detail] /proc/net/bonding/{ifname}: Slave Interfaces={kernel_slaves}  DB uses={uses}")
-                    missing = [m for m in uses if m not in kernel_slaves]
-                    if missing:
-                        log_result(f"{prefix}: bond members", "FAILED")
-                        state.category_failures[cat].append(
-                            f"{hostname}/{ifname}: bond members missing in kernel: {missing}"
-                        )
-                    else:
-                        log_result(f"{prefix}: bond members", "PASS")
+                    _check_ae_members(cat, hostname, ifname, prefix, uses)
 
             if iftype == "vlan":
-                _, vlan_test, _ = _run_on_host(
-                    hostname, f"test -f /proc/net/vlan/{kernel_ifname} && echo yes", silent=True)
-                log_to_file_only(
-                    f"    [detail] /proc/net/vlan/{kernel_ifname} exists: {'yes' if 'yes' in vlan_test else 'no'}")
-                if "yes" not in vlan_test:
-                    log_result(f"{prefix}: type vlan vs kernel", "FAILED")
-                    state.category_failures[cat].append(
-                        f"{hostname}/{ifname}: DB type=vlan but /proc/net/vlan/{kernel_ifname} missing")
-                else:
-                    log_result(f"{prefix}: type vlan vs kernel", "PASS")
+                _check_vlan_type(cat, hostname, ifname, prefix, kernel_ifname)
 
                 if vlan_id and vlan_id != "None":
-                    _, vlan_info, _ = _run_on_host(hostname, ["cat", f"/proc/net/vlan/{kernel_ifname}"], silent=True)
-                    m = re.search(r"VID:\s*(\d+)", vlan_info)
-                    kernel_vid = m.group(1) if m else ""
-                    log_to_file_only(
-                        f"    [detail] /proc/net/vlan/{kernel_ifname}: VID={kernel_vid!r}  DB vlan_id={vlan_id!r}")
-                    if kernel_vid == str(vlan_id):
-                        log_result(f"{prefix}: vlan_id={vlan_id}", "PASS")
-                    else:
-                        log_result(f"{prefix}: vlan_id DB={vlan_id} kernel={kernel_vid}", "FAILED")
-                        state.category_failures[cat].append(
-                            f"{hostname}/{ifname}: DB vlan_id={vlan_id} but kernel={kernel_vid}"
-                        )
-                    platform_vlans.append(str(vlan_id))
+                    _check_vlan_id(cat, hostname, ifname, prefix, kernel_ifname, vlan_id, platform_vlans)
 
             if imtu:
-                m = re.search(r"mtu (\d+)", link_out)
-                kernel_mtu = m.group(1) if m else ""
-                log_to_file_only(f"    [detail] ip link show {kernel_ifname}: mtu={kernel_mtu!r}  DB mtu={imtu!r}")
-                if kernel_mtu == str(imtu):
-                    log_result(f"{prefix}: mtu={imtu}", "PASS")
-                else:
-                    log_result(f"{prefix}: mtu DB={imtu} kernel={kernel_mtu}", "FAILED")
-                    state.category_failures[cat].append(
-                        f"{hostname}/{ifname}: DB mtu={imtu} but kernel mtu={kernel_mtu}"
-                    )
+                _check_mtu(cat, hostname, ifname, prefix, kernel_ifname, link_out, imtu)
 
         if platform_vlans:
-            _, vlan_config, _ = _run_on_host(hostname, "cat /proc/net/vlan/config", silent=True)
-            for vid in platform_vlans:
-                if vid in vlan_config:
-                    log_result(f"  {hostname}: vlan_id={vid} in /proc/net/vlan/config", "PASS")
-                else:
-                    log_result(f"  {hostname}: vlan_id={vid} in /proc/net/vlan/config", "FAILED")
-                    state.category_failures[cat].append(
-                        f"{hostname}: VLAN {vid} not found in /proc/net/vlan/config"
-                    )
+            _verify_platform_vlans(cat, hostname, platform_vlans)

@@ -7,6 +7,26 @@ from network_platform_audit.log import log_result
 from network_platform_audit.sysinv import get_host_names
 
 
+def _check_host_availability(cat, hostname, avail, bad_avail):
+    if avail in bad_avail:
+        log_result(f"host {hostname}: availability={avail}", "FAILED")
+        state.category_failures[cat].append(
+            f"host {hostname} has availability={avail} (expected available)"
+        )
+    else:
+        log_result(f"host {hostname}: availability={avail}", "PASS")
+
+
+def _check_host_operational(cat, hostname, oper):
+    if oper != "enabled":
+        log_result(f"host {hostname}: operational={oper}", "FAILED")
+        state.category_failures[cat].append(
+            f"host {hostname} has operational={oper} (expected enabled)"
+        )
+    else:
+        log_result(f"host {hostname}: operational={oper}", "PASS")
+
+
 def test_host_availability():
     cat = "TestSuite 1 - Host Availability"
     desc = [
@@ -27,18 +47,5 @@ def test_host_availability():
         avail = host.get("availability", "?")
         oper = host.get("operational", host.get("oper", "?"))
 
-        if avail in bad_avail:
-            log_result(f"host {hostname}: availability={avail}", "FAILED")
-            state.category_failures[cat].append(
-                f"host {hostname} has availability={avail} (expected available)"
-            )
-        else:
-            log_result(f"host {hostname}: availability={avail}", "PASS")
-
-        if oper != "enabled":
-            log_result(f"host {hostname}: operational={oper}", "FAILED")
-            state.category_failures[cat].append(
-                f"host {hostname} has operational={oper} (expected enabled)"
-            )
-        else:
-            log_result(f"host {hostname}: operational={oper}", "PASS")
+        _check_host_availability(cat, hostname, avail, bad_avail)
+        _check_host_operational(cat, hostname, oper)

@@ -15,23 +15,7 @@ from network_platform_audit.sysinv import get_host_names
 from network_platform_audit.sysinv import local_hostname
 
 
-def test_mtu_functional():
-    cat = "TestSuite 18 - MTU Functional Test"
-    desc = [
-        "1) Build a map of all IPs per network (subnet) across all hosts",
-        "2) For each network, find the local interface MTU and local IP",
-        "3) Ping each REMOTE host IP on that network from the local controller",
-        "   using full-size packets (payload = MTU - IP/ICMP headers, DF bit set)",
-        "4) Tests both IPv4 and IPv6 networks separately",
-        "5) A failure means the path between controllers cannot carry MTU-sized frames",
-    ]
-    print_category(cat, description=desc)
-
-    IPV4_OVERHEAD = 28
-    IPV6_OVERHEAD = 48
-
-    local_host = local_hostname()
-
+def _build_local_mtu_map(local_host):
     local_ifaces = _get_if_list(local_host)
     local_mtu_by_ifname = {}
     for iface in local_ifaces:
@@ -43,7 +27,10 @@ def test_mtu_functional():
                 local_mtu_by_ifname[ifname] = int(mtu_str)
             except ValueError:
                 pass
+    return local_mtu_by_ifname
 
+
+def _build_subnet_maps(local_host, local_mtu_by_ifname):
     subnet_hosts = defaultdict(lambda: defaultdict(list))
     subnet_mtu = {}
 
@@ -69,44 +56,78 @@ def test_mtu_functional():
             if hostname == local_host and ifname in local_mtu_by_ifname:
                 subnet_mtu[subnet] = local_mtu_by_ifname[ifname]
 
+    return subnet_hosts, subnet_mtu
+
+
+def _ping_remote_ips(cat, local_host, subnet, mtu, is_v6, payload, remote_ips):
+    for remote_host, r_ips in sorted(remote_ips.items()):
+        for r_ip in r_ips:
+            if is_v6:
+                cmd = ["ping6", "-c", "1", "-W", "3", "-s", str(payload), "-M", "do", r_ip]
+            else:
+                cmd = ["ping", "-c", "1", "-W", "3", "-s", str(payload), "-M", "do", r_ip]
+
+            rc, _, _ = run_log_only(cmd)
+            label = f"  {local_host} -> {remote_host} ({r_ip}) subnet={subnet} payload={payload}"
+            if rc == 0:
+                log_result(label, "PASS")
+            else:
+                log_result(label, "FAILED")
+                state.category_failures[cat].append(
+                    f"MTU {mtu} functional test FAILED: {local_host} -> "
+                    f"{remote_host} ({r_ip}) on {subnet} payload={payload}"
+                )
+
+
+def _test_subnet_mtu(cat, local_host, subnet, hosts_map, subnet_mtu, ipv4_overhead, ipv6_overhead):
+    local_ips = hosts_map.get(local_host, [])
+    remote_ips = {h: ips for h, ips in hosts_map.items() if h != local_host}
+
+    if not local_ips or not remote_ips:
+        return False
+
+    mtu = subnet_mtu.get(subnet)
+    if not mtu:
+        return False
+
+    is_v6 = ":" in subnet
+    overhead = ipv6_overhead if is_v6 else ipv4_overhead
+    payload = mtu - overhead
+    if payload <= 0:
+        return False
+
+    log(f"  [NET] {subnet}  mtu={mtu}  local_ip={local_ips[0]}")
+
+    _ping_remote_ips(cat, local_host, subnet, mtu, is_v6, payload, remote_ips)
+
+    return True
+
+
+def test_mtu_functional():
+    cat = "TestSuite 18 - MTU Functional Test"
+    desc = [
+        "1) Build a map of all IPs per network (subnet) across all hosts",
+        "2) For each network, find the local interface MTU and local IP",
+        "3) Ping each REMOTE host IP on that network from the local controller",
+        "   using full-size packets (payload = MTU - IP/ICMP headers, DF bit set)",
+        "4) Tests both IPv4 and IPv6 networks separately",
+        "5) A failure means the path between controllers cannot carry MTU-sized frames",
+    ]
+    print_category(cat, description=desc)
+
+    IPV4_OVERHEAD = 28
+    IPV6_OVERHEAD = 48
+
+    local_host = local_hostname()
+
+    local_mtu_by_ifname = _build_local_mtu_map(local_host)
+
+    subnet_hosts, subnet_mtu = _build_subnet_maps(local_host, local_mtu_by_ifname)
+
     tested = False
     for subnet, hosts_map in sorted(subnet_hosts.items()):
-        local_ips = hosts_map.get(local_host, [])
-        remote_ips = {h: ips for h, ips in hosts_map.items() if h != local_host}
-
-        if not local_ips or not remote_ips:
-            continue
-
-        mtu = subnet_mtu.get(subnet)
-        if not mtu:
-            continue
-
-        is_v6 = ":" in subnet
-        overhead = IPV6_OVERHEAD if is_v6 else IPV4_OVERHEAD
-        payload = mtu - overhead
-        if payload <= 0:
-            continue
-
-        tested = True
-        log(f"  [NET] {subnet}  mtu={mtu}  local_ip={local_ips[0]}")
-
-        for remote_host, r_ips in sorted(remote_ips.items()):
-            for r_ip in r_ips:
-                if is_v6:
-                    cmd = ["ping6", "-c", "1", "-W", "3", "-s", str(payload), "-M", "do", r_ip]
-                else:
-                    cmd = ["ping", "-c", "1", "-W", "3", "-s", str(payload), "-M", "do", r_ip]
-
-                rc, _, _ = run_log_only(cmd)
-                label = f"  {local_host} -> {remote_host} ({r_ip}) subnet={subnet} payload={payload}"
-                if rc == 0:
-                    log_result(label, "PASS")
-                else:
-                    log_result(label, "FAILED")
-                    state.category_failures[cat].append(
-                        f"MTU {mtu} functional test FAILED: {local_host} -> "
-                        f"{remote_host} ({r_ip}) on {subnet} payload={payload}"
-                    )
+        if _test_subnet_mtu(cat, local_host, subnet, hosts_map, subnet_mtu, IPV4_OVERHEAD, IPV6_OVERHEAD):
+            tested = True
 
     if not tested:
         log("[INFO] no shared subnets with remote hosts found - skipping MTU functional test")

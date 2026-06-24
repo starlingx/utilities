@@ -56,12 +56,12 @@ def _get_coredns_pid():
 
 # Mapping of GNP name patterns to sysinv pool name keywords
 GNP_NETWORK_MAP = {
-    "controller-mgmt-if-gnp":          ["management", "mgmt"],
-    "controller-oam-if-gnp":           ["oam"],
-    "controller-pxeboot-if-gnp":       ["pxeboot"],
-    "controller-admin-if-gnp":         ["admin"],
-    "controller-storage-if-gnp":       ["storage"],
-    "controller-cluster-host-if-gnp":  ["cluster-host"],
+    "controller-mgmt-if-gnp":          "mgmt",
+    "controller-oam-if-gnp":           "oam",
+    "controller-pxeboot-if-gnp":       "pxeboot",
+    "controller-admin-if-gnp":         "admin",
+    "controller-storage-if-gnp":       "storage",
+    "controller-cluster-host-if-gnp":  "cluster-host",
 }
 
 

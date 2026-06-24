@@ -9,6 +9,28 @@ from network_platform_audit.run import run_checked
 from network_platform_audit.run import tool_available
 
 
+def _check_required_tools(cat):
+    if not tool_available("crictl"):
+        log("[FAIL] crictl not available - required for CoreDNS checks")
+        state.category_failures[cat].append("crictl not installed")
+        return False
+    if not tool_available("nsenter"):
+        log("[FAIL] nsenter not available - required for CoreDNS checks")
+        state.category_failures[cat].append("nsenter not installed")
+        return False
+    return True
+
+
+def _ns_nslookup(pid, hostname):
+    return run_checked(["nsenter", "-n", "-t", pid, "--", "nslookup", hostname])
+
+
+def _check_ns_resolve(cat, pid, hostname, fail_msg):
+    rc, out, _ = _ns_nslookup(pid, hostname)
+    if rc != 0 or not out or "Address" not in out:
+        state.category_failures[cat].append(fail_msg)
+
+
 def test_coredns():
     cat = "TestSuite 14 - CoreDNS"
     desc = [
@@ -19,13 +41,7 @@ def test_coredns():
     ]
     print_category(cat, description=desc)
 
-    if not tool_available("crictl"):
-        log("[FAIL] crictl not available - required for CoreDNS checks")
-        state.category_failures[cat].append("crictl not installed")
-        return
-    if not tool_available("nsenter"):
-        log("[FAIL] nsenter not available - required for CoreDNS checks")
-        state.category_failures[cat].append("nsenter not installed")
+    if not _check_required_tools(cat):
         return
 
     pid = _get_coredns_pid()
@@ -36,13 +52,8 @@ def test_coredns():
 
     log(f"[INFO] coredns pod sandbox PID: {pid} (used for network namespace)")
 
-    def ns_nslookup(hostname):
-        return run_checked(["nsenter", "-n", "-t", pid, "--", "nslookup", hostname])
+    _check_ns_resolve(cat, pid, "kubernetes.default.svc.cluster.local",
+                      "CoreDNS: failed to resolve kubernetes.default.svc.cluster.local")
 
-    rc, out, _ = ns_nslookup("kubernetes.default.svc.cluster.local")
-    if rc != 0 or not out or "Address" not in out:
-        state.category_failures[cat].append("CoreDNS: failed to resolve kubernetes.default.svc.cluster.local")
-
-    rc, out, _ = ns_nslookup("controller-0")
-    if rc != 0 or not out or "Address" not in out:
-        state.category_failures[cat].append("CoreDNS: failed to resolve controller-0 (dnsmasq forward)")
+    _check_ns_resolve(cat, pid, "controller-0",
+                      "CoreDNS: failed to resolve controller-0 (dnsmasq forward)")

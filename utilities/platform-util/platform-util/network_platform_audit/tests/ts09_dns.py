@@ -11,6 +11,58 @@ from network_platform_audit.run import run_checked
 from network_platform_audit.run import run_log_only
 
 
+def _get_sysinv_nameservers():
+    rc, dns_out, _ = run_log_only("system dns-show")
+    sysinv_ns = []
+    if rc == 0 and dns_out:
+        m = re.search(r"nameservers\s*\|\s*([^\|]+)", dns_out)
+        if m:
+            sysinv_ns = [ns.strip() for ns in m.group(1).split(",") if ns.strip()]
+    return sysinv_ns
+
+
+def _get_resolv_conf_nameservers():
+    resolv_ns = []
+    try:
+        with open("/etc/resolv.conf") as f:
+            for line in f:
+                if line.startswith("nameserver"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        resolv_ns.append(parts[1])
+    except Exception:
+        pass
+    return resolv_ns
+
+
+def _check_sysinv_ns_in_resolv_conf(cat, sysinv_ns, resolv_ns):
+    for ns in sysinv_ns:
+        if ns in resolv_ns:
+            log_result(f"nameserver {ns} in /etc/resolv.conf", "PASS")
+        else:
+            log_result(f"nameserver {ns} in /etc/resolv.conf", "FAILED")
+            state.category_failures[cat].append(f"nameserver {ns} in sysinv but not in /etc/resolv.conf")
+
+
+def _probe_nameservers(all_ns):
+    for ns in all_ns:
+        flag = "-6" if ":" in ns else ""
+        run_checked(["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ns])
+        run_checked(["nc", "-vz", "-w", "2", ns, "53"])
+        run_checked(["nc", "-vzu", "-w", "2", ns, "53"])
+        log("")
+
+
+def _check_resolve_platform_hostnames(cat):
+    for hostname in ("controller-0", "controller"):
+        rc, out, _ = run_log_only(["getent", "hosts", hostname])
+        if rc == 0 and out.strip():
+            log_result(f"resolve {hostname}", "PASS")
+        else:
+            log_result(f"resolve {hostname}", "FAILED")
+            state.category_failures[cat].append(f"hostname {hostname!r} did not resolve")
+
+
 def test_dns_extended():
     cat = "TestSuite 9 - DNS"
     desc = [
@@ -22,43 +74,12 @@ def test_dns_extended():
     ]
     print_category(cat, description=desc)
 
-    rc, dns_out, _ = run_log_only("system dns-show")
-    sysinv_ns = []
-    if rc == 0 and dns_out:
-        m = re.search(r"nameservers\s*\|\s*([^\|]+)", dns_out)
-        if m:
-            sysinv_ns = [ns.strip() for ns in m.group(1).split(",") if ns.strip()]
+    sysinv_ns = _get_sysinv_nameservers()
+    resolv_ns = _get_resolv_conf_nameservers()
 
-    resolv_ns = []
-    try:
-        with open("/etc/resolv.conf") as f:
-            for line in f:
-                if line.startswith("nameserver"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        resolv_ns.append(parts[1])
-    except Exception:
-        pass
-
-    for ns in sysinv_ns:
-        if ns in resolv_ns:
-            log_result(f"nameserver {ns} in /etc/resolv.conf", "PASS")
-        else:
-            log_result(f"nameserver {ns} in /etc/resolv.conf", "FAILED")
-            state.category_failures[cat].append(f"nameserver {ns} in sysinv but not in /etc/resolv.conf")
+    _check_sysinv_ns_in_resolv_conf(cat, sysinv_ns, resolv_ns)
 
     all_ns = list(dict.fromkeys(sysinv_ns + resolv_ns))
-    for ns in all_ns:
-        flag = "-6" if ":" in ns else ""
-        run_checked(["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ns])
-        run_checked(["nc", "-vz", "-w", "2", ns, "53"])
-        run_checked(["nc", "-vzu", "-w", "2", ns, "53"])
-        log("")
+    _probe_nameservers(all_ns)
 
-    for hostname in ("controller-0", "controller"):
-        rc, out, _ = run_log_only(["getent", "hosts", hostname])
-        if rc == 0 and out.strip():
-            log_result(f"resolve {hostname}", "PASS")
-        else:
-            log_result(f"resolve {hostname}", "FAILED")
-            state.category_failures[cat].append(f"hostname {hostname!r} did not resolve")
+    _check_resolve_platform_hostnames(cat)

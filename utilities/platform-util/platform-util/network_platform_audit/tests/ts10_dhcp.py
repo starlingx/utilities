@@ -15,6 +15,7 @@ from network_platform_audit.run import run_log_only
 from network_platform_audit.ssh import ssh_check_remote
 from network_platform_audit.sysinv import _parse_generic_table
 from network_platform_audit.sysinv import _run_on_host
+from network_platform_audit.sysinv import _run_system_list
 from network_platform_audit.sysinv import get_host_names
 from network_platform_audit.sysinv import local_hostname
 
@@ -34,7 +35,7 @@ def _detect_dnsmasq_file(filename):
 
 def _get_pxeboot_iface():
     """Detect pxeboot interface name by looking for pxeboot address in ip addr."""
-    rc, out, _ = run_log_only("system addrpool-list")
+    rc, out, _ = _run_system_list("system addrpool-list")
     pxe_subnet = ""
     if rc == 0 and out:
         for pool in _parse_generic_table(out, key_col="name"):
@@ -48,20 +49,7 @@ def _get_pxeboot_iface():
     return m.group(1) if m else None
 
 
-def test_dhcp_extended():
-    cat = "TestSuite 10 - dnsmasq / DHCP"
-    desc = [
-        "1) Check DHCP client (dhclient) running for DHCP interfaces",
-        "2) Resolve hostnames from dnsmasq addn_hosts",
-        "3) Ping dnsmasq host-record IPs",
-        "4) Verify dnsmasq DHCP socket on pxeboot (UDP 67)",
-        "5) Verify TFTP port (UDP 69) in LISTEN",
-        "6) Verify dnsmasq.leases file exists",
-        "7) Verify /etc/hosts name resolution on all hosts (local + remote via SSH)",
-    ]
-    print_category(cat, description=desc)
-
-    interfaces_dir = "/etc/network/interfaces.d"
+def _find_dhcp_ifaces(interfaces_dir):
     dhcp_ifaces = []
     if os.path.isdir(interfaces_dir):
         for fname in os.listdir(interfaces_dir):
@@ -75,7 +63,10 @@ def test_dhcp_extended():
                     dhcp_ifaces.append(m.group(1))
             except Exception:
                 continue
+    return dhcp_ifaces
 
+
+def _check_dhclient_running(cat, dhcp_ifaces):
     if dhcp_ifaces:
         _, ps_out, _ = run_log_only("ps -ef")
         for iface in dhcp_ifaces:
@@ -87,7 +78,8 @@ def test_dhcp_extended():
     else:
         log("[INFO] no DHCP-enabled interfaces found")
 
-    addn_hosts_path = _detect_dnsmasq_file("dnsmasq.addn_hosts")
+
+def _check_addn_hosts(cat, addn_hosts_path):
     if addn_hosts_path and os.path.exists(addn_hosts_path):
         log(f"  Analyzing file: {addn_hosts_path}")
         try:
@@ -116,7 +108,8 @@ def test_dhcp_extended():
     else:
         log("[INFO] dnsmasq.addn_hosts not found")
 
-    addn_conf_path = _detect_dnsmasq_file("dnsmasq.addn_conf")
+
+def _check_addn_conf(cat, addn_conf_path):
     if addn_conf_path and os.path.exists(addn_conf_path):
         try:
             with open(addn_conf_path) as f:
@@ -141,6 +134,8 @@ def test_dhcp_extended():
         except Exception as e:
             state.category_failures[cat].append(f"failed to read dnsmasq.addn_conf: {e}")
 
+
+def _check_dhcp_tftp_ports(cat):
     pxe_iface = _get_pxeboot_iface()
     rc, ss_out, _ = run_log_only("ss -ulnp sport = :67 or sport = :69")
     if pxe_iface and ss_out:
@@ -158,12 +153,16 @@ def test_dhcp_extended():
         log_result("TFTP port 69 in LISTEN", "FAILED")
         state.category_failures[cat].append("UDP port 69 (TFTP) not listening")
 
+
+def _check_leases_file():
     leases_file = _detect_dnsmasq_file("dnsmasq.leases")
     if leases_file and os.path.exists(leases_file):
         log_result("dnsmasq.leases file found", "PASS")
     else:
         log("[INFO] dnsmasq.leases not found")
 
+
+def _read_hosts_entries(cat):
     hosts_entries = []
     try:
         with open("/etc/hosts") as f:
@@ -180,46 +179,96 @@ def test_dhcp_extended():
     except Exception as e:
         state.category_failures[cat].append(f"failed to read /etc/hosts: {e}")
         hosts_entries = []
+    return hosts_entries
 
+
+def _check_host_entry_resolution(hostname, ip, name):
+    failed = []
+    if hostname == local_hostname():
+        rc, out, _ = run(["getent", "hosts", name])
+    else:
+        rc, out, _ = _run_on_host(hostname, ["getent", "hosts", name], silent=False)
+    if rc is None:
+        log(f"  [SKIP] SSH unavailable for {hostname} - skipping /etc/hosts checks")
+        return failed, True
+
+    resolved = out.split()[0] if rc == 0 and out.strip() else ""
+    if resolved == ip:
+        log_result(f"  [{hostname}] {name} -> {ip}", "PASS")
+    else:
+        got = resolved if resolved else "no result"
+        log_result(f"  [{hostname}] {name} -> {ip} (got: {got})", "FAILED")
+        failed.append(f"{name}: expected {ip}, got {got}")
+        return failed, False
+
+    flag = "-6" if ":" in ip else ""
+    if hostname == local_hostname():
+        rc2, _, _ = run(["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ip])
+    else:
+        ping_cmd = ["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ip]
+        rc2, _, _ = _run_on_host(hostname, ping_cmd, silent=False)
+    if rc2 == 0:
+        log_result(f"  [{hostname}] ping {name} ({ip})", "PASS")
+    else:
+        log_result(f"  [{hostname}] ping {name} ({ip})", "FAILED")
+        failed.append(f"{name} ({ip}): unreachable via ping")
+
+    return failed, False
+
+
+def _check_hosts_resolution_on_host(cat, hostname, hosts_entries):
+    log(f"  [HOST] {hostname}")
+    if hostname != local_hostname() and hostname in state.SSH_FAILED_HOSTS:
+        ssh_check_remote(cat, hostname, "/etc/hosts resolution")
+        return
+
+    failed = []
+    for ip, name in hosts_entries:
+        entry_failed, stop = _check_host_entry_resolution(hostname, ip, name)
+        failed.extend(entry_failed)
+        if stop:
+            break
+
+    if failed:
+        for msg in failed:
+            state.category_failures[cat].append(f"{hostname}: /etc/hosts resolution: {msg}")
+
+
+def _check_hosts_resolution_all_hosts(cat, hosts_entries):
     if hosts_entries:
         log("")
         log("[INFO] verifying /etc/hosts name resolution on all hosts...")
         for hostname in get_host_names():
-            log(f"  [HOST] {hostname}")
-            if hostname != local_hostname() and hostname in state.SSH_FAILED_HOSTS:
-                ssh_check_remote(cat, hostname, "/etc/hosts resolution")
-                continue
+            _check_hosts_resolution_on_host(cat, hostname, hosts_entries)
 
-            failed = []
-            for ip, name in hosts_entries:
-                if hostname == local_hostname():
-                    rc, out, _ = run(["getent", "hosts", name])
-                else:
-                    rc, out, _ = _run_on_host(hostname, ["getent", "hosts", name], silent=False)
-                if rc is None:
-                    log(f"  [SKIP] SSH unavailable for {hostname} - skipping /etc/hosts checks")
-                    break
-                resolved = out.split()[0] if rc == 0 and out.strip() else ""
-                if resolved == ip:
-                    log_result(f"  [{hostname}] {name} -> {ip}", "PASS")
-                else:
-                    got = resolved if resolved else "no result"
-                    log_result(f"  [{hostname}] {name} -> {ip} (got: {got})", "FAILED")
-                    failed.append(f"{name}: expected {ip}, got {got}")
-                    continue
 
-                flag = "-6" if ":" in ip else ""
-                if hostname == local_hostname():
-                    rc2, _, _ = run(["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ip])
-                else:
-                    ping_cmd = ["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ip]
-                    rc2, _, _ = _run_on_host(hostname, ping_cmd, silent=False)
-                if rc2 == 0:
-                    log_result(f"  [{hostname}] ping {name} ({ip})", "PASS")
-                else:
-                    log_result(f"  [{hostname}] ping {name} ({ip})", "FAILED")
-                    failed.append(f"{name} ({ip}): unreachable via ping")
+def test_dhcp_extended():
+    cat = "TestSuite 10 - dnsmasq / DHCP"
+    desc = [
+        "1) Check DHCP client (dhclient) running for DHCP interfaces",
+        "2) Resolve hostnames from dnsmasq addn_hosts",
+        "3) Ping dnsmasq host-record IPs",
+        "4) Verify dnsmasq DHCP socket on pxeboot (UDP 67)",
+        "5) Verify TFTP port (UDP 69) in LISTEN",
+        "6) Verify dnsmasq.leases file exists",
+        "7) Verify /etc/hosts name resolution on all hosts (local + remote via SSH)",
+    ]
+    print_category(cat, description=desc)
 
-            if failed:
-                for msg in failed:
-                    state.category_failures[cat].append(f"{hostname}: /etc/hosts resolution: {msg}")
+    interfaces_dir = "/etc/network/interfaces.d"
+    dhcp_ifaces = _find_dhcp_ifaces(interfaces_dir)
+    _check_dhclient_running(cat, dhcp_ifaces)
+
+    addn_hosts_path = _detect_dnsmasq_file("dnsmasq.addn_hosts")
+    _check_addn_hosts(cat, addn_hosts_path)
+
+    addn_conf_path = _detect_dnsmasq_file("dnsmasq.addn_conf")
+    _check_addn_conf(cat, addn_conf_path)
+
+    _check_dhcp_tftp_ports(cat)
+
+    _check_leases_file()
+
+    hosts_entries = _read_hosts_entries(cat)
+
+    _check_hosts_resolution_all_hosts(cat, hosts_entries)

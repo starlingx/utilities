@@ -12,8 +12,31 @@ from network_platform_audit.run import tool_available
 from network_platform_audit.ssh import ssh_check_remote
 from network_platform_audit.sysinv import _parse_generic_table
 from network_platform_audit.sysinv import _run_on_host
+from network_platform_audit.sysinv import _run_system_list
 from network_platform_audit.sysinv import get_host_names
 from network_platform_audit.sysinv import local_hostname
+
+
+def _check_port_pci(cat, hostname, pname, prefix, pciaddr, lspci_out):
+    if pciaddr and pciaddr in lspci_out:
+        log_result(f"{prefix}: PCI {pciaddr} in lspci", "PASS")
+    elif pciaddr:
+        log_result(f"{prefix}: PCI {pciaddr} in lspci", "FAILED")
+        state.category_failures[cat].append(f"{hostname}/{pname}: PCI {pciaddr} not found in lspci")
+
+
+def _check_port_driver(cat, hostname, pname, prefix, driver):
+    rc2, ethtool_out, _ = _run_on_host(hostname, ["ethtool", "-i", pname])
+    if rc2 == 0:
+        m = re.search(r"driver:\s*(\S+)", ethtool_out)
+        kernel_driver = m.group(1) if m else ""
+        if kernel_driver == driver:
+            log_result(f"{prefix}: driver={driver}", "PASS")
+        else:
+            log_result(f"{prefix}: driver DB={driver} kernel={kernel_driver}", "FAILED")
+            state.category_failures[cat].append(
+                f"{hostname}/{pname}: driver DB={driver} kernel={kernel_driver}"
+            )
 
 
 def test_host_ports():
@@ -33,7 +56,7 @@ def test_host_ports():
     for hostname in get_host_names():
         log(f"[HOST] {hostname}")
 
-        rc, out, _ = run_log_only(["system", "host-port-list", hostname])
+        rc, out, _ = _run_system_list(["system", "host-port-list", hostname])
 
         if rc != 0 or not out:
             log(f"  [INFO] no ports or failed to query for {hostname}")
@@ -55,21 +78,7 @@ def test_host_ports():
             driver = port.get("driver", "")
             prefix = f"  {hostname}/{pname}"
 
-            if pciaddr and pciaddr in lspci_out:
-                log_result(f"{prefix}: PCI {pciaddr} in lspci", "PASS")
-            elif pciaddr:
-                log_result(f"{prefix}: PCI {pciaddr} in lspci", "FAILED")
-                state.category_failures[cat].append(f"{hostname}/{pname}: PCI {pciaddr} not found in lspci")
+            _check_port_pci(cat, hostname, pname, prefix, pciaddr, lspci_out)
 
             if driver and pname != "?":
-                rc2, ethtool_out, _ = _run_on_host(hostname, ["ethtool", "-i", pname])
-                if rc2 == 0:
-                    m = re.search(r"driver:\s*(\S+)", ethtool_out)
-                    kernel_driver = m.group(1) if m else ""
-                    if kernel_driver == driver:
-                        log_result(f"{prefix}: driver={driver}", "PASS")
-                    else:
-                        log_result(f"{prefix}: driver DB={driver} kernel={kernel_driver}", "FAILED")
-                        state.category_failures[cat].append(
-                            f"{hostname}/{pname}: driver DB={driver} kernel={kernel_driver}"
-                        )
+                _check_port_driver(cat, hostname, pname, prefix, driver)
