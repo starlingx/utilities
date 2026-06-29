@@ -1662,7 +1662,7 @@ in the test directory. See docs/ARCHITECTURE.md
 
 
 # Version information
-__version__ = "1.1"
+__version__ = "1.2"
 
 # Default timing constraints
 DEFAULT_MAX_TIME_DELTA = 45   # Default max seconds for pair blocks
@@ -2306,7 +2306,8 @@ def main():
             print("Use --help for usage information", file=sys.stderr)
             sys.exit(1)
 
-        bundle_host_list, bundle_host_list_dated = detect_bundle_hosts(args.bundle_name)
+        bundle_host_list, bundle_host_list_dated = detect_bundle_hosts(
+            args.bundle_name)
 
         # Handle host filtering options
         if args.hosts:
@@ -2330,9 +2331,37 @@ def main():
     else:
         bundle_host_list = []
         bundle_host_list_dated = []
-        # Make logs_dir absolute for system root
+        # Resolve a relative logs_dir. In system mode (no --bundle), the
+        # default 'var/log' should resolve to '/var/log'. But explicit
+        # relative paths like '.', './foo', or '../foo' should resolve
+        # relative to the current working directory so the user can
+        # point the tool at logs in any folder. Heuristic: if the path
+        # exists relative to cwd, prefer cwd; otherwise fall back to
+        # bundle-root-relative.
         if not os.path.isabs(args.logs_dir):
-            args.logs_dir = os.path.join('/', args.logs_dir)
+            cwd_path = os.path.abspath(args.logs_dir)
+            root_path = os.path.normpath(os.path.join('/', args.logs_dir))
+            if os.path.isdir(cwd_path):
+                args.logs_dir = cwd_path
+            else:
+                args.logs_dir = root_path
+
+        # Remember the user-supplied logs_dir before any auto-descent
+        # so that output paths can be displayed relative to what the
+        # user actually typed.
+        args.user_logs_dir = args.logs_dir
+
+        # If the resolved logs_dir contains a var/log subdirectory,
+        # automatically descend into it. Avoids scanning collect bundle
+        # host directories that contain non-log subtrees like var/extra,
+        # etc, root, report_analysis, etc. The heuristic only applies
+        # when the user did NOT explicitly point at a var/log path.
+        nested_var_log = os.path.join(args.logs_dir, 'var', 'log')
+        if (os.path.isdir(nested_var_log) and
+                not args.logs_dir.rstrip('/').endswith(os.path.join('var', 'log'))):
+            print(f"Note: descending into {nested_var_log} (found var/log "
+                  f"subdir under {args.logs_dir})")
+            args.logs_dir = nested_var_log
 
         # Error if host options used without --bundle
         if args.hosts:
@@ -2666,13 +2695,18 @@ def main():
                 host_dir = os.path.join(
                     args.bundle_name, dated_dir, original_logs_dir
                 )
-                matched, skipped = discover_window_files(
-                    host_dir, window_file_patterns, start_date, stop_date
-                )
-                total_matched += len(matched)
-                total_skipped += len(skipped)
+                progress_type = ProgressType(args.progress)
+                progress_active = start_progress_indicator(progress_type)
+                try:
+                    matched, skipped = discover_window_files(
+                        host_dir, window_file_patterns, start_date, stop_date
+                    )
+                finally:
+                    stop_progress_indicator(progress_active)
                 print(f"  {hostname}: {len(matched)} matched"
                       f", {len(skipped)} skipped")
+                total_matched += len(matched)
+                total_skipped += len(skipped)
                 for fname, first_ts, last_ts in matched:
                     if fname in file_info:
                         if first_ts < file_info[fname]['first']:
@@ -2715,9 +2749,29 @@ def main():
             )
         else:
             print("\nWindow Model:")
-            matched, skipped = discover_window_files(
-                args.logs_dir, window_file_patterns, start_date, stop_date
-            )
+            display_root = getattr(args, 'user_logs_dir', args.logs_dir)
+            print(f"  Scanning {display_root} ", end='', flush=True)
+            progress_type = ProgressType(args.progress)
+            progress_active = start_progress_indicator(progress_type)
+            try:
+                matched, skipped = discover_window_files(
+                    args.logs_dir, window_file_patterns, start_date, stop_date
+                )
+            finally:
+                stop_progress_indicator(progress_active)
+            print(f" {len(matched)} matched, {len(skipped)} skipped")
+
+            # Re-base relnames on user_logs_dir so paths are shown the
+            # way the user supplied them (e.g. var/log/syslog instead
+            # of just syslog after the auto-descent into var/log).
+            user_root = getattr(args, 'user_logs_dir', args.logs_dir)
+            if user_root != args.logs_dir:
+                prefix = os.path.relpath(args.logs_dir, user_root)
+                matched = [(os.path.join(prefix, r), f, l)
+                           for (r, f, l) in matched]
+                skipped = [(os.path.join(prefix, r), reason)
+                           for (r, reason) in skipped]
+
             print_window_summary(
                 matched, skipped, start_date, stop_date,
                 auto_detected=(original_start_date == start_date
@@ -3071,27 +3125,86 @@ def main():
             # Run graph processing after all model search phases are complete
             if 'graph' in variables and hasattr(args, 'graph_files'):
                 import subprocess
+                graph_tool_path = os.path.join(os.path.dirname(__file__), 'lpmp_graph.py')
+                graph_filename_part = variables['graph'].replace(' ', '_')
+
+                # Collect (hostname, csv_path) pairs for the combined system graph.
+                host_csv_entries = []
+
                 for profile_file, hostname in args.graph_files:
                     try:
                         # Get the directory of the profile file to place graph files there
                         profile_dir = os.path.dirname(profile_file)
-                        # Get the lpmp_graph.py path from the lpmptool directory
-                        graph_tool_path = os.path.join(os.path.dirname(__file__), 'lpmp_graph.py')
 
                         cmd = [
                             'python3', graph_tool_path,
                             '--input', profile_file,
                             '--name', variables['graph']
                         ]
-                        if args.verbose >= 1:
+                        # Forward graph style declared by the model (e.g.
+                        # 'state' for the collectd overage timeline).
+                        if settings.get('graph_style'):
+                            cmd.extend(['--style', settings['graph_style']])
+                        # Forward -s/-e so the graph respects the same time window
+                        if args.start_date:
+                            cmd.extend(['--start-date', args.start_date])
+                        if args.stop_date:
+                            cmd.extend(['--stop-date', args.stop_date])
+                        # Forward the verbose level: -v counts in the child
+                        # match the parent's count.
+                        for _ in range(args.verbose):
                             cmd.append('--verbose')
 
                         vlog1(f"Running graph processing: {' '.join(cmd)}")
 
                         subprocess.run(cmd, cwd=profile_dir, check=True)
                         vlog1(f"Graph processing completed for {hostname}")
+
+                        # Record the per-host CSV path that lpmp_graph.py just
+                        # produced so we can fold it into a system-level graph.
+                        profile_base = os.path.splitext(os.path.basename(profile_file))[0]
+                        host_csv = os.path.join(
+                            profile_dir,
+                            f"{profile_base}_{graph_filename_part}.csv")
+                        if os.path.exists(host_csv):
+                            host_csv_entries.append((hostname, host_csv))
                     except subprocess.CalledProcessError as e:
                         print(f"Warning: Graph processing failed for {hostname}: {e}", file=sys.stderr)
+
+                # Multi-host: produce a single combined PNG with one line per host.
+                # State-style graphs (e.g. overage timeline) are not yet
+                # supported in combined mode, so skip the combine step
+                # for those models.
+                if len(host_csv_entries) > 1 and settings.get('graph_style') != 'state':
+                    try:
+                        system_png = os.path.join(
+                            bundle_base_dir,
+                            f"{args.lab_name}_system_profile.timeline_{graph_filename_part}.png")
+                        cmd = [
+                            'python3', graph_tool_path,
+                            '--combine',
+                            '--output', system_png,
+                            '--name', variables['graph'],
+                        ]
+                        for hostname, csv_path in host_csv_entries:
+                            cmd.extend(['--host-csv', f'{hostname}={csv_path}'])
+                        # Range bounds are echoed for traceability; per-host CSVs
+                        # are already trimmed at extraction time.
+                        if args.start_date:
+                            cmd.extend(['--start-date', args.start_date])
+                        if args.stop_date:
+                            cmd.extend(['--stop-date', args.stop_date])
+                        # Forward the verbose level: -v counts in the child
+                        # match the parent's count.
+                        for _ in range(args.verbose):
+                            cmd.append('--verbose')
+
+                        vlog1(f"Running combined graph processing: {' '.join(cmd)}")
+                        subprocess.run(cmd, cwd=bundle_base_dir, check=True)
+                        vlog1(f"Combined system graph completed: {system_png}")
+                    except subprocess.CalledProcessError as e:
+                        print(f"Warning: Combined graph processing failed: {e}",
+                              file=sys.stderr)
 
             # Verify timeline bounds for timeline models
             if args.model_type == ModelType.TIMELINE:
@@ -3329,7 +3442,18 @@ def main():
                     '--input', profile_file,
                     '--name', variables['graph']
                 ]
-                if args.verbose >= 1:
+                # Forward graph style declared by the model (e.g.
+                # 'state' for the collectd overage timeline).
+                if settings.get('graph_style'):
+                    cmd.extend(['--style', settings['graph_style']])
+                # Forward -s/-e so the graph respects the same time window
+                if args.start_date:
+                    cmd.extend(['--start-date', args.start_date])
+                if args.stop_date:
+                    cmd.extend(['--stop-date', args.stop_date])
+                # Forward the verbose level: -v counts in the child match
+                # the parent's count.
+                for _ in range(args.verbose):
                     cmd.append('--verbose')
 
                 vlog1(f"Running graph processing: {' '.join(cmd)}")

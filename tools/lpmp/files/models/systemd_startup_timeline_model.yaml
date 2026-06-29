@@ -28,13 +28,13 @@ blocks:
   - label: "Kernel Boot Trigger"
     file: "kern.log*"
     timeline:
-      - "Kernel command line:"
+      - 'Kernel command line:'
 
   - label: "Systemd Startup"
     file: "daemon.log*"
     timeline:
-      - "Starting Create System Users"
+      - 'Starting Create System Users'
 
   - label: "Host Startup"
     file: "daemon.log*"
-    timeline: "{daemon}"
+    timeline: '{daemon}'

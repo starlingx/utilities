@@ -35,6 +35,33 @@ import unittest
 sys.dont_write_bytecode = True
 
 
+def _reorder_bundle_tests_last(suite):
+    """Flatten a discovered TestSuite and reassemble so test classes
+    with 'Bundle' in their name run after everything else.
+
+    Bundle tests are typically the slowest (they scan a real collect
+    bundle), so deferring them keeps fast feedback on the rest of the
+    suite when running interactively.
+    """
+    def _flatten(s):
+        out = []
+        for item in s:
+            if isinstance(item, unittest.TestSuite):
+                out.extend(_flatten(item))
+            else:
+                out.append(item)
+        return out
+
+    non_bundle = []
+    bundle = []
+    for test in _flatten(suite):
+        if 'Bundle' in test.__class__.__name__:
+            bundle.append(test)
+        else:
+            non_bundle.append(test)
+    return unittest.TestSuite(non_bundle + bundle)
+
+
 class ColoredTestResult(unittest.TextTestResult):
     """Custom test result class with colored output"""
 
@@ -46,10 +73,21 @@ class ColoredTestResult(unittest.TextTestResult):
         self.verbose_mode = verbose_mode
         self.start_time = None
         self._real_stderr = sys.__stderr__  # For progress dots when stdout is captured
+        # One-shot newline when the bundle-mode section starts so the
+        # slow tests visually separate from the fast ones in the
+        # progress-dot stream.
+        self._bundle_section_marked = False
 
     def startTest(self, test):
         super().startTest(test)
         self.current_test = test
+        # First time we enter a 'Bundle' class, drop a newline on the
+        # dot stream so the slow bundle section is visually separated.
+        if (not self._bundle_section_marked
+                and 'Bundle' in test.__class__.__name__):
+            self._bundle_section_marked = True
+            if not self.verbose_mode:
+                print('', file=self._real_stderr, flush=True)
         if self.verbose_mode:
             import time
             self.start_time = time.time()
@@ -133,6 +171,34 @@ class ColoredTestResult(unittest.TextTestResult):
                 print("-" * 40)
                 print(details)
 
+    def print_skip_details(self):
+        """List each skipped test and the reason it was skipped.
+
+        When --bundle is not specified, bundle-mode tests are skipped
+        as a batch by design; their per-test listing is noisy and
+        already summarised by the closing 'Note: N bundle regression
+        tests were skipped' line, so it is filtered out here.
+        """
+        if not self.skipped:
+            return
+        bundle_mode = bool(os.environ.get('LPMP_TEST_BUNDLE'))
+        entries = []
+        for test, reason in self.skipped:
+            class_name = test.__class__.__name__
+            if not bundle_mode and 'Bundle' in class_name:
+                continue
+            entries.append((test, reason))
+        if not entries:
+            return
+        print("\n" + "=" * 60)
+        print(f"SKIPPED TESTS ({len(entries)})")
+        print("=" * 60)
+        for test, reason in entries:
+            class_name = test.__class__.__name__
+            method_name = getattr(test, '_testMethodName', str(test))
+            print(f"  {class_name}.{method_name}")
+            print(f"    reason: {reason}")
+
 
 class ColoredTestRunner(unittest.TextTestRunner):
     """Custom test runner with colored results"""
@@ -179,7 +245,8 @@ def run_tests_with_coverage():
 
             try:
                 loader = unittest.TestLoader()
-                suite = loader.discover('.', pattern='test_*.py')
+                suite = _reorder_bundle_tests_last(
+                    loader.discover('.', pattern='test_*.py'))
                 runner = ColoredTestRunner(verbosity=0, stream=f)
                 result = runner.run(suite)
             finally:
@@ -283,6 +350,7 @@ def run_tests_with_coverage():
                   f"({failed_count}/{result.testsRun} failed)\033[0m")
             print(f"Full test output saved to: {output_file}")
             result.print_failure_details()
+        result.print_skip_details()
 
         return result.wasSuccessful()
 
@@ -303,7 +371,8 @@ def run_tests_without_coverage(verbose_mode=False):
     if verbose_mode:
         # In verbose mode, don't redirect output so we can see test names
         loader = unittest.TestLoader()
-        suite = loader.discover('.', pattern='test_*.py')
+        suite = _reorder_bundle_tests_last(
+            loader.discover('.', pattern='test_*.py'))
         runner = ColoredTestRunner(verbosity=2, verbose_mode=True)
         result = runner.run(suite)
 
@@ -330,7 +399,8 @@ def run_tests_without_coverage(verbose_mode=False):
 
             try:
                 loader = unittest.TestLoader()
-                suite = loader.discover('.', pattern='test_*.py')
+                suite = _reorder_bundle_tests_last(
+                    loader.discover('.', pattern='test_*.py'))
                 runner = ColoredTestRunner(verbosity=0, stream=f)
                 result = runner.run(suite)
             finally:
@@ -358,6 +428,7 @@ def run_tests_without_coverage(verbose_mode=False):
         if not verbose_mode:
             print(f"Full test output saved to: {output_file}")
         result.print_failure_details()
+    result.print_skip_details()
 
     return result.wasSuccessful()
 

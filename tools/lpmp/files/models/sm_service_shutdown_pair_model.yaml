@@ -28,7 +28,7 @@
 #
 # Pattern Syntax:
 #   - "string"                  - literal match
-#   - r"regex \d+"             - regex match
+#   - 'regex \d+'             - regex (use single quotes)
 #
 ########################################################################
 
@@ -41,7 +41,7 @@ blocks:
   - label: "SH Service Shutdown Trigger"
     file: ["sm.log*"]
     patterns:
-      - ".*Node enable: blocked. node unhealthy file /var/run/.sm_node_unhealthy found"
+      - '.*Node enable: blocked. node unhealthy file /var/run/.sm_node_unhealthy found'
 
   - label: "cert-alarm"
     file: ["sm.log*"]

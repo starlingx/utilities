@@ -110,7 +110,7 @@ def find_pattern_in_files(log_dir,
         # This optimization skips old rotated files that end before our search timestamp
         # The tolerance (block_time_tolerance) handles timing variations between patterns
         if after_timestamp:
-            first_ts, last_ts = get_file_date_range(filepath)
+            first_ts, last_ts = get_file_date_range(filepath, filename)
             if first_ts and last_ts:
                 # Calculate tolerance: use max_time_delta if provided, otherwise use block_time_tolerance
                 if max_time_delta:
@@ -169,7 +169,7 @@ def find_pattern_in_files(log_dir,
                         vlog5(f"Sample line {line_count}: {line.strip()[:100]}")
 
                     # Parse timestamp FIRST to skip lines before start_date
-                    timestamp = parse_timestamp(line)
+                    timestamp = parse_timestamp(line, filename)
                     if timestamp:
                         # Skip lines before after_timestamp (start_date) to avoid unnecessary pattern matching
                         if after_timestamp:
@@ -255,7 +255,7 @@ def find_pattern_in_files(log_dir,
     return None
 
 
-def _bisect_seek_to_timestamp(f, target_timestamp, file_size):
+def _bisect_seek_to_timestamp(f, target_timestamp, file_size, filename=None):
     """Binary search within a plain-text file to position near target_timestamp.
 
     Seeks to the approximate file position where lines with timestamps
@@ -274,14 +274,14 @@ def _bisect_seek_to_timestamp(f, target_timestamp, file_size):
         if not line:
             hi = mid
             continue
-        ts = parse_timestamp(line)
+        ts = parse_timestamp(line, filename)
         if ts is None:
             # No parseable timestamp — try a few more lines
             for _ in range(5):
                 line = f.readline()
                 if not line:
                     break
-                ts = parse_timestamp(line)
+                ts = parse_timestamp(line, filename)
                 if ts is not None:
                     break
         if ts is None:
@@ -325,7 +325,7 @@ def find_pattern_in_files_all_matches(log_dir,
 
         # Smart date-range filtering: skip files that end before after_timestamp
         if after_timestamp:
-            first_ts, last_ts = get_file_date_range(filepath)
+            first_ts, last_ts = get_file_date_range(filepath, filename)
             if first_ts and last_ts and after_timestamp > last_ts:
                 vlog3(f"Skipping {filename}: after_timestamp {after_timestamp} is after file range end {last_ts}")
                 continue
@@ -344,7 +344,7 @@ def find_pattern_in_files_all_matches(log_dir,
                 if not is_gzipped and after_timestamp:
                     file_size = os.path.getsize(filepath)
                     if file_size > 32768:
-                        _bisect_seek_to_timestamp(f, after_timestamp, file_size)
+                        _bisect_seek_to_timestamp(f, after_timestamp, file_size, filename)
 
                 while True:
                     line = f.readline()
@@ -352,7 +352,7 @@ def find_pattern_in_files_all_matches(log_dir,
                         break
 
                     # Parse timestamp FIRST to skip lines outside date range
-                    timestamp = parse_timestamp(line)
+                    timestamp = parse_timestamp(line, filename)
                     if timestamp:
                         if after_timestamp and timestamp <= after_timestamp:
                             continue
@@ -775,9 +775,10 @@ def process_pair_block(args, block, after_timestamp, global_max_time_delta=45):
 def process_timeline_block(args, block, start_date, settings, variables=None):
     """Process a single timeline block (uses 'timeline:' field).
 
-    Timeline blocks collect ALL matches for ALL specified patterns from the target
-    log files, then sort them chronologically by timestamp. Unlike pattern blocks
-    which search sequentially, timeline blocks search independently for each pattern.
+    Timeline blocks collect events from log files. For each source log
+    line, the engine tries the patterns declared in the block's
+    `timeline:` list in order and the **first** pattern that matches
+    emits one row. Subsequent patterns are not tried for that line.
 
     Args:
         args: Command line arguments containing logs_dir and verbose level
@@ -790,11 +791,15 @@ def process_timeline_block(args, block, start_date, settings, variables=None):
         Empty list if no matches found.
 
     Behavior:
-        - Searches for ALL occurrences of ALL patterns in timeline
-        - No assumptions about pattern order in timeline definition
-        - Results sorted chronologically regardless of pattern order
-        - Supports both direct pattern lists and named pattern references
+        - At most one row per source log line (first-match-wins)
+        - Pattern order in the `timeline:` list is significant — list
+          specific patterns BEFORE generic ones to avoid silent shadowing
+        - OR-list entries (nested lists) are flattened into individual
+          alternatives, preserving order
         - All patterns support full regex syntax
+        - Patterns that fail to compile as regex are skipped with a
+          warning; remaining patterns continue to apply
+        - Results are sorted chronologically by timestamp
     """
     if not block.get('timeline'):
         return []
@@ -822,21 +827,50 @@ def process_timeline_block(args, block, start_date, settings, variables=None):
 
     timeline_patterns = apply_timeline_variable_substitution(timeline_patterns, variables)
 
-    all_matches = []
+    # Flatten OR-list entries into individual alternatives, preserving
+    # insertion order so first-match-wins follows the YAML order the
+    # author wrote.
+    flat_patterns = []
     for pattern in timeline_patterns:
         if isinstance(pattern, list):
-            # Handle OR patterns - search for each alternative
-            for alt_pattern in pattern:
-                matches = find_pattern_in_files_all_matches(
-                    args.logs_dir, block['file'], alt_pattern, start_date, args
-                )
-                all_matches.extend(matches)
+            flat_patterns.extend(pattern)
         else:
-            # Handle single pattern
-            matches = find_pattern_in_files_all_matches(
-                args.logs_dir, block['file'], pattern, start_date, args
+            flat_patterns.append(pattern)
+
+    if not flat_patterns:
+        return []
+
+    # Validate each pattern individually so one broken regex does not
+    # disable the rest of the block. Compile errors are warned about and
+    # the offending pattern is dropped from the alternation.
+    valid_patterns = []
+    for p in flat_patterns:
+        try:
+            re.compile(p)
+            valid_patterns.append(p)
+        except re.error as e:
+            print(
+                f"⚠️ Warning: Invalid regex in timeline block "
+                f"'{block.get('label', '')}': {p!r} ({e})",
+                file=sys.stderr,
             )
-            all_matches.extend(matches)
+
+    if not valid_patterns:
+        return []
+
+    # Combine all patterns into a single alternation regex. Each
+    # alternative is wrapped in a non-capturing group so anchors and
+    # internal alternation inside a single pattern remain scoped.
+    # Python's re.search returns the first (leftmost) match, which for
+    # alternation tries the alternatives in order — exactly the
+    # first-match-wins semantics described above.
+    combined_pattern = '|'.join(f'(?:{p})' for p in valid_patterns)
+    vlog3(f"Timeline combined regex ({len(valid_patterns)} alternatives) "
+          f"for block '{block.get('label', '')}': {combined_pattern}")
+
+    all_matches = find_pattern_in_files_all_matches(
+        args.logs_dir, block['file'], combined_pattern, start_date, args
+    )
 
     # Sort by timestamp
     all_matches.sort(key=lambda x: x[0])
@@ -1067,8 +1101,36 @@ def process_blocks_auto_detect(args,
         else:
             # Optional block - skip silently or with message
             attempted_file = block['file'][0] if isinstance(block['file'], list) else block['file']
-            # Get full file path for warning message
-            full_file_path = os.path.join(args.logs_dir, attempted_file)
+            # Get full file path for warning message — use the override
+            # target host's logs dir when the block has an override so
+            # the message reflects where the search actually ran.
+            warn_search_dir = args.logs_dir
+            if block.get('override') and hasattr(args, 'bundle_name') \
+                    and args.bundle_name != '/':
+                override_hostname = block['override']
+                if hasattr(args, 'bundle_host_list_dated'):
+                    for hostname, dated_dir in zip(
+                            getattr(args, 'bundle_host_list', []),
+                            args.bundle_host_list_dated):
+                        if hostname == override_hostname:
+                            warn_search_dir = os.path.join(
+                                args.bundle_name, dated_dir,
+                                getattr(args, 'original_logs_dir', 'var/log'))
+                            break
+                if warn_search_dir == args.logs_dir:
+                    try:
+                        for entry in os.listdir(args.bundle_name):
+                            if (entry.startswith(override_hostname + '_') and
+                                    os.path.isdir(os.path.join(
+                                        args.bundle_name, entry))):
+                                warn_search_dir = os.path.join(
+                                    args.bundle_name, entry,
+                                    getattr(args, 'original_logs_dir',
+                                            'var/log'))
+                                break
+                    except OSError:
+                        pass
+            full_file_path = os.path.join(warn_search_dir, attempted_file)
 
             if 'timeline' in block:
                 timeline_pattern = block.get('timeline', 'unknown timeline pattern')
@@ -1091,7 +1153,14 @@ def process_blocks_auto_detect(args,
             # Store warning for summary
             optional_warnings.append(warning_msg)
 
-            warning_timestamp = prev_timestamp or start_date or datetime.min
+            # Sort warnings AFTER all successful matches (or at start_date
+            # when nothing has matched yet). end_time tracks the latest
+            # match seen so far, so warnings land at the end of the
+            # chronological output even when earlier blocks matched
+            # backwards in time within block_time_tolerance. Use seq to
+            # spread multiple warnings out so they preserve their order.
+            base_ts = end_time or prev_timestamp or start_date or datetime.min
+            warning_timestamp = base_ts + timedelta(microseconds=seq_counter + 1)
             # Use override hostname for output if block has override
             warning_hostname = block.get('override', current_hostname) if block.get('override') else current_hostname
             temp_results.append({

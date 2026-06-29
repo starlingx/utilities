@@ -37,7 +37,7 @@
 # Pattern Syntax:
 #   - "string"                  - literal match
 #   - ["a", "b"]               - OR match (first found wins)
-#   - r"regex \d+"             - regex match
+#   - 'regex \d+'             - regex (use single quotes)
 #
 ########################################################################
 
@@ -45,74 +45,75 @@
 settings:
   host: "{host}"
   max_time_delta: 100
+  block_time_tolerance: 60.0
 
 blocks:
 
   - label: "Unlock Action Staged"
     file: "sysinv.log*"
     patterns:
-      - "{host} Action staged: unlock"
+      - '{host} Action staged: unlock'
 
   - label: "mtcAgent Unlock Action"
     file: "mtcAgent.log*"
     patterns:
-      - "{host} Unlock Action"
+      - '{host} Unlock Action'
 
   - label: "Stopped Graphical"
     file: "daemon.log*"
     optional: true
     override: "{host}"
     patterns:
-      - "Stopped target Graphical Interface"
+      - 'Stopped target .* Graphical Interface'
 
   - label: "Stopped Kubelet Server"
     file: "daemon.log*"
     present: true
     override: "{host}"
     patterns:
-      - "Stopped Kubernetes Kubelet Server"
+      - 'Stopped Kubernetes Kubelet Server'
 
   - label: "containerd Stop Started"
     file: "daemon.log*"
     override: "{host}"
     present: true
     patterns:
-      - "Stopping containerd container"
+      - 'Stopping containerd container'
 
   - label: "mtcClient Shutdown"
     file: "mtcClient.log*"
     override: "{host}"
     present: true
     patterns:
-      - ["Received SIGTERM", "Received SIGINT"]
+      - ['Received SIGTERM', 'Received SIGINT']
 
   - label: "mtcClient Stopped"
     file: "daemon.log*"
     optional: true
     override: "{host}"
     patterns:
-      - "Stopped StarlingX Maintenance Command Handler Client"
+      - 'Stopped.* StarlingX Maintenance Command Handler Client'
 
   - label: "Stopped Containers Completed"
     file: "daemon.log*"
     present: true
     override: "{host}"
     patterns:
-      - "Stopping all containers completed"
+      - 'Stopping all containers completed'
 
   - label: "Stop Pods Completed"
     file: "daemon.log*"
     present: true
     override: "{host}"
     patterns:
-      - "Stopping all pods completed"
+      - 'Stopping all pods completed'
 
   - label: "Last Daemon Log"
     file: "daemon.log*"
     present: true
     override: "{host}"
     patterns:
-      - "Stopped target Network is Online"
+      - 'Stopped target Network is Online'
 
   - label: "Blackout"
     file: "kern.log*"
@@ -120,14 +121,14 @@ blocks:
     profile: true
     override: "{host}"
     patterns:
-      - "Kernel command line:"
+      - 'Kernel command line:'
 
   - label: "Systemd Startup"
     file: "daemon.log*"
     present: true
     override: "{host}"
     patterns:
-      - "Starting Create System Users"
+      - 'Starting Create System Users'
 
   - label: "mtcClient Start-Up"
     file: "mtcClient.log*"
@@ -135,7 +136,7 @@ blocks:
     optional: true
     max_time_delta: 600
     patterns:
-      - "Daemon Start-Up"
+      - 'Daemon Start-Up'
 
   - label: "K8s CPU Plugin Start"
     file: "daemon.log*"
@@ -143,7 +144,7 @@ blocks:
     present: true
     max_time_delta: 600
     patterns:
-      - "Started Kubernetes Isolated CPU Plugin Daemon"
+      - 'Started Kubernetes Isolated CPU Plugin Daemon'
 
   # max time delta is not working
   - label: "Network Online"
@@ -152,34 +153,32 @@ blocks:
     override: "{host}"
     max_time_delta: 60.0
     patterns:
-      - "Reached target Network is Online"
+      - 'Reached target Network is Online'
 
   - label: "Host Manufacturer"
     file: "mtcAgent.log*"
     present: true
     override: "{host}"
     patterns:
-      - "{host} manufacturer is"
+      - '{host}.* manufacturer is'
 
   - label: "Host Enable State"
     file: "mtcAgent.log*"
     max_time_delta: 200
     patterns:
-      - ["{host} is ENABLED", "{host} is DEGRADED", "{host} is UNHEALTHY" , "{host} is FAILED"]
+      - '{host}.* is (?:ENABLED|DEGRADED|UNHEALTHY|FAILED)'
 
   - label: "Unlock KPI"
     file: "mtcAgent.log*"
     optional: true
     patterns:
-      - "{host} kpi:action: unlock start"
+      - '{host}.* kpi:action: unlock start'
 
   - label: "VIM Host State"
     file: "nfv-vim.log*"
-    optional: true
+    max_time_delta: 300
     patterns:
-      - ["nfvi_host_name={host}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=enabled, nfvi_host_avail_status=available",
-        "nfvi_host_name={host}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=enabled, nfvi_host_avail_status=degraded",
-        "nfvi_host_name={host}, nfvi_host_admin_state=unlocked, nfvi_host_oper_state=disabled, nfvi_host_avail_status=failed"]
+      - 'Host State-Change detected:.*? for {host}'
 
   - label: "K8s Pod Recovery Done"
     file: "daemon.log*"
@@ -188,4 +187,4 @@ blocks:
     optional: true
     max_time_delta: 300
     patterns:
-      - "k8s-pod-recovery.service: Succeeded"
+      - 'k8s-pod-recovery.service: Succeeded'

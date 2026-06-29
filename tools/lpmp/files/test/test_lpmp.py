@@ -226,13 +226,28 @@ class TestBundleHostDetection(LPMPTestBase):
         self.assertEqual(hostnames, [])
         self.assertEqual(dated_dirs, [])
 
-    def test_detect_mixed_date_parts_error(self):
-        """Test error when bundle hosts have different date parts"""
+    def test_detect_mixed_date_parts_auto_accepts(self):
+        """Mismatched date parts are now auto-accepted with a warning."""
         os.makedirs(os.path.join(self.temp_dir, 'controller-0_20251218.082339'))
         os.makedirs(os.path.join(self.temp_dir, 'controller-1_20251219.082339'))
 
-        with self.assertRaises(SystemExit):
-            detect_bundle_hosts(self.temp_dir)
+        hostnames, dated_dirs = detect_bundle_hosts(self.temp_dir)
+        self.assertEqual(hostnames, ['controller-0', 'controller-1'])
+        # controller-0 keeps its 18th dir, controller-1 keeps its 19th dir
+        self.assertIn('controller-0_20251218.082339', dated_dirs)
+        self.assertIn('controller-1_20251219.082339', dated_dirs)
+
+    def test_detect_mixed_date_parts_keeps_latest_per_host(self):
+        """When a host appears under multiple dates, the latest is kept."""
+        os.makedirs(os.path.join(self.temp_dir, 'controller-0_20251218.082339'))
+        os.makedirs(os.path.join(self.temp_dir, 'controller-0_20251220.000000'))
+        os.makedirs(os.path.join(self.temp_dir, 'controller-1_20251219.082339'))
+
+        hostnames, dated_dirs = detect_bundle_hosts(self.temp_dir)
+        # controller-0 should appear once with the latest date
+        self.assertEqual(hostnames.count('controller-0'), 1)
+        self.assertIn('controller-0_20251220.000000', dated_dirs)
+        self.assertNotIn('controller-0_20251218.082339', dated_dirs)
 
     def test_detect_no_bundle_hosts_error(self):
         """Test error when no bundle hosts found"""

@@ -26,7 +26,8 @@ blocks:
   - label: "{graph}"
     file: "collectd.log*"
     timeline:
-    - "platform cpu usage plugin Usage"
+    # Match both legacy ("usage plugin") and current ("dispatch") wording.
+    - 'platform cpu (usage plugin|dispatch) Usage'
 
 
 settings:

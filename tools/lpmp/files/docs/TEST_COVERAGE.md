@@ -1,28 +1,29 @@
 # LPMP Test Coverage Catalog
 
-**Last full review: 2026-04-08**
+**Last full review: 2026-06-30**
 
 ## Summary
 
 **Current State:**
-- **520 tests across 19 files**
-- **77% overall coverage**
-- **Solid coverage:** lpmp_engine.py (85%), lpmp_output.py (82%), lpmp_utils.py (81%)
-- **Remaining gap:** lpmptool.py (68%), lpmp_graph.py (62%)
+- **577 tests across 19 files**
+- **80% overall coverage**
+- **Solid coverage:** lpmp_graph.py (96%), lpmp_engine.py (85%), lpmp_output.py (83%), lpmp_utils.py (83%)
+- **Remaining gap:** lpmptool.py (67%) — mostly the interactive `--list-models` menu and bundle-mode merge paths
 
 **Next Priorities:**
-1. **lpmptool coverage** (68% - bundle merge, window auto-detect, help menu)
+1. **lpmptool coverage** (67% - bundle merge, window auto-detect, help menu)
 2. **Bundle mode merge paths** (system summary dispatch, timeline merge)
-3. **Graph coverage** (lpmp_graph.py at 62%)
 
 **Current Coverage:**
 ```
-  lpmp_engine.py : 85% coverage
-  lpmp_output.py : 82% coverage
-  lpmp_graph.py  : 62% coverage
-  lpmp_utils.py  : 81% coverage
-  lpmptool.py    : 68% coverage
-  Overall        : 77% coverage with 520 of 520 tests passing
+============================================================
+lpmp_engine.py : 85% coverage
+lpmp_output.py : 83% coverage
+lpmp_graph.py  : 96% coverage
+lpmp_utils.py  : 83% coverage
+lpmptool.py    : 67% coverage
+Overall        : 80% coverage with 577 of 577 tests passing
+============================================================
 ```
 
 Run: `cd test && python3 run_tests.py`
@@ -476,12 +477,13 @@ General max_time_delta tests via find_pattern_in_files (not model-type-specific)
 
 ## Bundle Host Detection
 
-### test_lpmp.py — TestBundleHostDetection (6 tests)
+### test_lpmp.py — TestBundleHostDetection (7 tests)
 
 - `test_detect_valid_bundle_hosts` — Valid hostname_YYYYMMDD.HHMMSS directories detected
 - `test_detect_multiple_hosts_same_date` — Multiple hosts with same date detected
 - `test_detect_no_bundle_hosts_error` — No bundle hosts exits with error
-- `test_detect_mixed_date_parts_error` — Different date parts across hosts exits with error
+- `test_detect_mixed_date_parts_auto_accepts` — Different date parts across hosts auto-accepted with warning
+- `test_detect_mixed_date_parts_keeps_latest_per_host` — Latest dated directory kept when a host appears under multiple dates
 - `test_detect_system_root_returns_empty` — System root (/) returns empty lists
 - `test_detect_bundle_hosts_verbose` — Verbose output shows detected hosts
 
@@ -566,9 +568,9 @@ General max_time_delta tests via find_pattern_in_files (not model-type-specific)
 
 ## Graph Generation Functions
 
-### test_lpmp_graph.py — lpmp_graph.py functions (17 tests)
+### test_lpmp_graph.py — lpmp_graph.py functions (67 tests)
 
-**TestLpmpGraphFunctions** — Graph generation functionality
+**TestLpmpGraphFunctions (17 tests)** — Original line-style graph generation
 
 **Data Extraction (8 tests):**
 - `test_extract_usage_data_platform_cpu_debounce` — Platform CPU debounce format parsing
@@ -594,6 +596,66 @@ General max_time_delta tests via find_pattern_in_files (not model-type-specific)
 **Integration & Error Handling (2 tests):**
 - `test_end_to_end_workflow` — Complete workflow (extract → CSV → graph)
 - `test_file_error_handling` — File operation error handling
+
+**TestParseHelpers (9 tests)** — Bound-date and timestamp parsing helpers
+- `test_parse_bound_date_none_returns_none` — Falsy input returns None
+- `test_parse_bound_date_date_only_start_anchors_to_midnight`
+- `test_parse_bound_date_date_only_stop_anchors_to_end_of_day`
+- `test_parse_bound_date_full_iso_t_separator` — `YYYY-MM-DDTHH:MM:SS`
+- `test_parse_bound_date_full_iso_space_separator` — space normalised to `T`
+- `test_parse_bound_date_hour_minute_only` — `YYYY-MM-DDTHH:MM`
+- `test_parse_bound_date_invalid_format_exits` — Invalid input -> `SystemExit(1)`
+- `test_parse_timestamp_str_valid_iso` — ISO timestamp -> datetime
+- `test_parse_timestamp_str_invalid_returns_none`
+
+**TestExtractUsageDataBounds (4 tests)** — `-s` / `-e` filtering on line-style
+- `test_start_date_drops_earlier_rows`
+- `test_stop_date_drops_later_rows`
+- `test_both_bounds_narrow_window`
+- `test_bounds_with_unparseable_timestamp_dropped`
+
+**TestSystemColorCycle (6 tests)** — Multi-host palette helper
+- `test_tab10_for_small_systems` / `test_tab10_at_boundary`
+- `test_tab20_for_medium_systems` / `test_tab20_at_boundary`
+- `test_hsv_for_large_systems`
+- `test_exception_path_returns_defaults` — Falls back to defaults if matplotlib raises
+
+**TestCreateSystemGraph (4 tests)** — Combined multi-host system graph
+- `test_multi_host_happy_path` — Two hosts plotted, legend rendered
+- `test_no_csvs_present_returns_false` — All CSVs missing -> graph skipped
+- `test_column_missing_skips_host` — Bad column -> host skipped, no save
+- `test_read_failure_is_warning_not_crash` — Bad CSV -> warning, continues
+
+**TestMainEntryPoint (14 tests)** — End-to-end via `sys.argv` patching
+- `test_main_per_host_happy_path` — Default per-host run
+- `test_main_per_host_with_explicit_output_prefix` — `-o` honored
+- `test_main_missing_input_returns_without_crash`
+- `test_main_invalid_range_returns_without_crash`
+- `test_main_stop_before_start_returns_without_crash`
+- `test_main_no_data_path` — No matches -> no CSV at `-v`
+- `test_main_no_data_with_higher_verbose_lists_lines` — `-vv` lists first lines
+- `test_main_combine_happy_path` — `--combine` end-to-end
+- `test_main_combine_missing_output_errors`
+- `test_main_combine_missing_host_csv_errors`
+- `test_main_combine_malformed_host_csv_errors`
+- `test_main_combine_empty_host_errors`
+- `test_run_combine_mode_directly_with_dates_logs_note`
+- `test_run_combine_mode_all_csvs_missing_prints_failure`
+
+**TestStateGraph (13 tests)** — State-mode step plot for collectd overage timeline
+- `test_extract_state_data_collects_only_committed_transitions` — Debouncing rows skipped, baseline prepended
+- `test_extract_state_data_respects_bounds` — `-s`/`-e` filtering in state mode
+- `test_extract_state_data_ignores_non_matching_block_label`
+- `test_extract_state_data_skips_lines_without_timestamp`
+- `test_extract_state_data_dedupes_consecutive_same_state` — `failure → okay` repeats collapsed
+- `test_extract_state_data_no_baseline_when_no_committed_rows`
+- `test_extract_state_data_baseline_anchored_at_start_date` — `-s` earlier than first row anchors baseline
+- `test_create_state_csv_writes_three_columns` — Timestamp, State label, Level
+- `test_create_state_graph_renders_and_saves` — Step plot rendered with title, legend, savefig
+- `test_create_state_graph_empty_returns_false`
+- `test_create_state_graph_single_sample_uses_default_tail` — Single-sample tail-length branch
+- `test_main_dispatches_to_state_mode` — `--style state` runs state pipeline
+- `test_main_state_mode_with_no_transitions` — Empty state result -> no CSV/PNG
 
 ---
 
@@ -869,7 +931,7 @@ Requires `--bundle` flag or `LPMP_TEST_BUNDLE` env var. Skipped by default.
 - **Bundle mode window model** — Per-host window processing and merge
 - **Bundle host sort order** — controller-0 first, controller-1, storage, others
 
-### Engine Pipeline (`lpmp_engine.py`) - 80%/85% Coverage
+### Engine Pipeline (`lpmp_engine.py`) - 85% Coverage
 - **`process_blocks_auto_detect` structured_results** — Verify PatternResult/PairResult/TimelineResult construction
 - **`find_pattern_in_files_all_matches` direct tests** — Multi-line log verification, currently only tested via timeline
 
@@ -891,7 +953,7 @@ Requires `--bundle` flag or `LPMP_TEST_BUNDLE` env var. Skipped by default.
 
 ## Medium Priority Gaps
 
-### File I/O Optimization (`lpmp_engine.py` + `lpmp_utils.py`) - 78%/81% Coverage
+### File I/O Optimization (`lpmp_engine.py` + `lpmp_utils.py`) - 85%/83% Coverage
 - **Smart filter skip vs search decision** — Verify files correctly skipped/included based on date ranges
 - **File position tracking round-trip** — Sequential block processing, verify start_pos parameter works
 - **Reverse-chrono sort order** — Verify newest-first file ordering
@@ -907,11 +969,45 @@ Requires `--bundle` flag or `LPMP_TEST_BUNDLE` env var. Skipped by default.
 
 ## Low Priority Gaps
 
-### Model Loading Minor Gaps (`lpmp_utils.py`) - 78%/81% Coverage
+### Model Loading Minor Gaps (`lpmp_utils.py`) - 83% Coverage
 - **Nested includes** — Include chain A → B → C, settings merge across 3 levels
 - **Include file not found error** — load_model with nonexistent include → sys.exit
 
 ## Recently Completed
+
+### ✅ Timeline First-Match-Wins, Bundle-Test Robustness, 80% Coverage (2026-06-30) — 555 → 577 tests
+- **Timeline first-match-wins** — 5 tests in `TestTimelineBlockProcessing`
+  (`test_timeline_models.py`) cover first-match on overlapping patterns,
+  pattern order significance, OR-list flattening, invalid-regex skip,
+  and the all-invalid degenerate case.
+- **Bundle-mode timestamp format dispatch** — 6 tests in
+  `TestBundleCustomTimestampFormats` (`test_main_execution.py`) verify
+  each of the four YAML-declared timestamp format groups parses through
+  the engine. Each test extracts a small slice of one matching file
+  from the real bundle into a temporary mini-bundle, so per-test runtime
+  is bounded regardless of source bundle size.
+- **`TestBundleRegression` portability** — Hosts are now discovered
+  from the bundle directory layout and passed as `--include`, so the
+  four regression tests run against any bundle without hard-coded host
+  names. A coverage note at the end of the class summarises detected
+  hosts and flags when the bundle has fewer than 2 controllers or no
+  worker/compute node.
+- **Override-context test** — `test_context_override_block_bundle` now
+  scans both controllers' `mtcAgent.log` family for the anchor, picks
+  whichever one has it as the local host, and uses the other as the
+  override peer.
+- **CLI quick wins for coverage uplift** — 6 small tests in
+  `TestMainExecution` exercise non-interactive paths:
+  `--max-lines -1` rejection, `--file-position-tracking` flag,
+  `--help-model 1` direct topic, `--help-model 999` invalid topic,
+  `--no-ts-files` in `--logs-dir` mode, and the lpmp_graph subprocess
+  trigger when `--var graph=...` is set.
+- **Runner UX** — `run_tests.py` now reorders Bundle-class tests last,
+  prints a newline on the dot stream at the bundle-section boundary,
+  and lists skipped tests with their reasons (suppressing the
+  bundle-batch entries when `--bundle` is not provided).
+- Overall coverage 79% → 80%; lpmp_output.py 82% → 83%, lpmp_utils.py
+  81% → 83%, lpmptool.py 65% → 67%, others unchanged.
 
 ### ✅ Host Option, List-Models Enhancements, Loops=0 (2026-04-08) — 496 → 520 tests
 - **`--host` option**: Sets `{host}` variable for pattern substitution (CLI and model settings)
@@ -995,8 +1091,13 @@ Requires `--bundle` flag or `LPMP_TEST_BUNDLE` env var. Skipped by default.
 ### ✅ Output Generation Functions (`lpmp_output.py`) - 83% Coverage
 - **Complete function coverage** — 46 tests including print_output_files
 
-### ✅ Graph Generation Functions (`lpmp_graph.py`) - 62% Coverage
-- **End-to-end workflow** — Complete extract → CSV → graph pipeline
+### ✅ Graph Generation Functions (`lpmp_graph.py`) - 96% Coverage
+- **End-to-end line and state-style workflows** — extract → CSV → graph for
+  CPU/memory line plots and the new collectd overage step plot
+- **Time-bounded graphing** — `-s`/`-e` bounds applied to both styles
+- **Multi-host combined graph** — palette, legend, error and skip paths
+- **`main()` and `_run_combine_mode`** — driven via `sys.argv` patching,
+  per-host mode, `--combine` mode, all validation error paths
 
 ### ✅ File Date Range Functions (`test_get_file_date_range.py`) - 19 Tests
 - **File type handling, caching, error conditions** — Comprehensive coverage

@@ -24,7 +24,7 @@
 #
 # 5. Patterns support all LPMP features:
 #    - Variable substitution: {hostname}, {custom_var}
-#    - Regular expressions: r"pattern \d+"
+#    - Regular expressions: 'pattern \d+'
 #    - OR patterns: ["option1", "option2"]
 # =============================================================================
 
@@ -34,13 +34,13 @@ settings:
     # System maintenance and management patterns
     maintenance:
       - "Host Add Completed"
-      - "*** Heartbeat Miss ***"
+      - '\*\*\* Heartbeat Miss \*\*\*'
       - "critical enable failure"
       - "maintenance mode enabled"
       - "maintenance mode disabled"
       - "{hostname} Unlock Action"
       - "{hostname} Lock Action"
-      - r"{hostname} is (ENABLED|DISABLED|DEGRADED)"
+      - '{hostname} is (ENABLED|DISABLED|DEGRADED)'
       - "Host personality set"
       - "Inventory update completed"
 
@@ -51,8 +51,8 @@ settings:
       - "Interface Error"
       - "Network interface up"
       - "Network interface down"
-      - r"eth\d+ link (up|down)"
-      - r"bond\d+ (up|down)"
+      - 'eth\d+ link (up|down)'
+      - 'bond\d+ (up|down)'
       - "DHCP lease obtained"
       - "DNS resolution failed"
       - "Connection timeout"
@@ -65,7 +65,7 @@ settings:
       - "Service failed"
       - "Service restarted"
       - ["Service error", "Service fault"]
-      - r"systemd.*service (started|stopped|failed)"
+      - 'systemd.*service (started|stopped|failed)'
       - "Process spawned"
       - "Process terminated"
 
@@ -77,7 +77,7 @@ settings:
       - "I/O error"
       - "Storage device added"
       - "Storage device removed"
-      - r"sd[a-z]+ error"
+      - 'sd[a-z]+ error'
       - "RAID rebuild started"
       - "RAID rebuild completed"
 
@@ -106,9 +106,9 @@ settings:
 
     # Error and warning patterns
     errors:
-      - r"ERROR:.*"
-      - r"CRITICAL:.*"
-      - r"FATAL:.*"
+      - 'ERROR:.*'
+      - 'CRITICAL:.*'
+      - 'FATAL:.*'
       - "Out of memory"
       - "Disk full"
       - "Connection refused"
@@ -117,9 +117,9 @@ settings:
 
     # Performance and monitoring patterns
     performance:
-      - r"CPU usage: \d+%"
-      - r"Memory usage: \d+%"
-      # - r'Load average: [\d\.]+'
+      - 'CPU usage: \d+%'
+      - 'Memory usage: \d+%'
+      # - 'Load average: [\d\.]+'
       - "High CPU detected"
       - "High memory usage"
       - "Performance degradation"

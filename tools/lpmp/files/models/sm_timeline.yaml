@@ -18,7 +18,7 @@ blocks:
   - label: "SM Scheduling"
     file: "sm.log*"
     controller: true
-    timeline: "{sm_sch}"
+    timeline: '{sm_sch}'
 
   #- label: "SM Scheduling OK"
   #  file: "sm.log*"

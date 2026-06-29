@@ -60,7 +60,7 @@ blocks:
       - "Password changed"
       - "Permission denied"
       - ["Sudo access granted", "Sudo access denied"]
-      - r"Failed login.*from \d+\.\d+\.\d+\.\d+"
+      - 'Failed login.*from \d+\.\d+\.\d+\.\d+'
     optional: true
     profile: true
 
@@ -77,7 +77,7 @@ blocks:
       - "Database backup started"
       - "Database backup completed"
       - "Slow query detected"
-      - r"Connection pool: \d+ active"
+      - 'Connection pool: \d+ active'
       - ["Database error", "Query timeout"]
     optional: true
 
@@ -93,8 +93,8 @@ blocks:
       - "{hostname} shutdown initiated"
       - "{hostname} maintenance started"
       - "{hostname} maintenance completed"
-      - r"{hostname} state: \w+"
-      - r"{hostname} is (ENABLED|DISABLED|DEGRADED)"
+      - '{hostname} state: \w+'
+      - '{hostname} is (ENABLED|DISABLED|DEGRADED)'
       - "{hostname} Unlock Action"
       - "{hostname} Lock Action"
       - ["Host {hostname} error", "Host {hostname} warning"]
@@ -108,7 +108,7 @@ blocks:
       - "Application starting in {env}"
       - "Version {version} loaded"
       - "Environment {env} configured"
-      - r"Application.*{env}.*ready"
+      - 'Application.*{env}.*ready'
       - ["Application error in {env}", "Application warning in {env}"]
     optional: true
 
@@ -120,15 +120,15 @@ blocks:
   - label: "Performance Timeline"
     file: ["system.log*", "performance.log*"]
     timeline:
-      - r"CPU usage: \d+%"
-      - r"Memory usage: \d+%"
-      # - r"Load average: [\d\.]+"
-      - r"Disk usage: \d+%"
+      - 'CPU usage: \d+%'
+      - 'Memory usage: \d+%'
+      # - 'Load average: [\d\.]+'
+      - 'Disk usage: \d+%'
       - "High CPU detected"
       - "High memory usage"
       - "Performance degradation"
       - "Threshold exceeded"
-      - r"Process \d+ consuming \d+% CPU"
+      - 'Process \d+ consuming \d+% CPU'
       - ["System overload", "Resource exhaustion"]
     optional: true
     profile: true
@@ -137,17 +137,17 @@ blocks:
   - label: "Error Timeline"
     file: ["*.log*"]                    # Search all log files
     timeline:
-      - r"ERROR:.*"
-      - r"CRITICAL:.*"
-      - r"FATAL:.*"
-      - r"WARNING:.*"
+      - 'ERROR:.*'
+      - 'CRITICAL:.*'
+      - 'FATAL:.*'
+      - 'WARNING:.*'
       - "Out of memory"
       - "Disk full"
       - "Connection refused"
       - "Timeout occurred"
       - ["Exception", "Traceback"]
-      - r"Failed to \w+"
-      - r"Cannot \w+"
+      - 'Failed to \w+'
+      - 'Cannot \w+'
     optional: true
 
   # ==========================================================================
@@ -166,7 +166,7 @@ blocks:
       - "Services started"
       - "Boot completed"
       - "Ready for user login"
-      - r"systemd.*target.*reached"
+      - 'systemd.*target.*reached'
       - ["Boot successful", "Boot completed"]
     optional: false
     profile: true
@@ -184,7 +184,7 @@ blocks:
       - "Controller services ready"
       - "Database cluster active"
       - "Load balancer configured"
-      - r"Controller.*{hostname}.*active"
+      - 'Controller.*{hostname}.*active'
       - ["Controller failover", "Controller switchover"]
     controller: true                    # Only runs on controller hosts
     optional: true
@@ -201,7 +201,7 @@ blocks:
       - "Application event"
       - "User action"
       - "System notification"
-      - r"Event ID: \d+"
+      - 'Event ID: \d+'
       - ["Important event", "Critical event"]
     optional: true
 

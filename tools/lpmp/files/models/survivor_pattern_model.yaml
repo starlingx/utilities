@@ -27,40 +27,40 @@ blocks:
   - label: "Heartbeat Period"
     file: ["user.log*"]
     patterns:
-      - "heartbeat_period"
+      - 'heartbeat_period'
 
   - label: "Declared Dead"
     file: ["sm.log*"]
     max_time_delta: 300
     patterns:
-      - "declared dead"
+      - 'declared dead'
 
   - label: "Fail Pending Timeout"
     file: ["sm.log*"]
     patterns:
-      - "Fail Pending Timeout"
+      - 'Fail Pending Timeout'
 
   - label: "Survived State"
     file: ["sm.log*"]
     optional: true
     patterns:
-      - "Entering survived state"
+      - 'Entering survived state'
 
   - label: "Failure Handling"
     file: ["sm.log*"]
     present: true
     patterns:
-      - "Uncontrolled swact starts. Host from active to failed"
-      - "Entering Failover Failed state"
-      - "Failover Failed state recovery"
-      - "Successfully read pending timeout"
+      - 'Uncontrolled swact starts. Host from active to failed'
+      - 'Entering Failover Failed state'
+      - 'Failover Failed state recovery'
+      - 'Successfully read pending timeout'
 
   - label: "Exiting Survivor"
     file: ["sm.log*"]
     max_time_delta: 1200  # wait for the node to recover
     present: true
     patterns:
-      - "Exiting survived state"
+      - 'Exiting survived state'
 
 settings:
   controller: true

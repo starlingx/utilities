@@ -65,17 +65,20 @@ blocks:
   # Transaction timing with regex
   - label: "Database Transaction"
     file: "db.log*"
-    start: r"BEGIN TRANSACTION \d+"
-    stop: r"COMMIT TRANSACTION \d+"
+    start: 'BEGIN TRANSACTION \d+'
+    stop: 'COMMIT TRANSACTION \d+'
     max_time_delta: 300                 # Transactions can be long
     profile: true
     optional: true
 
-  # Process lifecycle with PID matching
+  # Process lifecycle — pair-block start/stop patterns are compiled
+  # independently; cross-pattern backreferences (e.g. \1) are NOT
+  # supported by the engine. Use literal text or variable substitution
+  # to scope the match if needed.
   - label: "Process Lifecycle"
     file: "system.log*"
-    start: r"Process (\d+) started"
-    stop: r"Process \1 terminated"      # Backreference to match same PID
+    start: 'Process \d+ started'
+    stop: 'Process \d+ terminated'
     max_time_delta: 600
     optional: true
 

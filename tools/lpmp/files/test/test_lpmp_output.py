@@ -893,6 +893,74 @@ class TestLpmpOutputFunctions(LPMPTestBase):
         event_b_pos = content.find('Event B')
         self.assertLess(event_a_pos, event_b_pos)
 
+    def test_merge_timeline_profiles_recomputes_delta_across_hosts(self):
+        """Merged delta column reflects neighbor difference, not per-host."""
+        file1 = os.path.join(self.temp_dir, 'host1_timeline.log')
+        file2 = os.path.join(self.temp_dir, 'host2_timeline.log')
+
+        # host1 has two events with a per-host delta of 5s between them.
+        # host2 has one event that lands in between.
+        # After merge, deltas should be: 0s, 2s (host2 - host1), 3s (host1 - host2)
+        with open(file1, 'w') as f:
+            f.write("Delta(HH:MM:SS)\tBlock Label\tLog File\tData\n")
+            f.write("00:00:00.000\tevent_a\ttest.log\t"
+                    "2024-03-22T10:00:00.000 Event A\n")
+            f.write("00:00:05.000\tevent_c\ttest.log\t"
+                    "2024-03-22T10:00:05.000 Event C\n")
+
+        with open(file2, 'w') as f:
+            f.write("Delta(HH:MM:SS)\tBlock Label\tLog File\tData\n")
+            f.write("00:00:00.000\tevent_b\ttest.log\t"
+                    "2024-03-22T10:00:02.000 Event B\n")
+
+        host_files = [(file1, 'host1'), (file2, 'host2')]
+        output_path = os.path.join(self.temp_dir, 'merged_recomputed.log')
+
+        merge_timeline_profiles(host_files, output_path)
+
+        with open(output_path, 'r') as f:
+            lines = [line.rstrip('\n') for line in f.readlines()]
+
+        # First line is the header; data lines come next
+        data_lines = [ln for ln in lines if 'Event ' in ln]
+        self.assertEqual(len(data_lines), 3)
+
+        # First data line should have delta 00:00:00.000 (anchor)
+        self.assertTrue(data_lines[0].startswith('00:00:00.000'))
+        self.assertIn('Event A', data_lines[0])
+
+        # Second line: Event B is 2s after Event A
+        self.assertTrue(data_lines[1].startswith('00:00:02.000'))
+        self.assertIn('Event B', data_lines[1])
+
+        # Third line: Event C is 3s after Event B (NOT 5s from Event A)
+        self.assertTrue(data_lines[2].startswith('00:00:03.000'))
+        self.assertIn('Event C', data_lines[2])
+
+    def test_merge_timeline_profiles_preserves_warning_marker(self):
+        """Lines with the ??:??:??.??? warning marker are not rewritten."""
+        file1 = os.path.join(self.temp_dir, 'host1_warn.log')
+
+        with open(file1, 'w') as f:
+            f.write("Delta(HH:MM:SS)\tBlock Label\tLog File\tData\n")
+            f.write("00:00:00.000\tevent_a\ttest.log\t"
+                    "2024-03-22T10:00:00.000 Event A\n")
+            # Warning lines have no timestamp in the data column
+            f.write("??:??:??.???\toptional_block\ttest.log\t"
+                    "Warn: pattern not found\n")
+
+        host_files = [(file1, 'host1')]
+        output_path = os.path.join(self.temp_dir, 'merged_warn.log')
+
+        merge_timeline_profiles(host_files, output_path)
+
+        with open(output_path, 'r') as f:
+            content = f.read()
+
+        # Warning marker preserved unchanged
+        self.assertIn('??:??:??.???', content)
+        self.assertIn('Warn: pattern not found', content)
+
     def test_extract_timestamp_from_data_iso_format(self):
         """Test _extract_timestamp_from_data with ISO timestamp"""
         line = "00:00:01.000\tevent\ttest.log\t2024-03-22T10:30:45.123 Some event data"

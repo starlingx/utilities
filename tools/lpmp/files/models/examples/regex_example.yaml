@@ -1,0 +1,280 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Regex Example (syntax reference)
+# Purpose: Demonstrates the most common regular expression constructs
+#          available to LPMP pattern authors. Each block is annotated
+#          with what its regex does and how it behaves against typical
+#          log lines. Both pattern blocks and pair (start/stop) blocks
+#          are included to show that regex works the same in either.
+#
+#          This is an EXAMPLE model — it lives under models/examples/
+#          and is intentionally written for syntax reference, not as
+#          a runnable analysis model. Some blocks may not match logs
+#          on every system since they target generic example content.
+#
+# Quoting:
+#   Patterns use SINGLE quotes so backslashes pass through to the
+#   regex engine unchanged. Use single quotes in your own models too
+#   to avoid having to double-escape regex metacharacters.
+#
+########################################################################
+
+settings:
+  # Allow generous time gaps between blocks since this is a tutorial,
+  # not a strict timing analysis. Real models should set tighter values.
+  max_time_delta: 300            # 5 minutes between blocks
+  block_time_tolerance: 60.0     # 1 minute backwards search tolerance
+
+blocks:
+
+  # =====================================================================
+  # 1. The most basic wildcard: .*  (any character, zero or more times)
+  # =====================================================================
+  # `.` matches any single character (except newline). `*` means "zero
+  # or more of the previous". Together, `.*` matches any number of any
+  # characters — the regex equivalent of shell `*`. The three stacked
+  # patterns below show the wildcard in three different positions:
+  # in the middle (between two anchors), at the end (open-ended), and
+  # at both ends (anchor-only middle). All three target real mtcAgent
+  # events on a host's lifecycle.
+  - label: "01 - Basic wildcard (.*)"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - 'controller-0 .* Unlock Action'       # wildcard between two anchors
+      - 'controller-0 Reboot.*'               # wildcard trailing the line
+      - '.*controller-0.* is ENABLED'         # wildcard on both sides
+
+  # =====================================================================
+  # 2. Non-greedy wildcard: .*?  (any characters, as few as possible)
+  # =====================================================================
+  # `.*` is greedy — it matches as much as it can. `.*?` is non-greedy,
+  # stopping at the first occurrence of whatever comes after it. Useful
+  # when there are multiple possible end anchors on the same line.
+  - label: "02 - Non-greedy wildcard (.*?)"
+    file: "nfv-vim.log*"
+    optional: true
+    patterns:
+      - 'Host State-Change detected:.*? for {host}'
+
+  # =====================================================================
+  # 3. Digits: \d (one digit) and \d+ (one or more digits)
+  # =====================================================================
+  # `\d` matches any single digit 0-9. `\d+` matches one or more digits
+  # together (a number). Use `\d+` for PIDs, ports, version components,
+  # uptime values — anything that is purely numeric.
+  - label: "03 - Digits (\\d, \\d+)"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      - 'systemd\[\d+\]'                      # systemd[1234] — match the PID
+      - 'pid:\d+'                             # pid:29538
+      - 'uptime:\d+'                          # uptime:165
+
+  # =====================================================================
+  # 4. Exact repetition: \d{n}   (exactly n)
+  # =====================================================================
+  # `\d{4}` matches exactly four digits — useful for years, fixed-width
+  # codes, and similar. Other forms: `\d{2,4}` (two to four), `\d{2,}`
+  # (two or more), `\d{,4}` (up to four).
+  - label: "04 - Exact repetition (\\d{4})"
+    file: "syslog*"
+    optional: true
+    patterns:
+      - '\d{4}-\d{2}-\d{2}'                   # ISO date prefix yyyy-mm-dd
+
+  # =====================================================================
+  # 5. Word characters: \w and \w+
+  # =====================================================================
+  # `\w` matches a word character (letters, digits, underscore). `\w+`
+  # matches a run of them. Hostnames, identifiers, and tokens generally
+  # match `\w+`. Be aware: `\w` does NOT include the hyphen, so for
+  # hostnames like `controller-0-worker` use `[\w-]+` instead.
+  - label: "05 - Word characters (\\w+)"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - 'mtcSubfHdlrs\.cpp\s+\(\s*\d+\)\s+\w+'  # method name after location
+
+  # =====================================================================
+  # 6. Custom character class: [\w-]+
+  # =====================================================================
+  # Square brackets define a character class. `[\w-]+` adds the hyphen
+  # to the word-character set, which is the typical pattern for matching
+  # full hostnames like `controller-0`, `worker-1`, `controller-0-worker`.
+  - label: "06 - Hostname character class ([\\w-]+)"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - 'controller-[\w-]+ is ENABLED'        # matches controller-0, -0-worker
+
+  # =====================================================================
+  # 7. Negated character class: [^,]+
+  # =====================================================================
+  # `[^...]` matches any character NOT in the class. `[^,]+` matches
+  # one or more non-commas — useful for capturing a field that ends at
+  # a comma without using the greedy `.*` (which would jump past it).
+  - label: "07 - Negated class ([^,]+)"
+    file: "nfv-vim.log*"
+    optional: true
+    patterns:
+      - 'nfvi_admin_state=[^,]+'              # match value up to next comma
+
+  # =====================================================================
+  # 8. Alternation: (a|b|c)
+  # =====================================================================
+  # The `|` operator matches one of the listed alternatives. Parentheses
+  # group them. Use `(?:...)` instead of `(...)` if you don't need a
+  # capture group — slightly more efficient and avoids unintended groups.
+  - label: "08 - Alternation ((a|b|c))"
+    file: "sm.log*"
+    optional: true
+    patterns:
+      - 'service.*(?:enable|disable|reload)'  # any of three actions
+
+  # =====================================================================
+  # 9. Optional element: ?
+  # =====================================================================
+  # `?` makes the previous character or group optional (zero or one).
+  # Useful for accepting both singular/plural, with/without trailing
+  # punctuation, or optional sub-strings.
+  - label: "09 - Optional element (s?)"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      - 'Stopped \d+ container(s)?'           # 'container' or 'containers'
+
+  # =====================================================================
+  # 10. Anchors: ^ (start of line) and $ (end of line)
+  # =====================================================================
+  # `^` matches the position at the start of a line, `$` at the end.
+  # Use them to anchor a pattern when you only want a match at the line
+  # boundary. LPMP applies regex.search() so anchors are not required.
+  - label: "10 - Line anchors (^ and $)"
+    file: "kern.log*"
+    optional: true
+    patterns:
+      - '^\d{4}-\d{2}-\d{2}T'                 # line starts with ISO date
+
+  # =====================================================================
+  # 11. Word boundary: \b
+  # =====================================================================
+  # `\b` matches the boundary between a word character and a non-word
+  # character. It does not consume any character. Use it to match a
+  # whole word and avoid partial matches inside a longer identifier.
+  - label: "11 - Word boundary (\\b)"
+    file: "syslog*"
+    optional: true
+    patterns:
+      - '\berror\b'                           # 'error' but not 'errored'
+
+  # =====================================================================
+  # 12. Escaped metacharacters: \( \) \. \[ \]
+  # =====================================================================
+  # Regex metacharacters must be escaped to match literally. Common
+  # offenders: parentheses, periods, square brackets. With single-quoted
+  # YAML, write the regex backslash directly — no doubling needed.
+  - label: "12 - Escaped metacharacters (\\(, \\), \\.)"
+    file: "sm.log*"
+    optional: true
+    patterns:
+      - 'service \(cloud-services\)'          # literal parens around name
+      - 'controller\.example\.com'            # literal dots in FQDN
+
+  # =====================================================================
+  # 13. Whitespace: \s and \s+
+  # =====================================================================
+  # `\s` matches any whitespace (space, tab, newline, etc). `\s+` runs
+  # of whitespace. Useful when a log uses tabs or aligned columns and
+  # you do not want to commit to a specific number of spaces.
+  - label: "13 - Whitespace (\\s+)"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - 'Info\s*:\s+'                         # 'Info:' with flexible spacing
+
+  # =====================================================================
+  # 14. PAIR BLOCK with regex on both ends
+  # =====================================================================
+  # Pair blocks use `start:` and `stop:` patterns, both of which accept
+  # full regex. Duration is the time between the two timestamps.
+  - label: "14 - Pair block with regex"
+    file: "sm.log*"
+    optional: true
+    start: 'Started.*service \(cloud-services\)'
+    stop: 'Action \(enable\) completed.*service \(cloud-services\)'
+    max_time_delta: 60
+
+  # =====================================================================
+  # 15. PAIR BLOCK with alternation on stop
+  # =====================================================================
+  # The stop pattern accepts any of several success or failure markers.
+  - label: "15 - Pair block with alternation stop"
+    file: "daemon.log*"
+    optional: true
+    start: 'k8s-pod-recovery.service: Starting'
+    stop: 'k8s-pod-recovery.service: (?:Succeeded|Failed)'
+
+  # =====================================================================
+  # 16. IP address (IPv4)
+  # =====================================================================
+  # `\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}` matches an IPv4 address. It is
+  # not strict (allows numbers above 255) but covers all real addresses.
+  # The literal periods must be escaped.
+  - label: "16 - IPv4 address"
+    file: "syslog*"
+    optional: true
+    patterns:
+      - 'address \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+
+  # =====================================================================
+  # 17. Hexadecimal: [0-9a-fA-F]+
+  # =====================================================================
+  # A character class with ranges. `[0-9a-fA-F]+` matches a hex string
+  # of any length. Useful for memory addresses, hashes, MAC fragments.
+  - label: "17 - Hex string ([0-9a-fA-F]+)"
+    file: "kern.log*"
+    optional: true
+    patterns:
+      - '0x[0-9a-fA-F]+'                      # 0x deadbeef, 0xFFFF, etc.
+
+  # =====================================================================
+  # 18. UUID: 8-4-4-4-12 hex pattern
+  # =====================================================================
+  # Combines hex character classes with exact-count quantifiers and
+  # escaped hyphens. Hyphens inside `[]` are special only when between
+  # characters (defining a range), so plain `-` is fine here.
+  - label: "18 - UUID"
+    file: "sysinv.log*"
+    optional: true
+    patterns:
+      - '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+  # =====================================================================
+  # 19. Decimal number: \d+\.\d+
+  # =====================================================================
+  # An integer part, a literal period, and a fractional part. Useful
+  # for matching durations like "329.334 secs" or version strings.
+  - label: "19 - Decimal number (\\d+\\.\\d+)"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - 'took \d+\.\d+ secs'                  # 'took 329.334 secs'
+
+  # =====================================================================
+  # 20. Variable substitution combined with regex
+  # =====================================================================
+  # LPMP variables like {hostname} are expanded BEFORE the pattern is
+  # compiled, so you can mix them freely with regex. The result here
+  # becomes e.g. 'controller-0[\w-]* is (ENABLED|DEGRADED)' at runtime.
+  - label: "20 - Variable + regex"
+    file: "mtcAgent.log*"
+    optional: true
+    patterns:
+      - '{hostname}[\w-]* is (?:ENABLED|DEGRADED)'

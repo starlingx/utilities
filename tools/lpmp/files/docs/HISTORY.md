@@ -8,20 +8,189 @@ The history is organized chronologically with the most recent changes at the top
 
 ---
 
-## Current Code Coverage Summary (2026-04-08):
+## Current Code Coverage Summary (2026-06-30):
   ```
-  Current Automated Test Code Coverage:
-  ============================================================
-  lpmp_engine.py : 85% coverage
-  lpmp_output.py : 82% coverage
-  lpmp_graph.py  : 62% coverage
-  lpmp_utils.py  : 81% coverage
-  lpmptool.py    : 68% coverage
-  Overall        : 77% coverage with 520 of 520 tests passing
-  ============================================================
+============================================================
+lpmp_engine.py : 85% coverage
+lpmp_output.py : 83% coverage
+lpmp_graph.py  : 96% coverage
+lpmp_utils.py  : 83% coverage
+lpmptool.py    : 67% coverage
+Overall        : 80% coverage with 577 of 577 tests passing
+============================================================
   ```
 
 ## Change History
+
+### 2026-06-30 - Timeline First-Match-Wins and Model Pattern Cleanup
+- **Timeline blocks emit at most one row per source log line.** For each
+  log line, patterns in the block's `timeline:` list are tried in
+  declared order and the first one that matches emits the row; later
+  patterns are not tried for that line. OR-list (nested list) entries
+  are flattened into the same ordered alternation. Pattern order is now
+  semantically significant — list specific patterns before generic
+  ones so the more specific tag wins.
+- **Substantial speedup as a side benefit.** A single combined
+  alternation regex is scanned once per file instead of one scan per
+  pattern, reducing file passes from N×F to F. On real bundles this
+  produces roughly 4-5× wall-clock speedup on multi-pattern timeline
+  models (e.g. `mtce_timeline_model`, `ceph_health`).
+- **Invalid patterns no longer disable a block.** Each timeline pattern
+  is compiled individually; a single broken regex is logged with a
+  warning and dropped, the remaining patterns continue to apply.
+- **Model pattern cleanup**: `models/examples/shared_patterns.yaml` had
+  `"*** Heartbeat Miss ***"` which is an invalid regex — corrected to
+  `'\*\*\* Heartbeat Miss \*\*\*'`. `models/examples/pair_only_example.yaml`
+  showed a `\1` backreference between pair-block start and stop
+  patterns; the engine compiles those patterns independently and does
+  not carry captures across them, so the example was rewritten to use
+  literal `\d+` in both halves with a comment noting the limitation.
+- **Removed stale duplicate** `models/wrcp_domains_patterns.yaml`. The
+  canonical pattern library lives at `models/helpers/wrcp_domains_patterns.yaml`
+  and is referenced by every model that uses the shared sets.
+- Added 5 new tests in `test_timeline_models.py` covering first-match
+  on overlapping patterns, pattern order significance, OR-list
+  flattening, invalid-regex skip, and the all-invalid degenerate case.
+  Total: 571 tests, 555 passing under default run (16 skipped without
+  `--bundle`).
+- **Test suite speed**: The bundle-mode timestamp-format tests were
+  re-running lpmptool against the whole bundle for each format group,
+  which meant reading and decompressing every rotated copy of files
+  like `charon.log*.gz` (sometimes hundreds of MB per host) once per
+  test. The tests still passed but the class dominated the suite's
+  wall-clock time. Each test now extracts a small slice (~200 lines)
+  of one matching file from the real bundle into a temporary
+  self-contained mini-bundle and runs lpmptool against that. Same
+  end-to-end engine path is exercised — file walk, timestamp format
+  dispatch, timeline emit — but each test now completes in well under
+  a second regardless of source bundle size.
+- **Test suite portability across bundles**: The four
+  `TestBundleRegression` tests previously hard-coded
+  `--include controller-0 controller-1 compute-0`, which made them
+  fail outright on any bundle that did not contain a node with the
+  exact name `compute-0`. They now discover hostnames from the bundle
+  directory layout and pass that exact list to `--include`, so the
+  tests adapt to whatever bundle is supplied. A coverage note is
+  printed once at the end of the regression class listing the hosts
+  detected and flagging if the bundle has fewer than 2 controllers
+  or no worker/compute node (in which case multi-host code paths
+  receive less coverage). The `test_context_override_block_bundle`
+  test now scans both controllers' `mtcAgent.log` (including any
+  rotated `.gz` copies) for the `'Daemon Start'` anchor, picks the
+  one that has it as the local host, and uses the other as the
+  override peer. It skips cleanly only when neither controller has
+  the anchor.
+- **Test ordering**: `run_tests.py` now reorders the discovered
+  suite so any test class whose name contains `Bundle` runs after
+  all other tests. Bundle-mode tests are the slowest (they scan a
+  real collect bundle) so deferring them keeps fast feedback on
+  the rest of the suite when running interactively. A newline is
+  emitted on the dot stream the first time a bundle class starts so
+  the slow section is visually separated.
+- **Skip reporting**: `run_tests.py` now lists each skipped test
+  with its reason at the end of the run. When `--bundle` is not
+  provided, bundle-mode skips are suppressed from the listing since
+  they are already summarised by the closing 'N bundle regression
+  tests were skipped' line.
+- **Coverage uplift to 80%**: Six small targeted tests were added
+  to `TestMainExecution` to exercise non-interactive code paths
+  that were previously untested: `--max-lines -1` rejection,
+  `--file-position-tracking` flag, `--help-model 1` direct topic
+  output, `--help-model 999` invalid topic error path,
+  `--no-ts-files` in `--logs-dir` mode, and the graph subprocess
+  trigger when `--var graph=...` is set on a pattern model. Overall
+  coverage moved from 79% to 80%. Updated per-file figures:
+  `lpmp_engine.py` 85%, `lpmp_output.py` 83%, `lpmp_graph.py` 96%,
+  `lpmp_utils.py` 83%, `lpmptool.py` 67%, with 577 of 577 tests
+  passing.
+
+### 2026-06-26 - Collectd Graph Enhancements
+- **Collectd CPU/Memory models accept new `dispatch` wording**: The
+  `collectd_cpu_usage_timeline` and `collectd_memory_usage_timeline`
+  models now match both legacy (`usage plugin` / `usage:`) and now
+  (`dispatch`) collectd wording. Bundles with the newer collectd
+  wording now produce data in instead of silently writing empty
+  per-host output directories with this update to `lpmp_graph.py`.
+- **`lpmp_graph.py` usage-type matching is now case-insensitive**:
+  The documented `--var graph="Platform CPU"` (capital CPU) and similar
+  capitalisations of `Platform Mem` now work where previously the
+  internal gates were case-sensitive and could produced empty graphs.
+- **Time-bounded graphing (`-s` / `-e`)**: `lpmp_graph.py` accepts the
+  same start/stop date arguments as `lpmptool`, with identical parsing
+  and inclusive bounds.
+- **System-wide multi-host graph**: After per-host graphs are produced,
+  `lpmptool` now also writes a single combined PNG overlaying every
+  host on one set of axes with a hostname → color legend.
+- **Add vlog support to lpmp_graph.py**: Added `vlog` support to the
+  graph handling models.
+- **Improved Test coverage on `lpmp_graph.py`**: Added 37 new positive
+  and negative test cases (17 → 54) covering the graph helpers,
+  `extract_usage_data` bounds, `create_system_graph`, and the `main()`
+  / `_run_combine_mode` entry points. Verified end-to-end on a
+  multi-controller bundle: per-host CSV/PNG output, the new combined
+  system PNG, and `-s`/`-e` bound filtering all produce the expected
+  results.
+
+### 2026-06-03 - Mixed Models, Bundle Date Mismatch, Window Improvements, and Quoting Convention
+- **Mixed pattern + pair models**: Removed the restriction that pattern blocks
+  could only appear as the first block in a model containing pair blocks.
+  Pattern and pair blocks can now be freely interleaved in any order. Context
+  files (`.context` outputs) are also now produced for pattern blocks within
+  mixed models. The timeline/non-timeline mixing restriction remains.
+- **Bundle date mismatch auto-accept**: Host directories in a bundle
+  with different date suffixes are accepted automatically. The tool
+  logs a warning listing the mismatched date groups and proceeds using
+  the directory with the latest date part for each hostname.
+- **Auto-descent into `var/log`**: When `--logs-dir` resolves to a directory
+  that contains a `var/log` subdir, the tool now automatically descends into
+  it. Prevents accidentally scanning huge non-log subtrees (e.g.
+  `var/extra/ostree_repo/objects/` with hundreds of thousands of `.filez`
+  files) when the user points at a host directory.
+- **Window mode progress indicator**: The pre-scan phase of window models
+  now shows the standard progress indicator while walking the logs dir,
+  giving feedback during long scans instead of appearing to hang.
+- **Window mode display paths**: Output now shows scan paths and per-file
+  paths relative to the user-supplied `--logs-dir` instead of the post-
+  descent absolute path. Less confusing when the auto-descent kicks in.
+- **Cwd-aware `--logs-dir` resolution**: Relative `--logs-dir` values now
+  resolve against the current working directory when the path exists there,
+  falling back to filesystem root only if it does not. This makes
+  `lpmptool -l .` behave intuitively without breaking the default
+  `var/log` → `/var/log` system-mode resolution.
+- **Faster pre-scan filename filter**: Window mode now skips obvious
+  non-log file extensions (`.filez`, `.tar`, `.deb`, `.rpm`, `.iso`,
+  `.so`, `.pyc`, etc.) by basename alone instead of opening each file
+  for a binary-content check. Major speedup on bundles that contain
+  large package or installer trees.
+- **Optional-block warning ordering**: Warnings from failed optional blocks
+  now sort to the end of the chronological output instead of tying with the
+  most recent successful timestamp. Prevents a late-in-the-model warning from
+  appearing in the middle of earlier matches.
+- **Override-aware warning paths**: Warnings for optional blocks with an
+  `override:` clause now show the override target host's logs path, matching
+  where the search actually ran.
+- **Stop-progress safety**: `stop_progress_indicator` is now safe to call
+  with `None` and tolerates a closed stdout, fixing test-suite failures in
+  environments that capture/close streams.
+- **Quoting convention for pattern fields**: All shipped models now use
+  single quotes for `patterns`, `timeline`, `start`, `stop` and entries in
+  `timeline_patterns` named sets. Other fields (`label`, `file`, `override`,
+  etc.) keep double quotes. Single quotes pass backslashes through to the
+  regex engine, so `\w`, `\d`, `\(`, `\)` and friends work without YAML
+  double-escaping. The tool itself accepts either style; this is purely a
+  documented convention to make regex patterns readable. Developer guide
+  updated with rationale, examples, and common pitfalls.
+- **System timeline neighbor-relative deltas**: The merged bundle timeline
+  output (`<lab>_system_profile.timeline.log`) now recomputes the leading
+  Delta column as the difference to the previous merged line across hosts,
+  instead of leaving the per-host deltas the original files were written
+  with. Reading the merged timeline now answers "how long since the
+  previous event anywhere in the system" at a glance, regardless of which
+  host produced it. Warning lines (`??:??:??.???`) are preserved unchanged.
+- Added 2 new tests in `test_lpmp.py` covering the bundle date-mismatch
+  auto-accept and latest-per-host selection, and 2 new tests in
+  `test_lpmp_output.py` covering the cross-host delta recomputation in
+  the merged system timeline.
 
 ### 2026-04-08 - Host Option, List-Models Enhancements, and Loops=0 (496 → 520 tests)
 - **`--host` option**: New command line option that sets the `{host}` variable

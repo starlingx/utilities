@@ -29,29 +29,29 @@ blocks:
   - label: "ceph-osd"
     file: ["sm.log*"]
     start: 'Deprovision service storage-services:{label}'
-    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+    stop: [':{label} is deprovisioned successfully', 'Service {label} not found']
 
   - label: "ceph-manager"
     file: ["sm.log*"]
     start: 'Start deprovisioning storage-monitoring-services:{label}'
-    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+    stop: [':{label} is deprovisioned successfully', 'Service {label} not found']
 
   - label: "mgr-restful-plugin"
     file: ["sm.log*"]
     start: 'Start deprovisioning storage-services:{label}'
-    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+    stop: [':{label} is deprovisioned successfully', 'Service {label} not found']
 
   - label: "ceph-mon"
     file: ["sm.log*"]
     start: 'Deprovision service controller-services:{label}'
-    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+    stop: [':{label} is deprovisioned successfully', 'Service {label} not found']
 
   - label: "drbd-cephmon"
     file: ["sm.log*"]
     start: 'Deprovision service controller-services:{label}'
-    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+    stop: [':{label} is deprovisioned successfully', 'Service {label} not found']
 
   - label: "storage-networking"
     file: ["sm.log*"]
     start: 'Deprovision service storage-services:{label}'
-    stop: [":{label} is deprovisioned successfully", "Service {label} not found"]
+    stop: [':{label} is deprovisioned successfully', 'Service {label} not found']

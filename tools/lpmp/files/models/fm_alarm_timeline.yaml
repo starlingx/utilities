@@ -20,16 +20,16 @@ blocks:
     file: "fm-manager.log*"
     controller: true
     timeline:
-    - "Raising Alarm/Log, \\({alarm}\\)"
+    - 'Raising Alarm/Log, \({alarm}\)'
 
   - label: "       {alarm} Delete"
     file: "fm-manager.log*"
     controller: true
     timeline:
-    - "Deleted alarm: \\({alarm}\\)"
+    - 'Deleted alarm: \({alarm}\)'
 
   - label: "suppression"
     file: "fm-manager.log*"
     controller: true
     timeline:
-    - "supp"
+    - 'supp'
