@@ -77,6 +77,7 @@ COLLECT_NAME_DIR="${COLLECT_BASE_DIR}/${COLLECT_NAME}"
 EXTRA_DIR="${COLLECT_NAME_DIR}/${EXTRA}"
 TARBALL="${COLLECT_NAME_DIR}.tgz"
 COLLECT_PATH="/etc/collect.d"
+COLLECT_DIAGS_PATH="${COLLECT_PATH}/diagnostic.d"
 RUN_EXCLUDE="/etc/collect/run.exclude"
 ETC_EXCLUDE="/etc/collect/etc.exclude"
 VAR_LOG_EXCLUDE="/etc/collect/varlog.exclude"
@@ -372,6 +373,70 @@ collect_parts
 collect_parts_stop=$(date ${DATE_FORMAT})
 duration=$(get_time_delta "${collect_parts_start}" "${collect_parts_stop}")
 echo "$(date ${DATE_FORMAT}): ${duration} collect_parts done" >> ${COLLECT_CMD_TIMING_LOG}
+
+#
+# Run network diagnostics when requested via the WANT_DIAGS
+# environment variable (set by the collect orchestrator's --diags
+# option). Each executable script in COLLECT_DIAGS_PATH is run and
+# its report is written into the host's var/extra directory so it is
+# included in the collect tarball. New diagnostic scripts can be added
+# by dropping them (or a symlink) into COLLECT_DIAGS_PATH without
+# modifying this script.
+#
+# Two timeouts protect collect from hanging:
+#   COLLECT_DIAGS_SCRIPT_TIMEOUT  - max time for any single script
+#   COLLECT_DIAGS_OVERALL_TIMEOUT - max total time for all scripts
+# Both are defined in collect_timeouts. Scripts that exceed a limit
+# are terminated and a warning is logged; collect continues normally.
+#
+if [ "${WANT_DIAGS}" = "true" ]; then
+    if [ -d "${COLLECT_DIAGS_PATH}" ]; then
+        ilog "running diagnostics from ${COLLECT_DIAGS_PATH}"
+        diags_overall_start=$(date ${DATE_FORMAT})
+        for diag_script in ${COLLECT_DIAGS_PATH}/*; do
+            if [ -f "${diag_script}" ] && [ -x "${diag_script}" ]; then
+                diag_name=$(basename "${diag_script}")
+
+                # enforce overall timeout before starting the next script
+                diag_now=$(date ${DATE_FORMAT})
+                elapsed=$(get_time_delta "${diags_overall_start}" "${diag_now}")
+                if [ "${elapsed%.*}" -ge "${COLLECT_DIAGS_OVERALL_TIMEOUT}" ] ; then
+                    wlog "diags overall timeout (${COLLECT_DIAGS_OVERALL_TIMEOUT}s) exceeded, skipping remaining scripts"
+                    break
+                fi
+
+                ilog "running diagnostic: ${diag_name}"
+
+                diag_start=$(date ${DATE_FORMAT})
+                echo "${diag_start}: diags ${diag_name} start" >> ${COLLECT_CMD_TIMING_LOG}
+
+                # run with a per-script timeout ; rc=124 indicates a timeout
+                timeout ${COLLECT_DIAGS_SCRIPT_TIMEOUT} \
+                    ${diag_script} --log-file ${EXTRA_DIR}/${diag_name}.info 2>>${COLLECT_ERROR_LOG}
+                diag_rc=$?
+
+                diag_stop=$(date ${DATE_FORMAT})
+                duration=$(get_time_delta "${diag_start}" "${diag_stop}")
+
+                if [ ${diag_rc} -eq 124 ] ; then
+                    # timeout terminated the script ; any output already
+                    # written to the log file is preserved (partial data).
+                    wlog "diags ${diag_name} timed out after ${COLLECT_DIAGS_SCRIPT_TIMEOUT}s (rc=${diag_rc}) ; partial data preserved in ${diag_name}.info"
+                    echo "${diag_stop}: ${duration} diags ${diag_name} timed out (rc=${diag_rc})" >> ${COLLECT_CMD_TIMING_LOG}
+                elif [ ${diag_rc} -ne 0 ] ; then
+                    # script ran to completion but exited with an error
+                    wlog "diags ${diag_name} completed with errors in ${duration} (rc=${diag_rc})"
+                    echo "${diag_stop}: ${duration} diags ${diag_name} completed with errors (rc=${diag_rc})" >> ${COLLECT_CMD_TIMING_LOG}
+                else
+                    ilog "diags ${diag_name} completed in ${duration} (rc=${diag_rc})"
+                    echo "${diag_stop}: ${duration} diags ${diag_name} done (rc=${diag_rc})" >> ${COLLECT_CMD_TIMING_LOG}
+                fi
+            fi
+        done
+    else
+        wlog "diags directory ${COLLECT_DIAGS_PATH} not found, skipping"
+    fi
+fi
 
 #
 # handle collect collect-after and collect-range and then
