@@ -1,7 +1,7 @@
 # On-site backup restore values - user configuration overrides
 #
 # Used by the onsite-restore flow only. Forwarded by
-# 90-trigger-onsite-restore to dcmanager
+# 90-send-onsite-restore-request to dcmanager
 #
 
 # true  -> restore from the locally prestaged backup at

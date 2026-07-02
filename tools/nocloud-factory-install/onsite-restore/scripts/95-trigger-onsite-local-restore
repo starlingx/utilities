@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stage the on-site restore on the already-running factory-installed system
+# and hand off to dc-auto-restore.service. It writes backup_restore_values.yml
+# into the auto-restore directory and starts dc-auto-restore.service, which
+# owns the restore playbook run and all subsequent reboots.
+#
+
+exec 1> >(tee -a /var/log/cloud-init-output.log)
+exec 2> >(tee -a /var/log/cloud-init-output.log >&2)
+
+STATUS_FILE="/run/onsite-restore-status"
+PLATFORM_BACKUP="/opt/platform-backup"
+AUTO_RESTORE_DIR="${PLATFORM_BACKUP}/auto-restore"
+RESTORE_VALUES="${AUTO_RESTORE_DIR}/backup_restore_values.yml"
+
+function log_fatal {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - onsite-restore -") FATAL: ${*}"
+    exit 1
+}
+
+function log_info {
+    echo "$(date +"%Y-%m-%d %H:%M:%S,%3N - onsite-restore -") INFO: $*"
+}
+
+function check_rc_die {
+    local -i rc=${1}
+    local msg="${2}"
+    if [ ${rc} -ne 0 ]; then
+        log_fatal "${msg} [rc=${rc}]"
+    fi
+}
+
+log_info "Staging onsite restore for dc-auto-restore.service"
+
+system_mode=$(awk -F= '/system_mode/ {print $2}' /etc/platform/platform.conf)
+if [ "$system_mode" != "simplex" ]; then
+    log_fatal "Onsite restore is only supported on simplex systems"
+fi
+
+if [ ! -f "${STATUS_FILE}" ]; then
+    log_fatal "Status file ${STATUS_FILE} not found; 90-send-onsite-restore-request must run first"
+fi
+
+# shellcheck disable=SC1090
+source "${STATUS_FILE}"
+
+# Resolve the platform backup directory:
+# local_only=true  -> ${PLATFORM_BACKUP}/backups/<sw-version>/
+# local_only=false -> ${PLATFORM_BACKUP}/auto-restore/ (dcmanager rsynced it)
+if [ "${local_only}" = "true" ]; then
+    SW_VERSION=$(awk -F= '/^SW_VERSION/ {print $2}' /etc/build.info | tr -d '"')
+    if [ -z "${SW_VERSION}" ]; then
+        log_fatal "Could not determine SW version from /etc/build.info"
+    fi
+    BACKUP_DIR="${PLATFORM_BACKUP}/backups/${SW_VERSION}"
+elif [ "${local_only}" = "false" ]; then
+    BACKUP_DIR="${AUTO_RESTORE_DIR}"
+else
+    log_fatal "Invalid local_only value in ${STATUS_FILE}: '${local_only}'"
+fi
+
+log_info "Resolved backup directory: ${BACKUP_DIR}"
+
+if [ ! -d "${BACKUP_DIR}" ]; then
+    log_fatal "Backup directory not found at ${BACKUP_DIR}"
+fi
+
+if ! ls "${BACKUP_DIR}"/*_platform_backup_*.tgz >/dev/null 2>&1; then
+    log_fatal "platform backup tarball not found in ${BACKUP_DIR}"
+fi
+
+# Write backup_restore_values.yml into the auto-restore directory.
+mkdir -p "${AUTO_RESTORE_DIR}"
+check_rc_die $? "Failed to create ${AUTO_RESTORE_DIR}"
+
+log_info "Writing ${RESTORE_VALUES}"
+cat > "${RESTORE_VALUES}" <<EOF
+auto_restore_mode: auto
+initial_backup_dir: ${BACKUP_DIR}
+ipmi_sel_event_monitoring: false
+restore_mode: optimized
+skip_registry_login: true
+skip_patches_restore: true
+exclude_sw_deployments: true
+EOF
+check_rc_die $? "Failed to write ${RESTORE_VALUES}"
+
+# Hand off to dc-auto-restore.service.
+log_info "Enabling and starting dc-auto-restore.service"
+systemctl enable --now dc-auto-restore.service
+check_rc_die $? "Failed to start dc-auto-restore.service"
+
+log_info "Onsite restore staged; dc-auto-restore.service now owns the restore"

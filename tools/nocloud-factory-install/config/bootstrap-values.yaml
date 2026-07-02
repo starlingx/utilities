@@ -12,7 +12,7 @@
 #   - onsite-restore: only the platform-reconfigure subset
 #     (system_mode, name, external_oam_*, systemcontroller_oam_address,
 #     sysadmin_password, ssl_ca_cert, admin_*) is consumed locally by
-#     10-platform-reconfig and 90-trigger-onsite-restore. Other fields
+#     10-platform-reconfig and 90-send-onsite-restore-request. Other fields
 #     are ignored on the restore path.
 #
 
