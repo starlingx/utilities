@@ -23,6 +23,8 @@
 #
 ########################################################################
 
+description: "Mixed pattern and pair example profiling a host unlock sequence (pattern anchors plus pair durations)."
+
 settings:
   max_time_delta: 600           # generous default for unlock timing
 

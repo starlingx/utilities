@@ -1,0 +1,36 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Kernel & Hardware — panics, oops, driver errors, sensor alarms
+########################################################################
+
+description: "Kernel and hardware events — kernel panics, oops, segfaults, driver errors, OOM-killer, hardware sensor alarms (temperature/fan/voltage), BMC communication failures."
+
+blocks:
+  - label: "Kernel Errors"
+    file: ["kern.log*"]
+    timeline:
+      - 'panic'
+      - 'Oops'
+      - 'segfault'
+      - 'BUG:'
+      - 'Call Trace'
+      - 'RIP:'
+      - 'general protection fault'
+      - 'kernel: error'
+      - 'MCE'
+      - 'Hardware Error'
+
+  - label: "Hardware Monitor"
+    file: ["hwmond.log*"]
+    timeline:
+      - 'sensor'
+      - 'threshold'
+      - 'critical'
+      - 'BMC'
+      - 'IPMI'
+      - 'power supply'
+      - 'temperature'
+      - 'fan'
+      - 'alarm'

@@ -56,32 +56,44 @@ class TestValidateModelFile(unittest.TestCase):
 
     def test_valid_pattern_model(self):
         """Valid pattern block model returns type 'pattern'"""
-        path = self._write('m.yaml',
-                           'blocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n')
+        path = self._write(
+            'm.yaml',
+            'description: Test model.\n'
+            'blocks:\n  - label: "T"\n    file: "t.log"\n'
+            '    patterns:\n      - "p"\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'pattern')
 
     def test_valid_pair_model(self):
         """Valid pair block model returns type 'pair'"""
-        path = self._write('m.yaml',
-                           'blocks:\n  - label: "T"\n    file: "t.log"\n    start: "s"\n    stop: "e"\n')
+        path = self._write(
+            'm.yaml',
+            'description: Test model.\n'
+            'blocks:\n  - label: "T"\n    file: "t.log"\n'
+            '    start: "s"\n    stop: "e"\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'pair')
 
     def test_valid_timeline_model(self):
         """Valid timeline block model returns type 'timeline'"""
-        path = self._write('m.yaml',
-                           'blocks:\n  - label: "T"\n    file: "t.log"\n    timeline:\n      - "event"\n')
+        path = self._write(
+            'm.yaml',
+            'description: Test model.\n'
+            'blocks:\n  - label: "T"\n    file: "t.log"\n'
+            '    timeline:\n      - "event"\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'timeline')
 
     def test_valid_window_model_returns_timeline_type(self):
         """Valid window block model returns type 'timeline'"""
-        path = self._write('m.yaml',
-                           'blocks:\n  - label: "T"\n    file: "*.log*"\n    window: true\n')
+        path = self._write(
+            'm.yaml',
+            'description: Test model.\n'
+            'blocks:\n  - label: "T"\n    file: "*.log*"\n'
+            '    window: true\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'timeline')
@@ -89,14 +101,14 @@ class TestValidateModelFile(unittest.TestCase):
     def test_valid_model_with_settings(self):
         """Valid model with settings section accepted"""
         path = self._write('m.yaml',
-                           'settings:\n  loops: 2\nblocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n')  # noqa E501
+                           'description: Test model.\nsettings:\n  loops: 2\nblocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n')  # noqa E501
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'pattern')
 
     def test_valid_empty_blocks_list(self):
         """Model with empty blocks list defaults to 'pattern'"""
-        path = self._write('m.yaml', 'blocks: []\n')
+        path = self._write('m.yaml', 'description: Test model.\nblocks: []\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'pattern')
@@ -104,7 +116,7 @@ class TestValidateModelFile(unittest.TestCase):
     def test_valid_model_with_include(self):
         """Model with include and blocks accepted"""
         path = self._write('m.yaml',
-                           'include: shared.yaml\nblocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n')  # noqa E501
+                           'description: Test model.\ninclude: shared.yaml\nblocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n')  # noqa E501
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertEqual(status, 'pattern')
@@ -114,7 +126,7 @@ class TestValidateModelFile(unittest.TestCase):
     def test_yaml_error_with_blocks_keyword(self):
         """YAML parse error with blocks: returns error detail"""
         path = self._write('m.yaml',
-                           'blocks:\n  - label: "Test\n    file: [unclosed\n')
+                           'description: Test model.\nblocks:\n  - label: "Test\n    file: [unclosed\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertTrue(status.startswith('yaml error'))
@@ -122,7 +134,7 @@ class TestValidateModelFile(unittest.TestCase):
     def test_yaml_error_tab_indentation(self):
         """YAML tab error with blocks: returns error with line number"""
         path = self._write('m.yaml',
-                           'blocks:\n\t- label: "Test"\n\t  file: "t.log"\n')
+                           'description: Test model.\nblocks:\n\t- label: "Test"\n\t  file: "t.log"\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertIn('yaml error', status)
@@ -132,7 +144,7 @@ class TestValidateModelFile(unittest.TestCase):
 
     def test_settings_only_no_blocks(self):
         """YAML with settings but no blocks excluded"""
-        path = self._write('m.yaml', 'settings:\n  loops: 2\n')
+        path = self._write('m.yaml', 'description: Test model.\nsettings:\n  loops: 2\n')
         valid, status = validate_model_file(path)
         self.assertFalse(valid)
         self.assertIsNone(status)
@@ -167,7 +179,7 @@ class TestValidateModelFile(unittest.TestCase):
 
     def test_yaml_error_without_blocks_keyword(self):
         """YAML parse error without blocks: text excluded"""
-        path = self._write('m.yaml', 'settings:\n  bad: [unclosed\n')
+        path = self._write('m.yaml', 'description: Test model.\nsettings:\n  bad: [unclosed\n')
         valid, status = validate_model_file(path)
         self.assertFalse(valid)
         self.assertIsNone(status)
@@ -181,7 +193,7 @@ class TestValidateModelFile(unittest.TestCase):
 
     def test_unreadable_file(self):
         """Unreadable file excluded"""
-        path = self._write('m.yaml', 'blocks:\n  - label: "T"\n')
+        path = self._write('m.yaml', 'description: Test model.\nblocks:\n  - label: "T"\n')
         os.chmod(path, 0o000)
         valid, status = validate_model_file(path)
         os.chmod(path, 0o644)
@@ -197,11 +209,13 @@ class TestValidateModelFile(unittest.TestCase):
 
         # Valid model - should be listed
         with open(os.path.join(models_dir, 'good.yaml'), 'w') as f:
-            f.write('blocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n')
+            f.write('description: Test model.\n'
+                    'blocks:\n  - label: "T"\n    file: "t.log"\n'
+                    '    patterns:\n      - "p"\n')
 
         # No blocks - should NOT be listed
         with open(os.path.join(models_dir, 'no_blocks.yaml'), 'w') as f:
-            f.write('settings:\n  loops: 2\n  max_time_delta: 60\n')
+            f.write('description: Test model.\nsettings:\n  loops: 2\n  max_time_delta: 60\n')
 
         # Collect only valid models
         listed = []
@@ -217,9 +231,12 @@ class TestValidateModelFile(unittest.TestCase):
 
     def test_format_error_reported_in_status(self):
         """Model with structure error returns format error in status"""
-        path = self._write('m.yaml',
-                           'blocks:\n  - label: "T"\n    file: "t.log"\n    patterns:\n      - "p"\n'
-                           '    bogus_key: true\n')
+        path = self._write(
+            'm.yaml',
+            'description: Test model.\n'
+            'blocks:\n  - label: "T"\n    file: "t.log"\n'
+            '    patterns:\n      - "p"\n'
+            '    bogus_key: true\n')
         valid, status = validate_model_file(path)
         self.assertTrue(valid)
         self.assertTrue(status.startswith('format'))
@@ -233,27 +250,27 @@ class TestValidateModelStructure(unittest.TestCase):
 
     def test_valid_pattern_model(self):
         """Valid pattern model has no errors"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}]}
         self.assertEqual(validate_model_structure(data), [])
 
     def test_valid_pair_model(self):
         """Valid pair model has no errors"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log', 'start': 's', 'stop': 'e'}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log', 'start': 's', 'stop': 'e'}]}
         self.assertEqual(validate_model_structure(data), [])
 
     def test_valid_timeline_model(self):
         """Valid timeline model has no errors"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log', 'timeline': ['ev']}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log', 'timeline': ['ev']}]}
         self.assertEqual(validate_model_structure(data), [])
 
     def test_valid_window_model(self):
         """Valid window model has no errors"""
-        data = {'blocks': [{'label': 'T', 'file': '*.log*', 'window': True}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': '*.log*', 'window': True}]}
         self.assertEqual(validate_model_structure(data), [])
 
     def test_valid_model_with_all_optional_block_keys(self):
         """Block with all valid optional keys has no errors"""
-        data = {'blocks': [{
+        data = {'description': 'Test model.', 'blocks': [{
             'label': 'T', 'file': 't.log', 'patterns': ['p'],
             'optional': True, 'present': False, 'profile': True,
             'controller': False, 'override': 'c-1', 'max_time_delta': 60,
@@ -264,6 +281,7 @@ class TestValidateModelStructure(unittest.TestCase):
     def test_valid_model_with_all_settings_keys(self):
         """Model with all valid settings keys has no errors"""
         data = {
+            'description': 'Test model.',
             'settings': {
                 'max_time_delta': 60, 'block_time_tolerance': 5.0,
                 'start_date': '2024-01-01', 'stop_date': '2024-01-02',
@@ -279,6 +297,7 @@ class TestValidateModelStructure(unittest.TestCase):
     def test_valid_model_with_include(self):
         """Model with include key has no errors"""
         data = {
+            'description': 'Test model.',
             'include': 'shared.yaml',
             'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}]
         }
@@ -289,16 +308,35 @@ class TestValidateModelStructure(unittest.TestCase):
     def test_unknown_top_level_key(self):
         """Unknown top-level key detected"""
         data = {
-            'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}],
+            'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}],
             'bogus': True
         }
         errors = validate_model_structure(data)
         self.assertEqual(len(errors), 1)
         self.assertIn('bogus', errors[0])
 
+    def test_description_top_level_key_accepted(self):
+        """description: at top-level is a valid key (used by tooling only)"""
+        data = {
+            'description': 'One-line summary of what this model does.',
+            'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}]
+        }
+        self.assertEqual(validate_model_structure(data), [])
+
+    def test_description_accepted_with_settings_and_include(self):
+        """description alongside settings/include still validates cleanly"""
+        data = {
+            'description': 'Test description.',
+            'settings': {'max_time_delta': 60},
+            'blocks': [{'label': 'T', 'file': 't.log', 'timeline': ['x']}]
+        }
+        self.assertEqual(validate_model_structure(data), [])
+
     def test_unknown_block_key(self):
         """Unknown block-level key detected"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p'], 'bogus': True}]}
+        data = {'description': 'Test model.',
+                'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p'],
+                            'bogus': True}]}
         errors = validate_model_structure(data)
         self.assertEqual(len(errors), 1)
         self.assertIn('bogus', errors[0])
@@ -306,6 +344,7 @@ class TestValidateModelStructure(unittest.TestCase):
     def test_unknown_settings_key(self):
         """Unknown settings key detected (e.g. typo max_delta_time)"""
         data = {
+            'description': 'Test model.',
             'settings': {'max_delta_time': 60},
             'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}]
         }
@@ -315,7 +354,7 @@ class TestValidateModelStructure(unittest.TestCase):
 
     def test_settings_at_block_level_detected(self):
         """settings key inside a block is flagged as unknown"""
-        data = {'blocks': [{
+        data = {'description': 'Test model.', 'blocks': [{
             'label': 'T', 'file': 't.log', 'timeline': ['ev'],
             'settings': {'start_date': '2024-01-01'}
         }]}
@@ -327,31 +366,31 @@ class TestValidateModelStructure(unittest.TestCase):
 
     def test_missing_label(self):
         """Missing label detected"""
-        data = {'blocks': [{'file': 't.log', 'patterns': ['p']}]}
+        data = {'description': 'Test model.', 'blocks': [{'file': 't.log', 'patterns': ['p']}]}
         errors = validate_model_structure(data)
         self.assertTrue(any('label' in e for e in errors))
 
     def test_missing_file(self):
         """Missing file detected"""
-        data = {'blocks': [{'label': 'T', 'patterns': ['p']}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'patterns': ['p']}]}
         errors = validate_model_structure(data)
         self.assertTrue(any('file' in e for e in errors))
 
     def test_missing_block_type(self):
         """Block with no patterns/start/stop/timeline/window detected"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log'}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log'}]}
         errors = validate_model_structure(data)
         self.assertTrue(any('window' in e for e in errors))
 
     def test_start_without_stop(self):
         """Pair block with start but no stop detected"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log', 'start': 's'}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log', 'start': 's'}]}
         errors = validate_model_structure(data)
         self.assertTrue(any('stop' in e for e in errors))
 
     def test_stop_without_start(self):
         """Pair block with stop but no start detected"""
-        data = {'blocks': [{'label': 'T', 'file': 't.log', 'stop': 'e'}]}
+        data = {'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 't.log', 'stop': 'e'}]}
         errors = validate_model_structure(data)
         self.assertTrue(any('start' in e for e in errors))
 
@@ -359,7 +398,7 @@ class TestValidateModelStructure(unittest.TestCase):
 
     def test_duplicate_labels(self):
         """Duplicate block labels detected"""
-        data = {'blocks': [
+        data = {'description': 'Test model.', 'blocks': [
             {'label': 'T', 'file': 't.log', 'patterns': ['p']},
             {'label': 'T', 'file': 't.log', 'patterns': ['q']}
         ]}
@@ -368,13 +407,13 @@ class TestValidateModelStructure(unittest.TestCase):
 
     def test_blocks_not_list(self):
         """blocks as non-list detected"""
-        data = {'blocks': 'not a list'}
+        data = {'description': 'Test model.', 'blocks': 'not a list'}
         errors = validate_model_structure(data)
         self.assertTrue(any('list' in e for e in errors))
 
     def test_block_not_dict(self):
         """Block that is not a dict detected"""
-        data = {'blocks': ['not a dict']}
+        data = {'description': 'Test model.', 'blocks': ['not a dict']}
         errors = validate_model_structure(data)
         self.assertTrue(any('mapping' in e for e in errors))
 
@@ -394,7 +433,7 @@ class TestValidateModelStructure(unittest.TestCase):
 
     def test_empty_blocks(self):
         """Empty blocks list detected"""
-        data = {'blocks': []}
+        data = {'description': 'Test model.', 'blocks': []}
         errors = validate_model_structure(data)
         self.assertTrue(any('empty' in e for e in errors))
 

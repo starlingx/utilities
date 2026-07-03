@@ -23,6 +23,8 @@
 #
 ########################################################################
 
+description: "SM survivor/failover sequence from heartbeat loss through declared dead, fail pending, survived state, and recovery."
+
 blocks:
   - label: "Heartbeat Period"
     file: ["user.log*"]

@@ -24,6 +24,8 @@
 #
 ########################################################################
 
+description: "Maintenance reinstall operations — reinstall, unlock, enable, and delete events across mtcAgent and sysinv logs."
+
 settings:
   timeline_patterns:
     maintenance:

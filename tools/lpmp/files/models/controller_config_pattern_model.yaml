@@ -24,6 +24,8 @@
 #
 ########################################################################
 
+description: "Controller node configuration timing from initial configuration through puppet manifest apply to completion."
+
 blocks:
   - label: "Controller Config"
     file: "daemon.log*"

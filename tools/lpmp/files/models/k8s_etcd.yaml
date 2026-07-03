@@ -1,0 +1,25 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Etcd — cluster health, leader elections, compaction, slow requests
+########################################################################
+
+description: "Etcd cluster health — leader elections and changes, slow apply requests, WAL/snapshot events, compaction, mvcc database size, and member connectivity."
+
+blocks:
+  - label: "Etcd Health"
+    file: ["daemon.log*"]
+    timeline:
+      - 'etcdserver'
+      - 'etcd'
+      - 'wal'
+      - 'snapshot'
+      - 'compaction'
+      - 'mvcc'
+      - 'apply request took too long'
+      - 'leader changed'
+      - 'elected leader'
+      - 'lost leader'
+      - 'member'
+      - 'health check'

@@ -1,0 +1,31 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Interface Link State — NIC up/down, bond failover, carrier events
+########################################################################
+
+description: "Interface link state events — NIC link up/down, carrier lost/acquired, bond link status changes, and lmond interface degradation."
+
+blocks:
+  - label: "Link State"
+    file: ["kern.log*", "daemon.log*"]
+    timeline:
+      - 'Link Down'
+      - 'Link Up'
+      - 'link is not ready'
+      - 'link becomes ready'
+      - 'NIC Link is Down'
+      - 'NIC Link is Up'
+      - 'carrier lost'
+      - 'carrier acquired'
+      - 'bond.*link status'
+      - 'bond.*slave'
+
+  - label: "Link Monitor"
+    file: ["lmond.log*"]
+    timeline:
+      - 'link down'
+      - 'link up'
+      - 'interface'
+      - 'degraded'

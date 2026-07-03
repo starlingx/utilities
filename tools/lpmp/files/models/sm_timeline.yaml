@@ -12,6 +12,8 @@
 #
 ########################################################################
 
+description: "Service management scheduling events using shared timeline patterns from wrcp_domains_patterns.yaml."
+
 include: "helpers/wrcp_domains_patterns.yaml"
 
 blocks:

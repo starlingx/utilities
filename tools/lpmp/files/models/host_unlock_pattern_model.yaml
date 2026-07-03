@@ -42,6 +42,9 @@
 ########################################################################
 
 # Optional global settings
+
+description: "Host unlock timing from unlock action through reboot, service restart, and pod recovery for any hostname."
+
 settings:
   host: "{host}"
   max_time_delta: 100

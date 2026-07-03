@@ -25,7 +25,7 @@ class TestSummaryTimingFormat(LPMPTestBase):
             os.makedirs(logs_dir)
 
             # Create test model with pair blocks
-            model_content = """blocks:
+            model_content = """description: Test model.\nblocks:
   - label: SERVICE_A
     file: test.log
     start: 'Service A starting'
@@ -116,7 +116,7 @@ class TestSummaryTimingFormat(LPMPTestBase):
             os.makedirs(logs_dir)
 
             # Create model with optional block that will fail
-            model_content = """blocks:
+            model_content = """description: Test model.\nblocks:
   - label: SERVICE_A
     file: test.log
     start: 'Service A starting'

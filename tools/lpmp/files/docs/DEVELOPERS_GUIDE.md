@@ -32,19 +32,45 @@ processing begins.
 
 ### Listing Models with Validation Status
 
-Use `--list-models` to see all discoverable models with their validation
-status and detected type:
+Use `--list-models` (or `-lm`) to see all discoverable models grouped by
+detected type in a compact multi-column layout. Column count adapts to
+the longest model name and targets `DEFAULT_LIST_MODELS_MAX_WIDTH`
+(120 characters):
 
 ```
-FUNCTIONAL MODELS:
- - collectd_cpu_usage_timeline     ✅ timeline
- - swact_soak_model                ❌ format: unknown settings keys: ['max_delta_time']
- - mixed_models                    ❌ yaml error: line 66: but found another document
+TIMELINE MODELS (45):
+  DOR_recovery_timeline             ceph_health                       ceph_osd
+  ...
+
+PATTERN MODELS (9):
+  active_controller_reboot_failure  AIO_SX_unlock_pattern_model       controller_config_pattern_model
+  ...
+
+PAIR MODELS (5):
+  kpi_unlock_pairing_model          sm_deprovision_storage            sm_provision_storage
+  ...
+
+ERRORS (1):
+  ❌ broken_model.yaml — format: unknown settings keys: ['max_delta_time']
 ```
 
-Models are sorted by type group (timeline, pattern, pair) with errors
-last. Files that lack a `blocks:` key are silently excluded as non-LPMP
-files.
+Optionally filter to a single group with `-lm timeline`, `-lm pattern`,
+`-lm pair`, or `-lm example`. Models with yaml or format errors are
+always surfaced in a dedicated `ERRORS` section regardless of filter,
+so broken models are never hidden. Files that lack a `blocks:` key
+are silently excluded as non-LPMP files.
+
+Use `-lm desc` (or `-lm description`) for a flat greppable listing
+that pairs each model with its one-line description, ordered
+timeline → pattern → pair → example:
+
+```
+Available Model Descriptions (max width 120)
+============================================================
+ceph_health                       : Ceph cluster health — HEALTH_OK/WARN/ERR ...
+ceph_osd                          : Ceph OSD lifecycle events — OSD state ...
+...
+```
 
 ### Validation Levels
 
@@ -55,7 +81,10 @@ error detail so the author knows which file needs fixing.
 **Model Structure** — Once parsed, the YAML is checked against the LPMP
 model format rules:
 
-- Top-level keys must be from: `blocks`, `settings`, `include`
+- Top-level keys must be from: `description`, `blocks`, `settings`, `include`
+- `description` is **required** — a non-empty one-line string that
+  summarises what the model does; used by tooling (`--list-models`)
+  and ignored at run time.
 - Settings keys must be from: `max_time_delta`, `block_time_tolerance`,
   `start_date`, `loops`, `max_log_length`,
   `profile`, `optional`, `controller`, `graph`, `timeline_patterns`
@@ -925,5 +954,102 @@ Use LPMP output for monitoring system integration:
 lpmptool -m monitoring.yaml -o /monitoring/data/
 # Process CSV files with monitoring tools
 ```
+
+### Batch Mode
+
+Use `--batch` to run many model/window combinations against the same
+bundle in one invocation. The tool loads each unique model once and
+reads each physical log file exactly once, matching against every
+relevant run in that single pass.
+
+```bash
+lpmptool --batch batch_spec.json --bundle /path/to/collect \
+    --include controller-0 controller-1 --lab galaxy \
+    --output /tmp/batch_out
+```
+
+The spec is a JSON file. In its fullest form it wraps a `runs` array
+with per-run explicit windows:
+
+```json
+{
+  "runs": [
+    {"model": "ceph_health.yaml",
+     "start_date": "2026-02-25T13:35:00",
+     "stop_date":  "2026-02-25T13:38:00"},
+    {"model": "host_lifecycle.yaml",
+     "start_date": "2026-02-25T13:38:00",
+     "stop_date":  "2026-02-25T13:41:00"}
+  ]
+}
+```
+
+The simplest form is a bare top-level list of models — dates are
+optional:
+
+```json
+[
+  {"model": "ceph_health.yaml"},
+  {"model": "host_lifecycle.yaml"},
+  {"model": "sm_service_failover.yaml"}
+]
+```
+
+**Date precedence** for each run:
+1. Explicit `start_date` / `stop_date` in the run entry
+2. CLI `--start-date` / `--stop-date`
+3. The model's own `settings.start_date` / `settings.stop_date`
+4. Unbounded (no time filter — the full file is read)
+
+Notes:
+- Only `model` is required per run.
+- A model may appear more than once in a batch spec as long as each
+  occurrence resolves to a distinct `start_date`/`stop_date` window —
+  the window is part of the output directory name, so distinct
+  windows naturally land in distinct directories. Two runs that
+  resolve to the exact same (model, window) are rejected at load
+  time with an error naming both conflicting run numbers.
+- Model names resolve via the standard search paths; bare filenames,
+  relative paths and absolute paths all work.
+- Time strings must be `datetime.fromisoformat`-parseable and
+  **whole-second** (`YYYY-MM-DDTHH:MM:SS`) — milliseconds/microseconds
+  are rejected, since output directory names only have whole-second
+  resolution and a fractional-second date could collide with another
+  run once truncated. This applies to spec dates, CLI
+  `--start-date`/`--stop-date`, and a model's own
+  `settings.start_date`/`settings.stop_date`.
+- All runs share the CLI's `--bundle`, `--include`/`--exclude`,
+  `--logs-dir`, `--lab`, `--output`, `--max-log-length` and
+  `--verbose`.
+- Output for each run appears under
+  `<output>/lpmp_batch_<lab>/<runtime>/[<start>_]<model>[_<stop>][/<host>]/`
+  with the usual `profile.timeline.log`, `.csv`, per-block profile
+  files, per-block `.context` files, and a merged
+  `lab_system_profile.timeline.log` when multiple hosts contribute.
+  `<runtime>` is a single directory shared by every run in the batch,
+  named after the batch's wall-clock start time
+  (`YYYYMMDD_HHMMSS`) so re-running the same spec never clobbers a
+  previous run's output. Each run's own subdirectory is named from
+  its resolved `start_date` / `stop_date` (also `YYYYMMDD_HHMMSS`) —
+  an unbounded start or stop is simply omitted rather than padded
+  out, e.g. `ceph_health` (fully unbounded),
+  `20260225_133500_ceph_health` (start only), or
+  `20260225_133500_ceph_health_20260225_133800` (start and stop). The
+  `batch_` segment keeps batch output visibly distinct from the
+  mainline `lpmp_<lab>/` tree so both can coexist under the same lab
+  name.
+- The last line of console output is `Output: <path>`, giving the
+  full path to the batch's `<runtime>` directory so the result
+  location doesn't have to be inferred from the run summary.
+- Timeline and window blocks are processed. Timeline blocks apply
+  their regex filter with the same combined-alternation,
+  first-match-wins semantics as the mainline engine. Window blocks
+  emit every timestamped line inside the run's window. Pair and
+  pattern blocks encountered in a batched model emit a warning and
+  are skipped because they require sequential-ordering state that
+  single-pass reading cannot preserve. A run with no supported
+  blocks is warned about and skipped entirely.
+
+A sample spec is available at `docs/batch_spec_example.json`.
 
 This comprehensive guide provides the foundation for effectively using LPMP in various scenarios, from simple single-host log analysis to complex multi-host collect bundle correlation and performance validation.

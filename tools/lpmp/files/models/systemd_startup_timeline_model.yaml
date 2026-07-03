@@ -22,6 +22,8 @@
 #
 ########################################################################
 
+description: "System startup timeline covering kernel boot, systemd startup, and daemon events across multiple log domains."
+
 include: "helpers/wrcp_domains_patterns.yaml"
 
 blocks:

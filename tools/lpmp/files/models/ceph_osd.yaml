@@ -1,0 +1,34 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# OSD Lifecycle — up/down/out/in, ok-to-stop checks, boot, suicide
+########################################################################
+
+description: "Ceph OSD lifecycle events — OSD state transitions (up/down/out/in), ok-to-stop pre-checks (per-OSD and per-host), OSD boot, and suicide timeout."
+
+blocks:
+  - label: "OSD State from Ceph Manager"
+    file: ["ceph-manager.log*"]
+    timeline:
+      - 'osd.*down'
+      - 'osd.*out'
+      - 'osd.*in'
+      - 'osd.*up'
+      - 'ok-to-stop'
+      - 'marked down'
+      - 'boot'
+      - 'NODOWN'
+      - 'NOUP'
+      - 'NOOUT'
+      - 'NOIN'
+
+  - label: "OSD Operator Events"
+    file: ["containerd.log*"]
+    controller: true
+    timeline:
+      - 'osd ok-to-stop'
+      - 'host ok-to-stop'
+      - 'rook-ceph-osd.*failed'
+      - 'rook-ceph-osd.*error'
+      - 'osd_failure'

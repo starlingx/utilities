@@ -453,7 +453,7 @@ class TestTimelineBlocks(unittest.TestCase):
         self.model_file = os.path.join(self.temp_dir, "model.yaml")
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Dummy', 'file': 'timeline.log', 'patterns': ['dummy']}
             ]
         }
@@ -529,7 +529,7 @@ class TestOptionalWarnings(unittest.TestCase):
         self.model_file = os.path.join(self.temp_dir, "model.yaml")
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Dummy', 'file': 'test.log', 'patterns': ['dummy']}
             ]
         }
@@ -733,7 +733,7 @@ class TestIntegration(unittest.TestCase):
 
         # Create test model: trigger pattern + pair blocks only
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Boot Event',
                     'file': 'test.log',
@@ -785,7 +785,7 @@ class TestIntegration(unittest.TestCase):
             f.write(log_content)
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Blackout Time',
                     'file': 'test.log',
@@ -845,7 +845,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_model_with_unicode_characters(self):
         """Test model file with unicode characters"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test éàü', 'file': 'test.log', 'patterns': ['test 中文']}
             ]
         }
@@ -860,7 +860,7 @@ class TestEdgeCases(unittest.TestCase):
         """Test model with very long label"""
         long_label = 'A' * 1000
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': long_label, 'file': 'test.log', 'patterns': ['test']}
             ]
         }
@@ -874,7 +874,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_model_with_special_characters_in_patterns(self):
         """Test model with special regex characters in patterns"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': [r'\[.*\]', r'\d+\.\d+']}
             ]
         }
@@ -892,7 +892,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_model_with_empty_string_pattern(self):
         """Test model with empty string pattern"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['']}
             ]
         }
@@ -906,7 +906,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_model_with_numeric_values(self):
         """Test model handles numeric values in unexpected places"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 123, 'file': 'test.log', 'patterns': [456]}
             ]
         }
@@ -921,7 +921,7 @@ class TestEdgeCases(unittest.TestCase):
         """Test loops=0 (until EOF)"""
         # This is a valid configuration
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ],
             'settings': {'loops': 0}
@@ -935,7 +935,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_load_model_with_block_level_max_time_delta(self):
         """Test loading model with block-level max_time_delta"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Test Block Level Setting',
                     'file': 'test.log',
@@ -956,7 +956,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_load_model_mixed_max_time_delta_settings(self):
         """Test loading model with mixed block-level and no max_time_delta"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Block Without Setting',
                     'file': 'test.log',

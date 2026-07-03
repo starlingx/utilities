@@ -1,0 +1,36 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Software Deploy — USM deploy state machine transitions
+########################################################################
+
+description: "USM software deploy lifecycle — deploy precheck/start/host/activate/complete state transitions, deploy failures, abort, and software-agent state (idle/installing/failed)."
+
+blocks:
+  - label: "Deploy State Machine"
+    file: ["software.log*", "software-api.log*", "daemon.log*"]
+    timeline:
+      - 'deploy precheck'
+      - 'deploy start'
+      - 'deploy host'
+      - 'deploy activate'
+      - 'deploy complete'
+      - 'deploy abort'
+      - 'deploy-host'
+      - 'deploy-start'
+      - 'deploy_state'
+      - 'DEPLOY_START'
+      - 'DEPLOY_HOST'
+      - 'install-failed'
+      - 'install-rejected'
+
+  - label: "Software Agent"
+    file: ["software.log*", "daemon.log*"]
+    timeline:
+      - 'software-agent'
+      - 'software-controller'
+      - 'idle'
+      - 'installing'
+      - '.restart.software-agent'
+      - 'Unified Software Management'

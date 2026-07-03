@@ -1,0 +1,25 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# K8s Control Plane — apiserver, scheduler, controller-manager health
+########################################################################
+
+description: "Kubernetes control plane health — kube-apiserver availability, connection refused, leader election, scheduler and controller-manager status."
+
+blocks:
+  - label: "Control Plane"
+    file: ["daemon.log*"]
+    timeline:
+      - 'kube-apiserver'
+      - 'kube-controller-manager'
+      - 'kube-scheduler'
+      - 'connection refused.*6443'
+      - 'connection refused.*16443'
+      - 'Unable to connect to the server'
+      - 'couldn''t get current server API group'
+      - 'leader election'
+      - 'became leader'
+      - 'lost leader'
+      - 'readyz'
+      - 'healthz'

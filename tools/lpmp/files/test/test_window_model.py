@@ -208,7 +208,7 @@ class TestWindowModelValidation(LPMPTestBase):
 
     def test_window_block_valid(self):
         """Window block passes validation"""
-        data = {'blocks': [
+        data = {'description': 'Test model.', 'blocks': [
             {'label': 'All', 'file': '*.log*', 'window': True}
         ]}
         errors = validate_model_structure(data)
@@ -223,7 +223,7 @@ class TestWindowModelValidation(LPMPTestBase):
 
     def test_multiple_window_blocks_valid(self):
         """Multiple window blocks pass validation"""
-        data = {'blocks': [
+        data = {'description': 'Test model.', 'blocks': [
             {'label': 'Mtce', 'file': 'mtcAgent.log*', 'window': True},
             {'label': 'SM', 'file': 'sm.log*', 'window': True},
         ]}
@@ -233,6 +233,7 @@ class TestWindowModelValidation(LPMPTestBase):
     def test_window_with_settings_valid(self):
         """Window model with start_date/stop_date settings is valid"""
         data = {
+            'description': 'Test model.',
             'settings': {
                 'start_date': '2024-01-06T10:00:00',
                 'stop_date': '2024-01-06T11:00:00',
@@ -260,7 +261,7 @@ class TestWindowModelLoading(LPMPTestBase):
     def test_load_window_model(self):
         """Window model loads with timeline: '.*' injected"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'All Logs', 'file': '*.log*', 'window': True}
             ]
         }
@@ -276,6 +277,7 @@ class TestWindowModelLoading(LPMPTestBase):
     def test_load_window_model_with_stop_date(self):
         """Window model with stop_date in settings loads correctly"""
         model_data = {
+            'description': 'Test model.',
             'settings': {
                 'start_date': '2024-01-06T10:00:00',
                 'stop_date': '2024-01-06T11:00:00',
@@ -293,7 +295,7 @@ class TestWindowModelLoading(LPMPTestBase):
     def test_load_window_model_file_list(self):
         """Window model with file list loads correctly"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Selected Logs',
                     'file': ['mtcAgent.log*', 'sm.log*'],
@@ -326,7 +328,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_int_parsed_as_symmetric(self):
         """context: 5 parsed as [5, 5]"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['pattern'], 'context': 5
             }]
@@ -340,7 +342,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_list_parsed_as_asymmetric(self):
         """context: [3, 10] parsed as before=3, after=10"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['pattern'], 'context': [3, 10]
             }]
@@ -354,7 +356,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_not_set_by_default(self):
         """Blocks without context: have no context_before/after"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['pattern']
             }]
@@ -368,7 +370,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_skipped_for_pair_blocks(self):
         """context: on pair blocks is ignored with warning"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'start': 'begin', 'stop': 'end', 'context': 5
             }]
@@ -381,7 +383,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_invalid_string_exits(self):
         """context: 'string' triggers sys.exit(1)"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['p'], 'context': 'bad'
             }]
@@ -395,7 +397,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_single_element_list_exits(self):
         """context: [5] (single element list) triggers sys.exit(1)"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['p'], 'context': [5]
             }]
@@ -409,7 +411,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_three_element_list_exits(self):
         """context: [1,2,3] (three element list) triggers sys.exit(1)"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['p'], 'context': [1, 2, 3]
             }]
@@ -423,7 +425,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_zero_value_symmetric(self):
         """context: 0 is valid and sets both to 0"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'patterns': ['p'], 'context': 0
             }]
@@ -437,7 +439,7 @@ class TestContextLabel(LPMPTestBase):
     def test_context_on_timeline_block(self):
         """context: on timeline block is accepted"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Test', 'file': 'test.log',
                 'timeline': ['event'], 'context': [2, 5]
             }]
@@ -824,7 +826,7 @@ class TestWindowIntegration(LPMPTestBase):
     def test_window_model_produces_timeline_output(self):
         """Window model produces .timeline.log output with all log lines"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'All Logs',
                 'file': '*.log',
                 'window': True
@@ -862,7 +864,7 @@ class TestWindowIntegration(LPMPTestBase):
     def test_context_produces_context_file(self):
         """Pattern model with context: produces .context output file"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'App Ready',
                 'file': 'app.log',
                 'patterns': ['app ready'],
@@ -898,7 +900,7 @@ class TestWindowIntegration(LPMPTestBase):
     def test_stop_date_from_model_settings(self):
         """stop_date in model settings is used when -e not provided"""
         model_data = {
-            'settings': {
+            'description': 'Test model.', 'settings': {
                 'start_date': '2024-01-06T10:00:00',
                 'stop_date': '2024-01-06T10:00:01',
             },
@@ -972,7 +974,7 @@ class TestWindowIntegration(LPMPTestBase):
             },
         })
         model_data = {
-            'blocks': [{'label': 'All', 'file': '*.log', 'window': True}]
+            'description': 'Test model.', 'blocks': [{'label': 'All', 'file': '*.log', 'window': True}]
         }
         with open(self.model_file, 'w') as f:
             yaml.dump(model_data, f)
@@ -1014,7 +1016,7 @@ class TestWindowIntegration(LPMPTestBase):
             },
         })
         model_data = {
-            'blocks': [{'label': 'All', 'file': '*.log', 'window': True}]
+            'description': 'Test model.', 'blocks': [{'label': 'All', 'file': '*.log', 'window': True}]
         }
         with open(self.model_file, 'w') as f:
             yaml.dump(model_data, f)
@@ -1141,7 +1143,7 @@ class TestContextBundleIntegration(LPMPTestBase):
             self.skipTest('sm.log not found in controller-0 logs')
 
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'SM Start',
                 'file': 'sm.log',
                 'patterns': ['Starting'],
@@ -1178,7 +1180,7 @@ class TestContextBundleIntegration(LPMPTestBase):
             self.skipTest('mtcAgent.log not found in controller-0 logs')
 
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Mtce Events',
                 'file': 'mtcAgent.log',
                 'timeline': ['daemon_init', 'Daemon Start'],
@@ -1247,7 +1249,7 @@ class TestContextBundleIntegration(LPMPTestBase):
                 "lines; nothing to anchor the override block on")
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Local Event',
                     'file': 'mtcAgent.log',
@@ -1296,7 +1298,7 @@ class TestContextBundleIntegration(LPMPTestBase):
             self.skipTest('controller-0 logs not found in bundle')
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'SM Window',
                     'file': 'sm.log',
@@ -1329,7 +1331,7 @@ class TestContextBundleIntegration(LPMPTestBase):
             self.skipTest('controller-0 logs not found in bundle')
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Real Event',
                     'file': 'sm.log',

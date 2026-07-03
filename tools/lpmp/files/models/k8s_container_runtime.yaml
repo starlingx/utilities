@@ -1,0 +1,25 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Container Runtime — pod sandbox failures, image pulls, OOM, crashes
+########################################################################
+
+description: "Container runtime errors — CreateContainerError, CrashLoopBackOff, image pull failures, OOMKilled, sandbox operations, context deadline exceeded, and container name conflicts."
+
+blocks:
+  - label: "Container Runtime Errors"
+    file: ["containerd.log*", "daemon.log*"]
+    timeline:
+      - 'CreateContainerError'
+      - 'CrashLoopBackOff'
+      - 'ImagePullBackOff'
+      - 'ErrImagePull'
+      - 'OOMKilled'
+      - 'failed to reserve container name'
+      - 'context deadline exceeded'
+      - 'sandbox changed'
+      - 'RunPodSandbox'
+      - 'StopPodSandbox'
+      - 'RemovePodSandbox'
+      - 'pod does not exist'

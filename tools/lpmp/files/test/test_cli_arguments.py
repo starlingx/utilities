@@ -55,7 +55,7 @@ class TestCommandLineArguments(unittest.TestCase):
 
         # Create minimal valid model
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
         }
@@ -485,7 +485,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_max_time_delta_cli_overrides_model(self):
         """Test --max-time-delta CLI value overrides model setting"""
         model_data = {
-            'settings': {'max_time_delta': 99},
+            'description': 'Test model.', 'settings': {'max_time_delta': 99},
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
@@ -514,7 +514,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_max_time_delta_model_overrides_default(self):
         """Test model max_time_delta overrides the default (45)"""
         model_data = {
-            'settings': {'max_time_delta': 77},
+            'description': 'Test model.', 'settings': {'max_time_delta': 77},
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
@@ -563,7 +563,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_loops_cli_overrides_model(self):
         """Test -n CLI value overrides model loops setting"""
         model_data = {
-            'settings': {'loops': 5},
+            'description': 'Test model.', 'settings': {'loops': 5},
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
@@ -592,7 +592,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_loops_model_overrides_default(self):
         """Test model loops setting overrides default (1) when -n not on CLI"""
         model_data = {
-            'settings': {'loops': 3},
+            'description': 'Test model.', 'settings': {'loops': 3},
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
@@ -621,7 +621,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_start_date_from_model_settings(self):
         """Test model start_date used when CLI --start-date not provided"""
         model_data = {
-            'settings': {'start_date': '2024-06-15T08:00:00'},
+            'description': 'Test model.', 'settings': {'start_date': '2024-06-15T08:00:00'},
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
@@ -650,7 +650,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_start_date_cli_overrides_model(self):
         """Test CLI --start-date overrides model start_date setting"""
         model_data = {
-            'settings': {'start_date': '2024-06-15T08:00:00'},
+            'description': 'Test model.', 'settings': {'start_date': '2024-06-15T08:00:00'},
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
             ]
@@ -751,7 +751,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_default_output_dir_timeline(self):
         """Test default output directory for timeline-only models"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Timeline',
                     'file': 'test.log',
@@ -791,7 +791,7 @@ class TestCommandLineArguments(unittest.TestCase):
     def test_default_output_dir_profile(self):
         """Test default output directory for non-timeline models"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Pattern',
                     'file': 'test.log',
@@ -906,7 +906,7 @@ class TestCommandLineArguments(unittest.TestCase):
             os.makedirs(examples_dir)
             model_path = os.path.join(examples_dir, 'test_example.yaml')
             with open(model_path, 'w') as f:
-                f.write('blocks:\n  - label: "T"\n    file: "t.log"\n'
+                f.write('description: Test model.\nblocks:\n  - label: "T"\n    file: "t.log"\n'
                         '    patterns:\n      - "p"\n')
 
             output = []
@@ -939,7 +939,7 @@ class TestCommandLineArguments(unittest.TestCase):
         try:
             model_path = os.path.join(temp_dir, 'real_model.yaml')
             with open(model_path, 'w') as f:
-                f.write('blocks:\n  - label: "T"\n    file: "t.log"\n'
+                f.write('description: Test model.\nblocks:\n  - label: "T"\n    file: "t.log"\n'
                         '    patterns:\n      - "p"\n')
 
             output = []

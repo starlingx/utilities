@@ -794,7 +794,7 @@ class TestBlockTolerancePairIntegration(LPMPTestBase):
 
         model_file = os.path.join(self.temp_dir, "model.yaml")
         with open(model_file, 'w') as f:
-            yaml.dump({'blocks': blocks_yaml}, f)
+            yaml.dump({'description': 'Test model.', 'blocks': blocks_yaml}, f)
 
         blocks, settings, model_type = load_model(model_file)
         expand_wildcards_in_blocks(blocks, self.temp_dir)

@@ -22,6 +22,8 @@
 #
 ########################################################################
 
+description: "Service management timeline — auth, bash, kernel, mtcClient, and process monitor events."
+
 include: "helpers/wrcp_domains_patterns.yaml"
 
 blocks:

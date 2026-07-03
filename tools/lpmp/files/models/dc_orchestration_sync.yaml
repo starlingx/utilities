@@ -1,0 +1,34 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# DC Orchestration — strategies, sync/audit, endpoint state
+########################################################################
+
+description: "Distributed Cloud orchestration — strategy lifecycle (apply/abort/complete), dcorch sync status (in-sync/out-of-sync), audit results, and endpoint type sync."
+
+blocks:
+  - label: "Orchestration Strategies"
+    file: ["dcmanager*.log*"]
+    timeline:
+      - 'strategy'
+      - 'sw-deploy'
+      - 'kube-upgrade'
+      - 'kube-rootca'
+      - 'fw-update'
+      - 'apply-started'
+      - 'apply-failed'
+      - 'apply-complete'
+      - 'abort'
+
+  - label: "Sync and Audit"
+    file: ["dcmanager*.log*", "dcorch*.log*"]
+    timeline:
+      - 'audit'
+      - 'in-sync'
+      - 'out-of-sync'
+      - 'sync_status'
+      - 'endpoint'
+      - 'identity'
+      - 'patching'
+      - 'load'

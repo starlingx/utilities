@@ -1,18 +1,6 @@
 # LPMP Test Coverage Catalog
 
-**Last full review: 2026-06-30**
-
-## Summary
-
-**Current State:**
-- **577 tests across 19 files**
-- **80% overall coverage**
-- **Solid coverage:** lpmp_graph.py (96%), lpmp_engine.py (85%), lpmp_output.py (83%), lpmp_utils.py (83%)
-- **Remaining gap:** lpmptool.py (67%) — mostly the interactive `--list-models` menu and bundle-mode merge paths
-
-**Next Priorities:**
-1. **lpmptool coverage** (67% - bundle merge, window auto-detect, help menu)
-2. **Bundle mode merge paths** (system summary dispatch, timeline merge)
+**Last full review: 2026-07-10**
 
 **Current Coverage:**
 ```
@@ -20,14 +8,12 @@
 lpmp_engine.py : 85% coverage
 lpmp_output.py : 83% coverage
 lpmp_graph.py  : 96% coverage
+lpmp_batch.py  : 93% coverage
 lpmp_utils.py  : 83% coverage
-lpmptool.py    : 67% coverage
-Overall        : 80% coverage with 577 of 577 tests passing
+lpmptool.py    : 70% coverage
+Overall        : 82% coverage with 681 of 681 tests passing
 ============================================================
 ```
-
-Run: `cd test && python3 run_tests.py`
-Run with bundle: `cd test && python3 run_tests.py -b default`
 
 ---
 
@@ -974,6 +960,143 @@ Requires `--bundle` flag or `LPMP_TEST_BUNDLE` env var. Skipped by default.
 - **Include file not found error** — load_model with nonexistent include → sys.exit
 
 ## Recently Completed
+
+### ✅ Batch Mode, Model Discovery, Mandatory description (2026-07-10) — 577 → 681 tests
+
+Consolidates everything landed since commit "LPMP: Timeline
+first-match-wins, collectd graph and bundle improvements": the new
+`--batch` execution mode end to end (directory scheme rework,
+one-line-per-model pair/pattern rejection, same-model-different-window
+support with an exact-duplicate-window guard, whole-second date
+enforcement), the `--list-models` grouped/filtered listing rewrite,
+and the mandatory top-level `description:` model key.
+
+**Batch mode (`lpmp_batch.py`)** — new module, 79 tests in
+`test_batch_mode.py` (new file):
+
+- **TestBatchSpecLoading (29 tests)** — `load_batch_spec` validation
+  (missing file, invalid JSON, missing keys, bad dates, empty runs,
+  stop before/equal start) and `_resolve_model_path` (absolute, CWD,
+  search path, not-found), plus two follow-up rounds of tests:
+  - **Same model, different windows is allowed** —
+    `test_repeat_model_with_different_windows_loads_fine` (spec load
+    doesn't reject a repeated model — that check happens later, after
+    date resolution) and `test_distinct_models_do_not_exit`.
+    `_check_duplicate_runs` gets its own 4 direct tests:
+    `test_check_duplicate_runs_same_model_same_window_exits` (exact
+    duplicate rejected), `test_check_duplicate_runs_same_model_different_window_ok`
+    (same model, different window is fine — the whole point of the
+    directory-naming scheme), `test_check_duplicate_runs_same_model_both_unbounded_exits`
+    (both unbounded counts as the same window), and
+    `test_check_duplicate_runs_different_models_same_window_ok`.
+  - **Whole-second date enforcement** — `_parse_iso` now rejects
+    sub-second precision, since output directory names only have
+    whole-second resolution: `test_start_date_with_milliseconds_exits`,
+    `test_stop_date_with_microseconds_exits`,
+    `test_whole_second_date_with_zero_fraction_accepted` (an explicit
+    `.000` fraction is still whole-second and must be accepted), and
+    two tests confirming the same rejection applies to CLI
+    `--start-date`/`--stop-date` and to a model's own
+    `settings.start_date`/`settings.stop_date`:
+    `test_resolve_run_dates_cli_milliseconds_exits`,
+    `test_resolve_run_dates_model_settings_milliseconds_exits`.
+- **TestBatchClassifyAndRegex (13 tests)** — `_classify_model_blocks`
+  and `_classify_all_models` (timeline, window, mixed, one-line
+  warning for an all-pair model regardless of block count, one-line
+  warning for an all-pattern model, unclassified, fully-supported
+  model has zero warnings, and `_classify_all_models` warns exactly
+  once per unsupported model across a multi-model batch) plus
+  `_build_target_regex` (single pattern, OR-list flatten, invalid
+  dropped, all-invalid returns None, empty). Replaces the prior
+  per-block `_classify_and_warn_blocks` tests now that classification
+  and warning happen once per model, not once per block per host.
+- **TestLoadAllModels (2 tests)** — dedup by model name, two distinct
+  models loaded.
+- **TestBatchFileGroups (6 tests)** — timeline/window target build,
+  two-run file sharing, controller-only skip, invalid regex skip,
+  missing file skip. Updated to pass the precomputed `classified` map
+  into `_build_file_groups` instead of re-classifying per host.
+- **TestBatchSinglePassRead (8 tests)** — timeline emit, window
+  emit-all, whole-file prune before/after window, virtual-EOF break,
+  empty targets, gzipped file, nonexistent file.
+- **TestBatchOutputWriters (7 tests)** — profile text header +
+  delta formatting, max-log truncation, run-output dir creation,
+  empty-matches skip, `run_base_dir` layout, `_dir_prefix` override
+  routing, and `_precompute_run_dirs` locking in the new scheme: every
+  run in a batch shares one `_runtime_dir` (the batch wall-clock
+  start) while each run's own subdirectory name is built from its
+  resolved start/stop dates and model name.
+- **TestBatchRunBatchIntegration (11 tests)** — end-to-end with a
+  synthetic mini-bundle: baseline parity, include filter, dateless
+  spec via CLI dates, dateless unbounded spec, missing host logsdir
+  warning, plus:
+  `test_run_batch_warns_and_skips_pair_and_pattern_models` (a pair
+  model and a pattern model in the same spec each print exactly one
+  warning line — not one per block — while a timeline model in the
+  same batch still runs and produces output),
+  `test_repeat_model_with_different_windows_produces_distinct_dirs`
+  (same model twice with different windows produces two distinct
+  output directories, each named from its own resolved start/stop),
+  `test_repeat_model_with_same_window_is_rejected` (same model twice
+  with the exact same resolved window still exits, since that would
+  collide on disk), `test_run_batch_distinct_models_get_distinct_run_dirs`
+  (two different models in one batch land in distinct subdirectories
+  under one shared tool-runtime directory), `test_run_batch_prints_output_path`
+  and `test_run_batch_output_listing_shows_run_dirs` (the final console
+  output includes an `Output: <path>` line and an `ls -lrt`-style
+  listing of the runtime directory's contents).
+- **TestBatchBundleRegression (3 tests, opt-in via `LPMP_TEST_BUNDLE`)** —
+  parity check on real bundle, multi-run, and
+  `test_bundle_batch_warn_and_skip_pair_model` updated to assert
+  exactly one pair-model warning line regardless of how many hosts
+  the real bundle scans.
+
+**Output directory helpers (`lpmp_utils.py`)** — extended
+`create_output_directory` with `extra_dir` and `dir_name` parameters
+so the mainline and batch code paths share one directory-building
+function; batch mode supplies the tool-runtime directory as
+`extra_dir` and each run's own start/model/stop name as `dir_name`.
+Covered by the existing `TestOutputGenerationFunctions` suite in
+`test_edge_cases.py` plus the batch-side dir-layout tests above.
+
+**Long-listing helper (`lpmp_utils.py`)** — new `format_long_listing`
+function (an `ls -lrt`-style formatter for a directory's immediate
+children, used by batch mode's final `Output:` summary) — 6 tests in
+`test_edge_cases.py::TestFormatLongListing`: nonexistent path, file
+(not dir) path, empty directory, oldest-first sort order, name/total
+header presence, and no recursion into subdirectories.
+
+**Model discovery / `--list-models`** — 14 tests in
+`test_main_execution.py::TestMainExecution` covering grouped headers,
+type filters (`timeline`, `pattern`, `pair`, `example`),
+`desc`/`description` flat listing with ordering, invalid-filter
+rejection, column-width bounds, error surfacing, and description
+acceptance.
+
+**Mandatory `description:` validation** — 2 tests in `test_model.py`
+(`test_missing_description_section`,
+`test_description_must_be_non_empty_string`) and 2 tests in
+`test_validate_model.py` (`test_description_top_level_key_accepted`,
+`test_description_accepted_with_settings_and_include`).
+
+**Empty output directory pruning (`lpmptool`)** — 1 test in
+`test_main_execution.py::TestEmptyOutputDirPruning`
+(`test_zero_match_run_leaves_no_empty_directories`) locking in the
+bottom-up `prune_empty_output_dirs` sweep that removes empty
+per-host/per-model directories left behind by zero-match timeline
+runs, mirroring batch mode's existing skip-empty-dir behaviour. Also
+covers the related fix exempting timeline models from the
+zero-matches-on-first-pass failure check (a timeline model with an
+empty window is a valid outcome, not a failure).
+
+Net new tests since "LPMP: Timeline first-match-wins, collectd graph
+and bundle improvements": +79 in `test_batch_mode.py` (new file),
++15 in `test_main_execution.py` (14 `--list-models` + 1 empty-dir
+pruning), +6 in `test_edge_cases.py` (`TestFormatLongListing`), +2 in
+`test_model.py` and +2 in `test_validate_model.py` (mandatory
+`description:` validation) — 104 new tests overall. Suite total
+577 → 681 passing; overall coverage 80% → 82%, with `lpmp_batch.py`
+at 93% and `lpmptool.py` improved 67% → 70%.
 
 ### ✅ Timeline First-Match-Wins, Bundle-Test Robustness, 80% Coverage (2026-06-30) — 555 → 577 tests
 - **Timeline first-match-wins** — 5 tests in `TestTimelineBlockProcessing`

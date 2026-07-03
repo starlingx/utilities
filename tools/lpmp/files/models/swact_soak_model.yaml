@@ -27,6 +27,8 @@
 #
 ########################################################################
 
+description: "Administrative SWACT operations across controller hosts — swact request, query, in-progress, and completion."
+
 blocks:
   - label: "Swact Request"
     file: "mtcAgent.log*"

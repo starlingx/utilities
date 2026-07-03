@@ -8,19 +8,117 @@ The history is organized chronologically with the most recent changes at the top
 
 ---
 
-## Current Code Coverage Summary (2026-06-30):
+## Current Code Coverage Summary (2026-07-02):
   ```
 ============================================================
 lpmp_engine.py : 85% coverage
 lpmp_output.py : 83% coverage
 lpmp_graph.py  : 96% coverage
+lpmp_batch.py  : 93% coverage
 lpmp_utils.py  : 83% coverage
-lpmptool.py    : 67% coverage
-Overall        : 80% coverage with 577 of 577 tests passing
+lpmptool.py    : 70% coverage
+Overall        : 82% coverage with 671 of 671 tests passing
 ============================================================
   ```
 
 ## Change History
+
+### 2026-07-02 - Model Discovery Improvements
+- **Mandatory `description:` top-level model key.** Every model must
+  carry a single-sentence description at the top of the YAML file.
+  The key is validated by the loader and by `validate_model_structure`
+  with symmetric semantics to `blocks:` — missing or empty values
+  fail model load with a clear error. All shipped models were updated
+  to include descriptions; the engine ignores the value at run time.
+- **`--list-models` grouped multi-column layout.** The listing now
+  groups models by detected type (TIMELINE, PATTERN, PAIR) plus
+  EXAMPLE and HELPER sections, with column count auto-sized to the
+  longest model name and a target width controlled by
+  `DEFAULT_LIST_MODELS_MAX_WIDTH` (default 120). Any model with a
+  yaml or format error is surfaced in a dedicated `ERRORS` section so
+  broken models are never hidden.
+- **`--list-models` type filter.** Accepts an optional argument to
+  restrict the listing to a single group: `--list-models timeline`,
+  `-lm pattern`, `-lm pair`, or `-lm example`. Column count
+  recomputes from the filtered set so short-name groups pack more
+  columns into the same width budget.
+- **`--list-models desc` (alias `description`) flat listing.** A
+  greppable one-line-per-model view that prints every model with its
+  description, ordered timeline → pattern → pair → example. Column
+  width auto-aligns to the longest name across the whole set.
+- **Test coverage:** 20 new tests across `test_main_execution.py`,
+  `test_validate_model.py`, and `test_model.py` covering the
+  grouped/columned listing, each filter argument (including desc /
+  description), invalid-filter rejection, error surfacing,
+  column-width bounds, and the `description:` mandatory / non-empty
+  validation. `lpmptool.py` coverage improved from 67% to 70%;
+  suite total 614 → 632 passing.
+- **33 new domain models.** Shipped from the batch analysis library
+  (ceph_health, ceph_osd, ceph_rook_operator, cert_rotation,
+  cert_tls_failures, critical_state_ops, database_postgres,
+  dc_orchestration_sync, dc_subcloud_lifecycle, drbd_sync,
+  filesystem_pressure, graceful_recovery, haproxy_api, heartbeat_loss,
+  host_lifecycle, host_watchdog, k8s_app_lifecycle,
+  k8s_container_runtime, k8s_control_plane, k8s_etcd, k8s_kubelet,
+  kernel_hardware, net_calico_cni, net_ip_routing, net_link_state,
+  process_monitor, ptp_clock_sync, resource_collectd,
+  resource_memory_oom, sm_service_failover, sw_deploy_lifecycle,
+  sw_ostree_hooks, sw_puppet_apply). All use single-quoted timeline
+  patterns matching the shipped-model convention.
+
+### 2026-07-01 - Batch Mode for Multi-Model Analysis
+- **New `--batch` mode processes many model/window combinations in a
+  single invocation.** A JSON spec lists each `(model, start_date,
+  stop_date)` run; the tool loads each unique model once, groups all
+  target files across all runs, and reads each physical log file
+  exactly once — matching against every relevant run in that single
+  pass. This eliminates the Python-startup and file-open overhead that
+  otherwise multiplies when a user runs the same tool dozens of times
+  in a row for different models or windows on the same collect bundle.
+- **Scope is timeline and window blocks.** Timeline blocks apply
+  their pattern filter with the same first-match-wins semantics as
+  the mainline engine. Window blocks emit every timestamped line
+  inside the run's window, matching mainline window behaviour. Pair
+  and pattern blocks encountered in a batched model emit a warning
+  and are skipped because they require sequential-ordering state
+  that single-pass reading cannot preserve. A run whose model has
+  no supported blocks is warned about and skipped in full.
+- **Output layout uses a batch-specific top-level prefix with a
+  dedicated tool-runtime directory level.** Each batch invocation
+  produces `lpmp_batch_<lab>/<runtime>/…` where `<runtime>` is the
+  batch's wall-clock start time; every run's output lands in its own
+  subdirectory underneath, named
+  `[<start_date_time>_]<model>[_<stop_date_time>]/<host>/…` with the
+  usual timeline log, CSV, per-block profile files, and any per-block
+  `.context` files, plus a merged `lab_system_profile.timeline.log`
+  when multiple hosts have data. Start and stop dates are only
+  included in a run's directory name when the run actually has them
+  (from the spec, CLI, or model settings); unbounded ends are simply
+  omitted. The `batch_` segment keeps batch output visibly distinct
+  from the mainline `lpmp_<lab>/` tree so both can coexist under the
+  same lab name. Downstream tooling (including `lpmp_graph`) sees the
+  same per-run shape as a mainline run.
+- **Duplicate models in a batch spec are rejected.** Since a run's
+  output directory name is derived only from its own model and dates
+  (no `_run<N>` disambiguator), listing the same model twice in one
+  spec — even with different windows — now fails spec load with an
+  error identifying both conflicting run numbers, rather than risking
+  a directory collision on disk.
+- **Batch mode prints the output path.** The console summary now ends
+  with an `Output: <path>` line giving the full path to the batch's
+  tool-runtime directory, so the result location doesn't have to be
+  inferred from the bundle path and lab name.
+- **First-match-wins semantics preserved.** Batch mode builds a single
+  combined-alternation regex per timeline block target, so the "at
+  most one row per source log line" rule from the previous release
+  applies inside batch mode as well.
+- **Test coverage:** 56 new tests in `test_batch_mode.py` covering
+  spec loading, block classification, regex build, file grouping,
+  single-pass reader, output writers, and end-to-end `run_batch`
+  orchestration on a synthetic mini-bundle. Bundle regression tests
+  run against a real collect bundle when `LPMP_TEST_BUNDLE` is set.
+  `lpmp_batch.py` reaches 96% line coverage; overall coverage stays
+  at 80% with 614 of 633 tests passing (19 skipped).
 
 ### 2026-06-30 - Timeline First-Match-Wins and Model Pattern Cleanup
 - **Timeline blocks emit at most one row per source log line.** For each

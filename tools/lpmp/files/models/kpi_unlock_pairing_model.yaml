@@ -35,6 +35,9 @@
 #   - ["a", "b"]               - OR match (first found wins)
 #
 ########################################################################
+
+description: "Key performance indicators for host unlock — start/stop durations for the notable unlock milestones."
+
 blocks:
   - label: "LOCK HOST PATTERN"
     file: ["mtcAgent.log*"]

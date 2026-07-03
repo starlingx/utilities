@@ -1,0 +1,21 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Memory Pressure — OOM kills, memory cgroup exhaustion
+########################################################################
+
+description: "Memory pressure events — Out of Memory kills, OOM-killer invocations, memory cgroup exhaustion, and ENOMEM errors."
+
+blocks:
+  - label: "OOM Events"
+    file: ["kern.log*", "daemon.log*"]
+    timeline:
+      - 'Out of memory'
+      - 'oom-kill'
+      - 'Killed process'
+      - 'invoked oom-killer'
+      - 'Memory cgroup out of memory'
+      - 'ENOMEM'
+      - 'MemoryPressure'
+      - 'memory.max'

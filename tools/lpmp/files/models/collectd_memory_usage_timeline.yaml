@@ -22,6 +22,8 @@
 #
 ########################################################################
 
+description: "Collectd platform memory usage events from collectd.log for timeline-mode graphing."
+
 blocks:
   - label: "{graph}"
     file: "collectd.log*"

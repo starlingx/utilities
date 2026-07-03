@@ -31,6 +31,8 @@
 #
 ########################################################################
 
+description: "Software upgrade timing from deploy start through host reboot, enable, and upgrade stage completion."
+
 settings:
   max_time_delta: 500
 

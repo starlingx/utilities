@@ -6,6 +6,9 @@
 # =============================================================================
 
 # Include shared pattern library
+
+description: "Complete reference model demonstrating every supported block type, setting, and feature."
+
 include: "shared_patterns.yaml"
 
 # GLOBAL SETTINGS (All Optional)

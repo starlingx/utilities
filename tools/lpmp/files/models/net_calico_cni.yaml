@@ -1,0 +1,34 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Calico/CNI — BGP session drops, felix errors, CNI failures
+########################################################################
+
+description: "Calico and CNI failure events — BGP peer session drops/establishment, felix sync errors, CNI ADD/DEL failures, and multus network attachment errors."
+
+blocks:
+  - label: "BGP Peering State"
+    file: ["containerd.log*", "daemon.log*"]
+    timeline:
+      - 'BGP.*Established'
+      - 'BGP.*down'
+      - 'BGP.*closed'
+      - 'connection closed'
+      - 'peer down'
+      - 'peer removed'
+      - 'node status updated'
+
+  - label: "Felix and CNI Errors"
+    file: ["containerd.log*", "daemon.log*", "calico/cni/*.log*"]
+    timeline:
+      - 'felix.*error'
+      - 'felix.*failed'
+      - 'calico-cni.*failed'
+      - 'calico-cni.*error'
+      - 'cmdAdd.*failed'
+      - 'cmdDel.*failed'
+      - 'multus.*error'
+      - 'multus.*failed'
+      - 'endpoint.*error'
+      - 'IPAM.*error'

@@ -1,0 +1,55 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Critical State Operations — irreversible actions on system state
+########################################################################
+
+description: "Critical state operations — etcd, DRBD, database, kubeadm, and certificate actions that alter irreversible system state."
+
+blocks:
+  - label: "Etcd State Operations"
+    file: ["software.log*", "daemon.log*"]
+    timeline:
+      - 'etcd.*copy'
+      - 'etcd.*clone'
+      - 'etcd.*symlink'
+      - 'Copied etcd'
+      - 'etcd.*snapshot'
+      - 'etcd.*restore'
+      - 'etcd.*backup'
+      - 'etcd.*migrate'
+
+  - label: "Kubernetes State Operations"
+    file: ["daemon.log*", "software.log*"]
+    timeline:
+      - 'kubeadm init'
+      - 'kubeadm join'
+      - 'kubeadm reset'
+      - 'kubeadm upgrade'
+      - 'cert.*generat'
+      - 'cert.*creat'
+      - 'cert.*writ'
+      - 'kubeadm certs renew'
+
+  - label: "Database State Operations"
+    file: ["daemon.log*", "software.log*", "postgres.log*"]
+    timeline:
+      - 'pg_dump'
+      - 'pg_restore'
+      - 'migrate'
+      - 'migration'
+      - 'database.*create'
+      - 'database.*drop'
+      - 'schema.*update'
+
+  - label: "Platform State Operations"
+    file: ["software.log*", "daemon.log*"]
+    timeline:
+      - 'ostree.*deploy'
+      - 'ostree.*commit'
+      - 'grub.*install'
+      - 'fstab.*update'
+      - 'partition.*create'
+      - 'luks.*open'
+      - 'luks.*format'

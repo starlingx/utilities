@@ -23,6 +23,8 @@
 #
 ########################################################################
 
+description: "Multi-domain maintenance timeline — maintenance, service management, puppet, kernel, process monitor, host watchdog, network, and daemon events."
+
 include: "helpers/wrcp_domains_patterns.yaml"
 
 blocks:

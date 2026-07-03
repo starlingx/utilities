@@ -1,0 +1,26 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Kubelet — node status failures, lease errors, PLEG, pressure
+########################################################################
+
+description: "Kubelet failure events — node status update failures, lease update errors, PLEG unhealthy, eviction, resource pressure conditions, and runtime request timeouts."
+
+blocks:
+  - label: "Kubelet Failures"
+    file: ["daemon.log*"]
+    timeline:
+      - 'Error updating node status'
+      - 'Unable to update node status'
+      - 'Failed to update lease'
+      - 'node status exceeds retry'
+      - 'PLEG is not healthy'
+      - 'NodeNotReady'
+      - 'eviction'
+      - 'DiskPressure'
+      - 'MemoryPressure'
+      - 'PIDPressure'
+      - 'runtime request timeout'
+      - 'failed to ensure lease exists'
+      - 'use of closed network connection'

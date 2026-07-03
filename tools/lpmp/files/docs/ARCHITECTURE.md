@@ -382,6 +382,168 @@ The bundle mode output structure organizes results hierarchically:
   or the single-host `--host` default) so the combined graph contains
   exactly the host set the user selected.
 
+## Model Discovery and Listing
+
+Every model file carries a mandatory top-level `description:` key —
+a single-line string that summarises what the model does. The engine
+does not read it; it exists solely to power the model catalogue.
+
+`--list-models` (or `-lm`) enumerates all discoverable models, grouped
+by detected type in a compact multi-column layout. Column count is
+computed live from `max(len(name) for name in visible_names)` and a
+target line width of `DEFAULT_LIST_MODELS_MAX_WIDTH` (default 120).
+A short-name-only filter (e.g. `-lm pair`) packs more columns into
+the same width budget than the unfiltered view whose column width is
+constrained by the longest name.
+
+Filter values:
+- `timeline`, `pattern`, `pair`, `example` — show one section only
+- `desc` (alias `description`) — flat name-plus-description listing
+  ordered timeline → pattern → pair → example, one row per line, for
+  manual grep
+
+Errors always surface in a dedicated `ERRORS` section regardless of
+filter, so a broken model is never silently hidden. Models missing
+`description:` are rejected at load time with a symmetric error to
+the missing-blocks check.
+
+## Batch Mode
+
+Batch mode executes multiple model/window combinations against the
+same bundle in a single invocation, with one read pass per physical
+log file. The `--batch <spec.json>` argument dispatches to
+`lpmp_batch.run_batch(args)`, bypassing the normal model-file
+resolution.
+
+### Input Spec
+
+The batch spec is a JSON file. It may wrap runs in a `runs` array or
+be a bare top-level list of runs. Only `model` is required per run;
+`start_date` and `stop_date` are optional:
+
+```json
+[
+  {"model": "ceph_health.yaml",
+   "start_date": "2026-02-25T13:35:00",
+   "stop_date":  "2026-02-25T13:38:00"},
+  {"model": "host_lifecycle.yaml"}
+]
+```
+
+For each run, the effective time window follows precedence
+run entry → CLI `--start-date`/`--stop-date` → model's own
+`settings.start_date`/`settings.stop_date` → unbounded. An unbounded
+run reads the full file with no time filter, matching mainline
+behaviour when neither CLI nor model settings supply dates.
+
+Model names are resolved via the standard search paths, so bare
+filenames, relative paths and absolute paths all work. All runs share
+the CLI-supplied `--bundle`, `--include`/`--exclude`, `--logs-dir`,
+`--lab`, `--output`, `--max-log-length`, and `--verbose`.
+
+### Processing Pipeline
+
+Structurally the batch is three stages arranged around a single
+host-outer / file-inner loop nest:
+
+- **Stage 1 (setup, once):** load the spec, load each unique model
+  once, resolve per-run `_start`/`_stop` from the precedence chain,
+  detect and filter hosts, and precompute each run's output directory
+  identity.
+- **Stage 2 (scan, one pass per host per file):** for each host,
+  fan every run's timeline and window blocks out into a `filepath ->
+  [target, ...]` map, then open each grouped file exactly once and
+  match every relevant target on each line. This host-outer,
+  file-inner loop with runs fanned out as targets is what turns
+  `M models x N windows` invocations into one read pass per file per
+  host.
+- **Stage 3 (merge, one pass per run):** for each run, merge the
+  per-host `profile.timeline.log` files it accumulated into a single
+  system profile. This is where the per-run streaming summary is
+  printed as each merge completes, followed by a final `Output:
+  <path>` line naming the batch's tool-runtime directory
+  (`_batch_runtime_root`).
+
+The detailed step breakdown:
+
+1. `load_batch_spec` parses and validates the JSON, rejects a spec
+   that lists the same model more than once, and converts date
+   strings to datetime.
+2. `_load_all_models` loads each referenced model file exactly once
+   even if several runs share it.
+3. For every host that survives include/exclude filtering:
+   - `_build_file_groups` walks each run's timeline and window blocks
+     (pair and pattern blocks emit a warning and are skipped),
+     applies hostname/label variable substitution, expands wildcards
+     (recursively into subdirectories for window blocks, respecting
+     the file ignore list and binary/non-log skip), applies
+     controller-only filtering, resolves named timeline pattern
+     references, and compiles a single combined-alternation regex per
+     timeline target. Window targets carry no regex (sentinel
+     `regex=None`), signalling "emit every line in the window". The
+     result is a map of `filepath -> [target, ...]` where each target
+     carries the run index, block label, start, stop, and compiled
+     regex (or None for window targets).
+   - `_single_pass_read` opens each grouped file once. It uses
+     `parse_timestamp(line, relpath)` so custom-format files continue
+     to work, uses the same bisect seek as the mainline engine for
+     large plain-text files, and breaks on the latest stop across all
+     targets. For each line: window targets emit unconditionally
+     (once the timestamp is confirmed to be inside the target's
+     window). Timeline targets emit at most one row per line —
+     first-match-wins is naturally satisfied because there is one
+     combined regex per timeline target.
+   - `_write_run_output` writes the standard per-host outputs
+     (`profile.timeline.log`, `.csv`, per-block profile files, and
+     per-block `.context` files where blocks request context) under
+     the batch-specific directory layout
+     `<output>/lpmp_batch_<lab>/<runtime>/[<start>_]<model>[_<stop>]/<host>/`.
+4. Once every host is processed, `merge_timeline_profiles` produces a
+   `lab_system_profile.timeline.log` per run.
+
+### Output Directory Layout
+
+Batch output gets one extra directory level compared to a mainline
+run: a tool-runtime directory shared by the whole batch invocation,
+under which each run gets its own subdirectory.
+
+- `<runtime>` (`_precompute_run_dirs` / `_runtime_dir`) is the batch's
+  wall-clock start time (`run_start_time`, captured once in
+  `run_batch`), formatted `YYYYMMDD_HHMMSS`. Every run in the batch
+  shares this one directory, so re-running the same spec never
+  clobbers a previous invocation's output — matching how mainline
+  `lpmptool -m` names its own top-level run directory.
+- Each run's own subdirectory (`_dir_name`) is built from its
+  resolved `_start` / `_stop` datetimes (after `_resolve_run_dates`
+  has applied the run → CLI → model-settings → unbounded precedence
+  chain) and its model's base filename:
+  `[<start_date_time>_]<model_base>[_<end_date_time>]`. `datetime.min`
+  / `datetime.max` sentinels (unbounded ends) are omitted from the
+  name rather than formatted.
+- `create_output_directory` (in `lpmp_utils.py`) gained an `extra_dir`
+  parameter (the runtime directory) and a `dir_name` override (the
+  run's own directory name) so both mainline and batch share the same
+  directory-building code path; mainline runs simply never pass
+  either.
+- Because `load_batch_spec` rejects a spec that lists the same model
+  more than once, every run's `_dir_name` is guaranteed unique within
+  a batch without needing a `_run<N>` disambiguating suffix.
+
+### Constraints
+
+- Timeline and window blocks only. Any pair or pattern block in a
+  batched model is warned about (one warning per block) and skipped
+  because it carries cross-line ordering state that single-pass
+  reading cannot preserve. A run with zero supported blocks after
+  filtering is warned about and skipped entirely.
+- Each model may appear at most once per batch spec. `load_batch_spec`
+  rejects a spec with a repeated model name at load time.
+- All runs share a single bundle and host filter. Different bundles or
+  disjoint host sets require separate batch invocations.
+- Batch mode does not currently drive per-run graph generation. Run
+  `lpmp_graph` against the individual run directories to graph batch
+  output.
+
 ## Timing Constraints and Tolerances
 
 ### max_time_delta

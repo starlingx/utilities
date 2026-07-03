@@ -22,6 +22,8 @@
 #
 ########################################################################
 
+description: "Collectd overage (warning/failure threshold) events from collectd.log for state-style graphing."
+
 settings:
   graph: "{graph}"
   graph_style: state

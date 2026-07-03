@@ -32,6 +32,8 @@
 #
 ########################################################################
 
+description: "AIO SX unlock timing from unlock action through reboot, service restart, and pod recovery."
+
 blocks:
 
   - label: "Unlock Action Staged"
@@ -210,5 +212,6 @@ blocks:
 
 # Optional global settings
 settings:
+  block_time_tolerance: 6
   max_log_length: 180
   max_time_delta: 1000

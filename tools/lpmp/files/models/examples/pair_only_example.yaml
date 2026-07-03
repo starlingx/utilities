@@ -6,6 +6,9 @@
 # =============================================================================
 
 # Global settings optimized for pair matching
+
+description: "Pure pair-block example demonstrating duration measurement between start and stop events."
+
 settings:
   max_time_delta: 120                   # Max seconds between start/stop pairs
   block_time_tolerance: 10.0            # Time tolerance for out-of-order log entries

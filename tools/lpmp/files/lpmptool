@@ -58,6 +58,7 @@ from lpmp_utils import find_model_file                       # noqa: E402
 from lpmp_utils import find_no_timestamp_files               # noqa: E402
 from lpmp_utils import format_duration                       # noqa: E402
 from lpmp_utils import get_help_section                      # noqa: E402
+from lpmp_utils import get_model_description                 # noqa: E402
 from lpmp_utils import get_models_search_paths               # noqa: E402
 from lpmp_utils import get_verbose_level                     # noqa: E402
 from lpmp_utils import interactive_host_selection            # noqa: E402
@@ -68,6 +69,7 @@ from lpmp_utils import ModelType                             # noqa: E402
 from lpmp_utils import print_output_files                    # noqa: E402
 from lpmp_utils import print_window_summary                  # noqa: E402
 from lpmp_utils import ProgressType                          # noqa: E402
+from lpmp_utils import prune_empty_output_dirs               # noqa: E402
 from lpmp_utils import set_verbose_level                     # noqa: E402
 from lpmp_utils import start_progress_indicator              # noqa: E402
 from lpmp_utils import stop_progress_indicator               # noqa: E402
@@ -535,6 +537,133 @@ KEY FEATURES:
 • Same output format as timeline models (.timeline.log)
 • Use --no-ts-files to discover files needing custom format entries
 # END_HELP_SECTION: WINDOW_BLOCKS
+
+# HELP_SECTION: BATCH_MODE
+BATCH MODE (JSON-driven multi-model execution):
+
+Batch mode runs many model+window combinations against the same
+collect bundle in a single tool invocation. Instead of invoking
+lpmptool once per (model, window) pair — repeating Python startup,
+model load, and log-file open for every combination — the user
+supplies a JSON batch spec listing all the runs, and the tool
+loads each unique model once and reads every physical log file
+exactly once per host while matching against every relevant run
+in that same pass. On real StarlingX collect bundles this
+reduces multi-model analysis wall-clock time by roughly an order
+of magnitude.
+
+INVOCATION:
+    lpmptool --batch batch_spec.json --bundle /path/to/collect \
+        [--include host1 host2 ...] [--output DIR] [--verbose]
+
+JSON SPEC FORMAT:
+
+In its fullest form the spec wraps a 'runs' array with per-run
+explicit windows:
+
+    {
+      "runs": [
+        {
+          "model": "ceph_health.yaml",
+          "start_date": "2026-02-25T13:35:00",
+          "stop_date":  "2026-02-25T13:38:00"
+        },
+        {
+          "model": "host_lifecycle.yaml",
+          "start_date": "2026-02-25T13:38:00",
+          "stop_date":  "2026-02-25T13:41:00"
+        }
+      ]
+    }
+
+The simplest form is a bare top-level list of models — dates
+are optional:
+
+    [
+      {"model": "ceph_health.yaml"},
+      {"model": "host_lifecycle.yaml"},
+      {"model": "sm_service_failover.yaml"}
+    ]
+
+REQUIRED / OPTIONAL RUN KEYS:
+- model        (required)  Model file name or path. Bare filenames
+                           are resolved via the standard search
+                           paths.
+- start_date   (optional)  ISO datetime; window start for this run.
+                           Must be whole-second (no milliseconds or
+                           microseconds) — see DATE PRECEDENCE below.
+- stop_date    (optional)  ISO datetime; window stop for this run.
+                           Same whole-second restriction as start_date.
+
+DATE PRECEDENCE (per run):
+  1. Explicit start_date / stop_date in the run entry
+  2. CLI --start-date / --stop-date
+  3. The model's own settings.start_date / settings.stop_date
+  4. Unbounded (no time filter — the full file is read)
+All three date sources above must be whole-second timestamps —
+milliseconds/microseconds are rejected at load time, because batch
+output directory names only have whole-second resolution
+(YYYYMMDD_HHMMSS) and a fractional-second date could otherwise
+collide with another run's directory once truncated.
+
+SUPPORTED BLOCK TYPES:
+- Timeline blocks: matched with the same first-match-wins
+  combined-alternation regex as the mainline engine.
+- Window blocks: emit every timestamped line inside the run's
+  window (or the whole file if unbounded).
+- Pair and pattern blocks: emit a warning and are skipped
+  because their sequential-ordering and cross-block state
+  cannot be preserved by the single-pass read.
+
+OUTPUT LAYOUT:
+Each batch invocation gets one tool-runtime directory named after
+its wall-clock start time, and each run gets its own subdirectory
+underneath it:
+'<output>/lpmp_batch_<lab>/<runtime>/[<start>_]<model>[_<stop>]/<host>/'
+with the usual profile.timeline.log, .csv, per-block profile files,
+per-block .context files, and a merged
+'<lab>_system_profile.timeline.log' when multiple hosts contribute.
+The '<runtime>' segment is the batch's wall-clock start time so
+re-running the same spec never clobbers previous output. Each run's
+own directory name is built from its resolved start_date / stop_date
+(YYYYMMDD_HHMMSS); an unbounded start or stop is simply omitted
+rather than padded out. A model may repeat in the spec as long as
+each occurrence resolves to a different window (see VALIDATION
+below), since the window is part of the directory name. The
+'batch_' segment distinguishes batch output from the mainline
+'lpmp_<lab>/' tree so both can coexist under the same lab name.
+
+VALIDATION:
+A model may appear more than once in a batch spec as long as each
+occurrence has a distinct effective start/stop window (after CLI and
+model-setting fallback dates are applied). Two runs that resolve to
+the exact same (model, start, stop) are rejected at spec-load time
+with an error naming both conflicting run numbers, since they would
+otherwise collide on disk. Give one of them a different
+start_date/stop_date to disambiguate.
+
+SHARED CLI FLAGS:
+All runs in a single batch share the CLI-supplied --bundle,
+--include/--exclude, --logs-dir, --lab, --output,
+--max-log-length and --verbose.
+
+PROGRESS FEEDBACK:
+- Default: silent scan; a streaming per-run summary prints as
+  each run's system profile is merged.
+- --progress (bare, or with a type): print the host name as
+  each host completes, comma-delimited on one line, then the
+  streaming per-run summary.
+- --verbose (-v): print a full '[i/N] hostname ... N matches
+  (Ts)' line per host, plus per-run windows in the streaming
+  summary.
+- The final line printed is 'Output: <path>', the batch's
+  tool-runtime directory (<output>/lpmp_batch_<lab>/<runtime>/)
+  under which every run in this invocation wrote its output.
+
+SAMPLE SPEC:
+A ready-to-adapt sample lives at 'docs/batch_spec_example.json'
+in the tool tree.
+# END_HELP_SECTION: BATCH_MODE
 
 # HELP_SECTION: MIXED_MODELS
 MIXED MODELS (Combining Block Types):
@@ -1662,7 +1791,7 @@ in the test directory. See docs/ARCHITECTURE.md
 
 
 # Version information
-__version__ = "1.2"
+__version__ = "1.3"
 
 # Default timing constraints
 DEFAULT_MAX_TIME_DELTA = 45   # Default max seconds for pair blocks
@@ -1671,13 +1800,10 @@ MIN_TIME_DELTA_MSECS = 1      # minimum time between successive block logs (1ms)
 # Help paging constants
 HELP_PAGE_THRESHOLD = 38      # Lines per page for help content paging
 
-# Progress indicator constants
-# PROGRESS_DOT_INTERVAL = 1.0   # Show progress dot every 1 seconds
-
 # Output formatting constants
 HOSTNAME_COLUMN_WIDTH = 12    # Width for hostname column (controller-x)
 LOG_FILE_COLUMN_WIDTH = 30    # Width for log file column
-# TIMELINE_CAT_MAX_LINES now controlled by --max-lines argument
+DEFAULT_LIST_MODELS_MAX_WIDTH = 120  # Target width for --list-models columned output
 
 
 class MemoryMonitor:
@@ -1769,6 +1895,8 @@ def main():
                'with help creating a sample model file.',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    parser.add_argument('--batch', default=None,
+                        help='Batch spec JSON file for multi-model single-pass mode (timeline and window blocks only)')  # noqa E501
     parser.add_argument('--block-time-tolerance', type=float, default=5.0,
                         help='Time tolerance in seconds for out-of-order log entries (default: 5.0)')
     parser.add_argument('--bundle', '-b', default='/',
@@ -1791,8 +1919,10 @@ def main():
                         help='Include only specified hosts (space-separated, only with --bundle)')
     parser.add_argument('--lab', default='lab',
                         help='Lab name for identification (default: lab)')
-    parser.add_argument('--list-models', '-lm', action='store_true',
-                        help='List available functional and example model files')
+    parser.add_argument('--list-models', '-lm', nargs='?', const='__all__', default=None,
+                        metavar='TYPE',
+                        help='List available model files, optionally filtered to a single type: '
+                             'timeline, pattern, pair, example, or desc (flat name:description list)')
     parser.add_argument('--logs-dir', '-l', default='var/log',
                         help='Directory containing log files (default: var/log, relative to bundle)')
     parser.add_argument('--no-ts-files', action='store_true',
@@ -1809,9 +1939,10 @@ def main():
                         help='YAML model file with search patterns (default: model.yaml)')
     parser.add_argument('--output', '-o', default=None,
                         help='Output directory path (default: ./lpmp_<lab_name>/<start_time>_<model_file_name>)')
-    parser.add_argument('--progress', '-p',
+    parser.add_argument('--progress', '-p', nargs='?', const='dots',
                         choices=['none', 'dots', 'classic', 'circles', 'modern'], default='dots',
-                        help='[EXPERIMENTAL] Progress indicator type for timeline models (default: dots)')
+                        help='[EXPERIMENTAL] Progress indicator; bare --progress enables it in batch mode. '
+                             'Timeline modes accept a type: none, dots, classic, circles, modern (default: dots)')
     parser.add_argument('--start-date', '-s',
                         help='Start date for first search (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)')
     parser.add_argument('--sort', action='store_true',
@@ -1859,6 +1990,24 @@ def main():
 
     # Auto-load file ignore list from model search paths
     load_file_ignore_list(search_paths)
+
+    # Batch mode: dispatch to lpmp_batch and exit. Runs a JSON-declared
+    # set of model+window combinations with a single read pass per
+    # physical log file. Timeline and window blocks are processed;
+    # pair and pattern blocks in batched models emit a warning and
+    # are skipped (they require cross-line ordering state that
+    # single-pass reading cannot preserve).
+    if args.batch:
+        from lpmp_batch import run_batch
+        args.bundle_name = args.bundle
+        args.lab_name = args.lab
+        # Batch-mode output tree is 'lpmp_batch_<lab>' rather than the
+        # mainline 'lpmp_<lab>' so a single lab that mixes batch and
+        # standalone runs keeps the two output styles obviously
+        # distinct on disk.
+        args._dir_prefix = f"lpmp_batch_{args.lab_name}"
+        run_batch(args)
+        sys.exit(0)
 
     def collect_model_files(search_paths):
         """Collect and categorize model files from search paths.
@@ -1959,7 +2108,8 @@ def main():
             '13': 'BLOCK_LEVEL_SETTINGS',
             '14': 'PRECEDENCE_RULES',
             '15': 'WINDOW_BLOCKS',
-            '16': 'LIMITATIONS',
+            '16': 'BATCH_MODE',
+            '17': 'LIMITATIONS',
         }
 
         # Direct topic selection: print content without paging and exit
@@ -1974,7 +2124,7 @@ def main():
                 print(content)
                 sys.exit(0)
             else:
-                print(f"Error: Unknown help topic '{topic}'. Use 1-16.", file=sys.stderr)
+                print(f"Error: Unknown help topic '{topic}'. Use 1-17.", file=sys.stderr)
                 sys.exit(1)
 
         def show_paged_help(section_key):
@@ -2026,16 +2176,17 @@ def main():
                 print("13. Block-Level vs Model-Level Settings")
                 print("14. Setting Precedence Rules")
                 print("15. Window Blocks (Time-Range Log Extraction)")
-                print("16. Known Limitations")
+                print("16. Batch Mode (JSON-driven multi-model execution)")
+                print("17. Known Limitations")
                 print()
-                print("17. Show Existing Models")
-                print("18. Show Example Models")
-                print("19. Show Helper Files")
+                print("18. Show Existing Models")
+                print("19. Show Example Models")
+                print("20. Show Helper Files")
                 print("Q. Quit (or press Enter)")
                 print()
 
                 try:
-                    choice = input("Enter selection (1-19 or Q): ").strip().upper()
+                    choice = input("Enter selection (1-20 or Q): ").strip().upper()
 
                     if choice == 'Q' or choice == '':
                         break
@@ -2046,7 +2197,7 @@ def main():
                             break
                     elif choice == '2':
                         show_paged_help('MAIN_LOOP')
-                    elif choice == '17':
+                    elif choice == '18':
                         # Show Existing Models (exclude examples)
                         def show_existing_models():
                             while True:
@@ -2100,7 +2251,7 @@ def main():
                                     return
 
                         show_existing_models()
-                    elif choice == '18':
+                    elif choice == '19':
                         # Show Example Models
                         def show_example_models():
                             while True:
@@ -2154,7 +2305,7 @@ def main():
                                     return
 
                         show_example_models()
-                    elif choice == '19':
+                    elif choice == '20':
                         # Show Helper Files
                         def show_helper_files():
                             while True:
@@ -2220,65 +2371,168 @@ def main():
         sys.exit(0)
 
     # Handle --list-models after argument parsing
-    if args.list_models:
-        def list_available_models():
-            functional_models, example_models, helper_models = collect_model_files(search_paths)
+    if args.list_models is not None:
+        # Validate the optional filter argument. 'description' is
+        # accepted as a long-form alias for 'desc'.
+        _VALID_LM_FILTERS = ('__all__', 'timeline', 'pattern', 'pair',
+                             'example', 'desc', 'description')
+        if args.list_models not in _VALID_LM_FILTERS:
+            print(f"Error: --list-models filter '{args.list_models}' not recognized. "
+                  f"Choose one of: timeline, pattern, pair, example, desc",
+                  file=sys.stderr)
+            sys.exit(1)
+        # Normalise the long form to the short form for the rest of
+        # the function so there is a single sentinel to test.
+        if args.list_models == 'description':
+            args.list_models = 'desc'
 
-            # Sort order: timeline, pattern, pair, then yaml errors last
-            type_order = {'timeline': 0, 'pattern': 1, 'pair': 2}
+        def list_available_models():
+            """Print available models grouped by detected type in a
+            multi-column layout that adapts to the longest name and
+            targets DEFAULT_LIST_MODELS_MAX_WIDTH total width.
+
+            Columns = max(1, floor((max_width - indent) / (max_name + gutter)))
+            """
+            functional_models, example_models, helper_models = collect_model_files(search_paths)
 
             def _is_error(status):
                 return status.startswith('yaml') or status.startswith('format')
 
-            def sort_key(item):
+            # Split functional models by detected type; errors kept aside.
+            by_type = {'timeline': [], 'pattern': [], 'pair': []}
+            errors = []
+            for item in functional_models:
                 status = item[2]
-                return (1, 0, item[0]) if _is_error(status) else (0, type_order.get(status, 99), item[0])
-
-            if args.sort:
-                # Alphabetical by name, errors last
-                functional_models.sort(key=lambda x: (1 if _is_error(x[2]) else 0, x[0]))
-                example_models.sort(key=lambda x: (1 if _is_error(x[2]) else 0, x[0]))
-            else:
-                functional_models.sort(key=sort_key)
-                example_models.sort(key=sort_key)
-
-            # Find max name length (without extension) for aligned columns
-            all_models = functional_models + example_models + helper_models
-            max_len = max((len(os.path.splitext(n)[0]) for n, _, _ in all_models), default=0)
-
-            # Sort helpers alphabetically
-            helper_models.sort(key=lambda x: x[0])
-
-            # Display results
-            print("Available Model Files:")
-            print("=" * 50)
-
-            def print_models(models, heading):
-                print(f"\n{heading}:")
-                if models:
-                    for name, path, status in models:
-                        display_name = os.path.splitext(name)[0]
-                        tag = f"\u274c {status}" if _is_error(status) else f"\u2705 {status}"
-                        print(f" - {display_name:<{max_len}}  {tag}")
-                        vlog2(f"      Path: {path}")
+                if _is_error(status):
+                    errors.append(item)
+                elif status in by_type:
+                    by_type[status].append(item)
                 else:
-                    print(f"  No {heading.lower()} found.")
+                    # Unknown but non-error status — bucket into pattern
+                    # as a safe default.
+                    by_type['pattern'].append(item)
+            for item in example_models:
+                if _is_error(item[2]):
+                    errors.append(item)
 
-            print_models(functional_models, "FUNCTIONAL MODELS")
-            print_models(example_models, "EXAMPLE MODELS")
+            # Alphabetize within each bucket (errors keep discovery order).
+            for group in by_type.values():
+                group.sort(key=lambda x: x[0].lower())
+            example_models.sort(key=lambda x: x[0].lower())
+            helper_models.sort(key=lambda x: x[0].lower())
 
-            # Show helpers with simple listing (no model type validation)
-            print("\nHELPER FILES:")
-            if helper_models:
-                for name, path, status in helper_models:
-                    display_name = os.path.splitext(name)[0]
-                    print(f" - {display_name}")
-                    vlog2(f"      Path: {path}")
+            def _display_name(item):
+                return os.path.splitext(item[0])[0]
+
+            # Compute the display-width budget from the union of the
+            # names we're about to print, then derive columns from that.
+            filt = args.list_models
+            if filt == 'timeline':
+                sections = [('TIMELINE MODELS', by_type['timeline'])]
+            elif filt == 'pattern':
+                sections = [('PATTERN MODELS', by_type['pattern'])]
+            elif filt == 'pair':
+                sections = [('PAIR MODELS', by_type['pair'])]
+            elif filt == 'example':
+                sections = [('EXAMPLE MODELS', example_models)]
+            elif filt == 'desc':
+                # Flat name : description listing, ordered timeline
+                # then pattern then pair then example so the user can
+                # grep manually. Skips the columned layout entirely.
+                flat = (
+                    by_type['timeline']
+                    + by_type['pattern']
+                    + by_type['pair']
+                    + example_models
+                )
+                names = [_display_name(item) for item in flat]
+                max_name = max((len(n) for n in names), default=0)
+
+                print(f"Available Model Descriptions "
+                      f"(max width {DEFAULT_LIST_MODELS_MAX_WIDTH})")
+                print("=" * min(60, DEFAULT_LIST_MODELS_MAX_WIDTH))
+                for item in flat:
+                    display_name = _display_name(item)
+                    desc = get_model_description(item[1])
+                    print(f"{display_name:<{max_name}}  : {desc}")
+
+                if errors:
+                    print(f"\nERRORS ({len(errors)}):")
+                    for name, path, status in errors:
+                        print(f"  \u274c {name}  \u2014  {status}")
+                        vlog2(f"      Path: {path}")
+
+                print(
+                    f"\nTotal: {len(by_type['timeline'])} timeline, "
+                    f"{len(by_type['pattern'])} pattern, "
+                    f"{len(by_type['pair'])} pair"
+                    + (f", {len(example_models)} example"
+                       if example_models else '')
+                )
+                return
+            else:  # '__all__'
+                sections = [
+                    ('TIMELINE MODELS', by_type['timeline']),
+                    ('PATTERN MODELS', by_type['pattern']),
+                    ('PAIR MODELS', by_type['pair']),
+                    ('EXAMPLE MODELS', example_models),
+                    ('HELPER FILES', helper_models),
+                ]
+
+            displayed_names = [
+                _display_name(item)
+                for _, items in sections
+                for item in items
+            ]
+            max_name = max((len(n) for n in displayed_names), default=0)
+
+            indent = 2
+            gutter = 2
+            cell = max_name + gutter
+            if cell <= 0:
+                cols = 1
             else:
-                print("  No helper files found.")
+                cols = max(1, (DEFAULT_LIST_MODELS_MAX_WIDTH - indent) // cell)
 
-            print(f"\nTotal: {len(functional_models)} functional, "
-                  f"{len(example_models)} example, {len(helper_models)} helper files")
+            def _print_columns(items):
+                if not items:
+                    print(f"{' ' * indent}(none)")
+                    return
+                names = [_display_name(item) for item in items]
+                for i in range(0, len(names), cols):
+                    row = names[i:i + cols]
+                    padded = [f"{n:<{max_name}}" for n in row]
+                    print(f"{' ' * indent}{('  ').join(padded).rstrip()}")
+
+            print(f"Available Model Files (max width {DEFAULT_LIST_MODELS_MAX_WIDTH})")
+            print("=" * min(60, DEFAULT_LIST_MODELS_MAX_WIDTH))
+
+            for heading, items in sections:
+                print(f"\n{heading} ({len(items)}):")
+                _print_columns(items)
+
+            # Errors always surface — even under a type filter — so
+            # broken models don't get hidden behind a filtered view.
+            if errors:
+                print(f"\nERRORS ({len(errors)}):")
+                for name, path, status in errors:
+                    print(f"  \u274c {name}  \u2014  {status}")
+                    vlog2(f"      Path: {path}")
+
+            # Compact summary line at the bottom.
+            if filt == '__all__':
+                summary = (
+                    f"Total: {len(by_type['timeline'])} timeline, "
+                    f"{len(by_type['pattern'])} pattern, "
+                    f"{len(by_type['pair'])} pair"
+                )
+                if example_models:
+                    summary += f", {len(example_models)} example"
+                if helper_models:
+                    summary += f"  (helpers: {len(helper_models)})"
+                if errors:
+                    summary += f"  (errors: {len(errors)})"
+                print(f"\n{summary}")
 
         list_available_models()
         sys.exit(0)
@@ -2520,8 +2774,12 @@ def main():
         print("  cp <example_model> my_model.yaml   # copy and edit")
         print("  lpmptool -m my_model.yaml          # run your model")
         print("  lpmptool --help-model              # block type documentation")
-        print("  lpmptool --list-models             # list available models")
-        print("  lpmptool --list-models --sort       # list models sorted by name")
+        print("  lpmptool --list-models             # list available models (grouped)")
+        print("  lpmptool -lm timeline              # list only timeline models")
+        print("  lpmptool -lm pattern               # list only pattern models")
+        print("  lpmptool -lm pair                  # list only pair models")
+        print("  lpmptool -lm example               # list only example models")
+        print("  lpmptool -lm desc                  # flat name:description list (greppable)")
         sys.exit(0)
 
     # Load search configuration from model file
@@ -2937,7 +3195,12 @@ def main():
 
                     if get_verbose_level() >= 1 and not is_timeline_model:
                         print(f"Pass {loop_count} ended - no patterns found")
-                    if args.loops != 0 or loop_count == 1:
+                    # Timeline models (e.g. collectd_overage, collectd_usage)
+                    # legitimately produce zero rows when the window has no
+                    # matching events. Only pattern / pair families treat
+                    # zero-matches on the first pass as a failure.
+                    if (args.loops != 0 or loop_count == 1) \
+                            and not is_timeline_model:
                         any_host_failed = True
                     break
 
@@ -3336,8 +3599,11 @@ def main():
                 vlog1(f"Pass {loop_count} ended - no patterns found")
                 # loops=0 means "run until EOF" — exhausting the log is normal,
                 # not a failure. Only flag as failed for fixed loop counts where
-                # the first pass fails (no data found at all).
-                if args.loops != 0 or loop_count == 1:
+                # the first pass fails (no data found at all). Timeline models
+                # are exempt: zero-row windows (e.g. collectd_overage with no
+                # confirmed alarms) are a valid outcome, not a failure.
+                if (args.loops != 0 or loop_count == 1) \
+                        and not is_timeline_model:
                     any_host_failed = True
                 break
 
@@ -3505,6 +3771,20 @@ def main():
     # Print memory statistics if enabled (single call for both modes)
     if memory_monitor:
         memory_monitor.print_stats()
+
+    # Prune empty per-host and per-model output directories that came
+    # from zero-match runs. Non-empty subtrees (real output) are left
+    # untouched because os.rmdir only succeeds when a directory is
+    # already empty. Rooted at the tool-created 'lpmp_<lab>/' wrapper
+    # so a user-supplied -o directory itself is never touched.
+    prefix = getattr(args, '_dir_prefix', None) or f"lpmp_{args.lab_name}"
+    if args.output:
+        _prune_root = os.path.join(args.output, prefix)
+    elif getattr(args, 'bundle_name', '/') != '/':
+        _prune_root = os.path.join(args.bundle_name, prefix)
+    else:
+        _prune_root = os.path.join(os.getcwd(), prefix)
+    prune_empty_output_dirs(_prune_root)
 
     # Exit with non-zero code if any required block failed
     if any_host_failed:

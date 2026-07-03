@@ -1,0 +1,33 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Rook-Ceph Operator — reconciliation, failureDomain, disruption mgmt
+########################################################################
+
+description: "Rook-Ceph operator events — CephCluster reconciliation, failureDomain decisions, disruptionAllowed checks, enableCrushUpdates, canary deployments, and mon/OSD pod management."
+
+blocks:
+  - label: "Rook Operator"
+    file: ["containerd.log*"]
+    timeline:
+      - 'rook-ceph-osd'
+      - 'rook-ceph-mon'
+      - 'failureDomain'
+      - 'disruptionAllowed'
+      - 'canary'
+      - 'reconcile'
+      - 'CephCluster'
+      - 'enableCrushUpdates'
+      - 'crushmap'
+      - 'crush rule'
+
+  - label: "Ceph Monitor Elections"
+    file: ["containerd.log*", "daemon.log*"]
+    timeline:
+      - 'mon election'
+      - 'quorum'
+      - 'leader'
+      - 'peon'
+      - 'calling election'
+      - 'win election'

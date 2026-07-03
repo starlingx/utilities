@@ -1,0 +1,22 @@
+{
+    "description": "Sample LPMP batch spec. See DEVELOPERS_GUIDE.md 'Batch Mode' for full details. Only 'model' is required per run — start_date and stop_date are optional. A bare top-level list of runs is also accepted (e.g. [{\"model\": \"a.yaml\"}, {\"model\": \"b.yaml\"}]).",
+    "usage": "lpmptool --batch docs/batch_spec_example.json --bundle /path/to/collect --include controller-0 controller-1",
+    "runs": [
+        {
+            "description": "Explicit window",
+            "model": "ceph_health.yaml",
+            "start_date": "2026-02-25T13:35:00",
+            "stop_date":  "2026-02-25T13:38:00"
+        },
+        {
+            "description": "Falls back to CLI --start-date/--stop-date if set, else model settings, else unbounded",
+            "model": "host_lifecycle.yaml"
+        },
+        {
+            "description": "Each model may appear at most once per spec; a repeated model is rejected at load time",
+            "model": "sm_service_failover.yaml",
+            "start_date": "2026-02-25T13:41:00",
+            "stop_date":  "2026-02-25T13:44:00"
+        }
+    ]
+}
