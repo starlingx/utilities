@@ -269,6 +269,7 @@ class TestValidateModelStructure(unittest.TestCase):
                 'start_date': '2024-01-01', 'stop_date': '2024-01-02',
                 'loops': 2, 'max_log_length': 200, 'profile': True,
                 'optional': False, 'controller': False, 'graph': 'CPU',
+                'graph_style': 'line', 'host': 'controller-0',
                 'timeline_patterns': {'maint': ['A']}
             },
             'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['p']}]

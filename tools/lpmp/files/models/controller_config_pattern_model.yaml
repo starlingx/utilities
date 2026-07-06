@@ -20,7 +20,7 @@
 #
 # Pattern Syntax:
 #   - "string"                  - literal match
-#   - r"regex \\d+"             - regex match (note double backslashes)
+#   - 'regex \d+'             - regex (use single quotes; backslashes pass through)
 #
 ########################################################################
 
@@ -28,6 +28,6 @@ blocks:
   - label: "Controller Config"
     file: "daemon.log*"
     patterns:
-    - "Configuring controller node"
-    - "Applying puppet .* manifest"
-    - "controller_config\\[.*\\]: info \\[DONE\\]"
+    - 'Configuring controller node'
+    - 'Applying puppet .* manifest'
+    - 'controller_config\[.*\]: info \[DONE\]'

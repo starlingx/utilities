@@ -841,7 +841,9 @@ def merge_timeline_profiles(host_files, output_path):
     """Merge per-host timeline profile files into a single system profile.
 
     Reads each host's profile.timeline.log, parses timestamps from the data
-    column, and writes a merged file sorted by timestamp.
+    column, sorts by timestamp, and recomputes the Delta column relative to
+    the previous line in the merged output (across hosts) so the deltas
+    reflect the merged ordering instead of each host's own neighbor.
 
     Args:
         host_files: List of (file_path, hostname) tuples.
@@ -879,11 +881,30 @@ def merge_timeline_profiles(host_files, output_path):
 
     all_lines.sort(key=lambda x: x[0] if x[0] is not None else datetime.max)
 
+    # Recompute the leading Delta column relative to the previous line
+    # in the merged sequence (across hosts). Lines without a parseable
+    # timestamp keep their original delta (typically the warning marker
+    # ??:??:??.???). The first valid line gets 00:00:00.000.
+    rewritten = []
+    prev_ts = None
+    for ts, line in all_lines:
+        if ts is None:
+            rewritten.append(line)
+            continue
+        delta = 0.0 if prev_ts is None else (ts - prev_ts).total_seconds()
+        # Replace the first tab-separated field with the new delta.
+        parts = line.split('\t', 1)
+        if len(parts) == 2:
+            new_delta = format_duration(delta)
+            line = f"{new_delta:<15}\t{parts[1]}"
+        rewritten.append(line)
+        prev_ts = ts
+
     try:
         with open(output_path, 'w') as f:
             for h in headers:
                 f.write(h + '\n')
-            for _, line in all_lines:
+            for line in rewritten:
                 f.write(line + '\n')
         vlog2(f"Merged timeline profile written: {output_path}")
     except IOError as e:

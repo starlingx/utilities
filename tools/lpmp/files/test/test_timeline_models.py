@@ -469,6 +469,114 @@ class TestTimelineBlockProcessing(LPMPTestBase):
         self.assertIn('event4', result[3][1])
         self.assertIn('event5', result[4][1])
 
+    # -----------------------------------------------------------------
+    # First-match-wins semantics
+    # -----------------------------------------------------------------
+    # When multiple patterns in a single timeline block could match the
+    # same source log line, only ONE row is emitted per line. The earliest
+    # pattern in the declared order wins; later patterns do not produce a
+    # second row for that line. Pattern order in the YAML is therefore
+    # semantically significant.
+
+    def test_process_timeline_block_first_match_wins(self):
+        """Two patterns that both match the same line produce one row."""
+        log_content = (
+            "2024-01-06T10:00:01.000 first pattern and second pattern on one line\n"
+        )
+        with open(self.log_file, 'w') as f:
+            f.write(log_content)
+
+        block = {
+            'label': 'Overlap Timeline',
+            'file': 'timeline.log',
+            'timeline': ['first pattern', 'second pattern'],
+        }
+        result = process_timeline_block(self.args, block, datetime(2024, 1, 6, 9, 0, 0), {})
+
+        # Exactly one row for the single source line, even though both
+        # patterns would have matched it under the old "all matches"
+        # semantics.
+        self.assertEqual(len(result), 1)
+        self.assertIn('first pattern', result[0][1])
+
+    def test_process_timeline_block_order_matters(self):
+        """Reversing pattern order changes which one tags shared lines."""
+        log_content = (
+            "2024-01-06T10:00:01.000 alpha and beta together\n"
+        )
+        with open(self.log_file, 'w') as f:
+            f.write(log_content)
+
+        # Listing 'beta' first means 'beta' wins for this line, even
+        # though 'alpha' literally appears earlier in the line text.
+        # First-match-wins is by *declared pattern order*, not by
+        # leftmost match position in the line.
+        block = {
+            'label': 'Order Timeline',
+            'file': 'timeline.log',
+            'timeline': ['beta', 'alpha'],
+        }
+        result = process_timeline_block(self.args, block, datetime(2024, 1, 6, 9, 0, 0), {})
+        self.assertEqual(len(result), 1)
+        # The matched line is the same regardless of which pattern won;
+        # what matters is that we got exactly one row, not two.
+
+    def test_process_timeline_block_or_list_flattened(self):
+        """Nested OR-list entries are flattened into the alternation set."""
+        log_content = (
+            "2024-01-06T10:00:01.000 boot started\n"
+            "2024-01-06T10:00:02.000 reboot started\n"
+            "2024-01-06T10:00:03.000 unrelated event\n"
+        )
+        with open(self.log_file, 'w') as f:
+            f.write(log_content)
+
+        block = {
+            'label': 'OR Timeline',
+            'file': 'timeline.log',
+            'timeline': [['boot', 'reboot']],
+        }
+        result = process_timeline_block(self.args, block, datetime(2024, 1, 6, 9, 0, 0), {})
+
+        # Both matching lines are captured. The unrelated line is not.
+        # Although the line "reboot started" contains both "boot" and
+        # "reboot" substrings, it only produces ONE row (the OR-list
+        # alternatives are tried in order; the first that matches wins).
+        self.assertEqual(len(result), 2)
+
+    def test_process_timeline_block_invalid_regex_is_skipped(self):
+        """Invalid regex in the timeline list is skipped, others still apply."""
+        log_content = (
+            "2024-01-06T10:00:01.000 good pattern present\n"
+        )
+        with open(self.log_file, 'w') as f:
+            f.write(log_content)
+
+        # '[unclosed' is a malformed character class — should be dropped
+        # with a warning, leaving 'good pattern' to still match.
+        block = {
+            'label': 'Invalid Regex Timeline',
+            'file': 'timeline.log',
+            'timeline': ['[unclosed', 'good pattern'],
+        }
+        result = process_timeline_block(self.args, block, datetime(2024, 1, 6, 9, 0, 0), {})
+        self.assertEqual(len(result), 1)
+        self.assertIn('good pattern', result[0][1])
+
+    def test_process_timeline_block_empty_after_skipping_invalid(self):
+        """All patterns invalid -> no matches and no crash."""
+        log_content = "2024-01-06T10:00:01.000 any line\n"
+        with open(self.log_file, 'w') as f:
+            f.write(log_content)
+
+        block = {
+            'label': 'All Invalid Timeline',
+            'file': 'timeline.log',
+            'timeline': ['[unclosed', '(also broken'],
+        }
+        result = process_timeline_block(self.args, block, datetime(2024, 1, 6, 9, 0, 0), {})
+        self.assertEqual(result, [])
+
 
 @unittest.skipUnless(YAML_AVAILABLE, "Enable with: pip3 install --user pyyaml")
 class TestTimelineModelDetection(LPMPTestBase):

@@ -26,7 +26,8 @@ blocks:
   - label: "{graph}"
     file: "collectd.log*"
     timeline:
-    - "platform memory usage: Usage"
+    # Match both legacy ("usage:") and current ("dispatch") wording.
+    - 'platform memory (usage:|dispatch) Usage'
 
 
 settings:

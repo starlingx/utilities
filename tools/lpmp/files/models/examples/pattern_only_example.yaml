@@ -88,9 +88,9 @@ blocks:
   - label: "Service Status"
     file: "service.log*"
     patterns:
-      - r"Service \w+ starting"
-      - r"PID: \d+"
-      - r"Service \w+ ready"
+      - 'Service \w+ starting'
+      - 'PID: \d+'
+      - 'Service \w+ ready'
     max_time_delta: 45
     optional: true
 
@@ -98,8 +98,8 @@ blocks:
   - label: "Host State Changes"
     file: "mtcAgent.log*"
     patterns:
-      - r"{hostname} state: \w+"
-      - r"{hostname} is (ENABLED|DISABLED|DEGRADED)"
+      - '{hostname} state: \w+'
+      - '{hostname} is (ENABLED|DISABLED|DEGRADED)'
     optional: true
 
   # ==========================================================================

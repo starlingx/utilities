@@ -40,7 +40,7 @@ DEFAULT_BUNDLE_PATH = '/localdisk/lpmptool_demo/TIMELINE/ALL_NODES_20260227.1901
 # Bundle tests only run when explicitly enabled via run_tests.py --bundle
 BUNDLE_PATH = os.environ.get('LPMP_TEST_BUNDLE')
 BUNDLE_AVAILABLE = os.path.isdir(BUNDLE_PATH) if BUNDLE_PATH else False
-BUNDLE_SKIPPED_COUNT = 4  # Number of tests that require --bundle
+BUNDLE_SKIPPED_COUNT = 10  # Number of tests that require --bundle
 
 # Import lpmptool main
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -497,6 +497,99 @@ class TestMainExecution(LPMPTestBase):
                 lpmptool.main()
             self.assertEqual(cm.exception.code, 1)
 
+    def test_max_lines_negative_rejected(self):
+        """Test negative --max-lines value is rejected with error"""
+        self.create_log_file("2024-01-06T10:00:00.000 test\n")
+        model_path = self.create_model_file(
+            self.create_pattern_model(pattern='test')
+        )
+        with patch('sys.argv', [
+            'lpmptool', '-l', self.logs_dir, '-m', model_path,
+            '--max-lines', '-1'
+        ]):
+            with patch('builtins.print'):
+                with self.assertRaises(SystemExit) as cm:
+                    lpmptool.main()
+            self.assertEqual(cm.exception.code, 1)
+
+    def test_file_position_tracking_enabled(self):
+        """Test --file-position-tracking initialises position cache"""
+        self.create_log_file("2024-01-06T10:00:00.000 fp_test pattern\n")
+        model_path = self.create_model_file(
+            self.create_pattern_model(pattern='fp_test')
+        )
+        with patch('sys.argv', [
+            'lpmptool', '-l', self.logs_dir, '-m', model_path,
+            '-o', self.output_dir, '--lab', 'fp_test',
+            '--file-position-tracking',
+        ]):
+            with patch('builtins.print'):
+                lpmptool.main()
+        # No assertion on internal state; the test exercises the
+        # initialisation path. A successful run with output files
+        # confirms the flag did not break the pipeline.
+        produced = []
+        for _root, _dirs, files in os.walk(self.output_dir):
+            produced.extend(files)
+        self.assertGreater(len(produced), 0)
+
+    def test_help_model_direct_topic_number_prints_and_exits(self):
+        """--help-model 1 prints a topic and exits zero (non-interactive)."""
+        with patch('sys.argv', ['lpmptool', '--help-model', '1']):
+            with patch('builtins.print'):
+                with self.assertRaises(SystemExit) as cm:
+                    lpmptool.main()
+            self.assertEqual(cm.exception.code, 0)
+
+    def test_help_model_direct_topic_invalid_exits_one(self):
+        """--help-model with an unknown topic exits non-zero."""
+        with patch('sys.argv', ['lpmptool', '--help-model', '999']):
+            with patch('builtins.print'):
+                with self.assertRaises(SystemExit) as cm:
+                    lpmptool.main()
+            self.assertEqual(cm.exception.code, 1)
+
+    def test_no_ts_files_logs_dir_mode(self):
+        """--no-ts-files in --logs-dir mode lists files and exits."""
+        # Plain log with a parseable timestamp
+        self.create_log_file(
+            "2024-01-06T10:00:00.000 hello\n", filename='good.log')
+        # File with no parseable timestamp at all
+        self.create_log_file("just text, no date\n", filename='noisy.log')
+        model_path = self.create_model_file(
+            self.create_pattern_model(pattern='hello'))
+        with patch('sys.argv', [
+            'lpmptool', '-l', self.logs_dir, '-m', model_path,
+            '--no-ts-files',
+        ]):
+            with patch('builtins.print'):
+                with self.assertRaises(SystemExit) as cm:
+                    lpmptool.main()
+            self.assertEqual(cm.exception.code, 0)
+
+    def test_graph_variable_runs_subprocess_in_system_mode(self):
+        """`--var graph=...` triggers lpmp_graph subprocess in system mode."""
+        self.create_log_file(
+            "2024-01-06T10:00:00.000 graph pattern match\n",
+            filename='test.log')
+        model_path = self.create_model_file(
+            self.create_pattern_model(pattern='graph pattern'))
+        # Mock subprocess.run so we don't actually invoke matplotlib.
+        with patch('sys.argv', [
+            'lpmptool', '-l', self.logs_dir, '-m', model_path,
+            '-o', self.output_dir, '--lab', 'graph_test',
+            '--var', 'graph=Test Graph',
+        ]):
+            with patch('builtins.print'):
+                with patch('subprocess.run') as run_mock:
+                    lpmptool.main()
+        # Verify lpmp_graph was invoked at least once.
+        self.assertGreaterEqual(run_mock.call_count, 1)
+        invoked = run_mock.call_args_list[0].args[0]
+        self.assertTrue(any('lpmp_graph.py' in part for part in invoked),
+                        f"lpmp_graph.py not in invoked cmd {invoked}")
+        self.assertIn('Test Graph', invoked)
+
     def test_bundle_mode_creates_per_host_output_dirs(self):
         """Test bundle mode creates output directories for each host"""
         bundle_dir, host_dirs = self.create_bundle_structure()
@@ -601,10 +694,77 @@ class TestMainExecution(LPMPTestBase):
 class TestBundleRegression(LPMPTestBase):
     """Regression tests using a real collect bundle.
     Skipped when bundle path is not available.
+
+    Host selection is dynamic: each test discovers the hostnames
+    actually present in the bundle and passes that exact list to
+    --include. This keeps the suite portable across bundles with
+    different node counts and naming.
     """
 
+    # Populated by setUpClass once per run from the bundle directory
+    BUNDLE_HOSTS = []
+    CONTROLLER_COUNT = 0
+    WORKER_COUNT = 0
+    STORAGE_COUNT = 0
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.BUNDLE_HOSTS = cls._discover_bundle_hosts()
+        cls.CONTROLLER_COUNT = sum(
+            1 for h in cls.BUNDLE_HOSTS if h.startswith('controller-'))
+        cls.WORKER_COUNT = sum(
+            1 for h in cls.BUNDLE_HOSTS
+            if h.startswith('worker-') or h.startswith('compute-'))
+        cls.STORAGE_COUNT = sum(
+            1 for h in cls.BUNDLE_HOSTS if h.startswith('storage-'))
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        # Coverage note printed once after the regression class finishes.
+        # Writes to real stderr so it bypasses run_tests.py's stdout/stderr
+        # redirection to the log file.
+        import sys as _sys
+        msg = (
+            f"\n[bundle regression] detected {len(cls.BUNDLE_HOSTS)} host(s): "
+            f"{', '.join(cls.BUNDLE_HOSTS) if cls.BUNDLE_HOSTS else '(none)'}"
+            f"  (controllers={cls.CONTROLLER_COUNT}, "
+            f"workers={cls.WORKER_COUNT}, storage={cls.STORAGE_COUNT})"
+        )
+        print(msg, file=_sys.__stderr__)
+        if cls.CONTROLLER_COUNT < 2 or cls.WORKER_COUNT < 1:
+            print(
+                "[bundle regression] coverage note: bundle has fewer than "
+                "2 controllers and/or 1 worker. Provide a bundle with "
+                "2+ controllers and 1+ worker (or compute) node to "
+                "exercise full multi-host code paths.",
+                file=_sys.__stderr__)
+
+    @classmethod
+    def _discover_bundle_hosts(cls):
+        """Return hostnames present in the bundle (without date suffix),
+        derived from the `<hostname>_YYYYMMDD.HHMMSS` directory pattern.
+        """
+        import re as _re
+        if not BUNDLE_PATH or not os.path.isdir(BUNDLE_PATH):
+            return []
+        host_pattern = _re.compile(r'^(.+)_(\d{8}\.\d{6})$')
+        latest = {}  # hostname -> (date, dir)
+        for entry in os.listdir(BUNDLE_PATH):
+            full = os.path.join(BUNDLE_PATH, entry)
+            if not os.path.isdir(full):
+                continue
+            m = host_pattern.match(entry)
+            if not m:
+                continue
+            hostname, date_part = m.groups()
+            cur = latest.get(hostname)
+            if cur is None or date_part > cur[0]:
+                latest[hostname] = (date_part, entry)
+        return sorted(latest.keys())
+
     def setUp(self):
-        import shutil
         self.temp_dir = tempfile.mkdtemp()
         self.output_dir = os.path.join(self.temp_dir, 'output')
         os.makedirs(self.output_dir, exist_ok=True)
@@ -617,16 +777,27 @@ class TestBundleRegression(LPMPTestBase):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
+    def _build_argv(self, model_path, extra_args=None):
+        """Build sys.argv for an lpmptool bundle run, scoped to whatever
+        hosts the bundle actually has.
+        """
+        argv = [
+            'lpmptool', '-b', BUNDLE_PATH, '-m', model_path,
+            '-o', self.output_dir, '--lab', 'regression',
+        ]
+        if self.BUNDLE_HOSTS:
+            argv.append('--include')
+            argv.extend(self.BUNDLE_HOSTS)
+        if extra_args:
+            argv.extend(extra_args)
+        return argv
+
     def test_bundle_timeline_model_produces_output(self):
         """Test timeline model against real bundle produces per-host output"""
         model_path = os.path.join(self.models_dir, 'mtce_timeline_model.yaml')
         if not os.path.exists(model_path):
             self.skipTest(f"Model not found: {model_path}")
-        with patch('sys.argv', [
-            'lpmptool', '-b', BUNDLE_PATH, '-m', model_path,
-            '-o', self.output_dir, '--lab', 'regression',
-            '--include', 'controller-0', 'controller-1', 'compute-0'
-        ]):
+        with patch('sys.argv', self._build_argv(model_path)):
             with patch('builtins.print'):
                 lpmptool.main()
         # Verify output was created
@@ -640,20 +811,16 @@ class TestBundleRegression(LPMPTestBase):
         model_path = os.path.join(self.models_dir, 'mtce_timeline_model.yaml')
         if not os.path.exists(model_path):
             self.skipTest(f"Model not found: {model_path}")
-        with patch('sys.argv', [
-            'lpmptool', '-b', BUNDLE_PATH, '-m', model_path,
-            '-o', self.output_dir, '--lab', 'regression',
-            '--include', 'controller-0', 'controller-1', 'compute-0'
-        ]):
+        with patch('sys.argv', self._build_argv(model_path)):
             with patch('builtins.print'):
                 lpmptool.main()
-        # Verify per-host directories exist
+        # Verify a per-host directory exists for at least one bundle host.
         all_dirs = []
         for root, dirs, files in os.walk(self.output_dir):
             all_dirs.extend(dirs)
         self.assertTrue(
-            any('controller' in d for d in all_dirs),
-            "No controller host directory in output"
+            any(h in d for h in self.BUNDLE_HOSTS for d in all_dirs),
+            f"No per-host directory in output for any of {self.BUNDLE_HOSTS}"
         )
 
     def test_bundle_merged_system_profile_created(self):
@@ -661,11 +828,7 @@ class TestBundleRegression(LPMPTestBase):
         model_path = os.path.join(self.models_dir, 'mtce_timeline_model.yaml')
         if not os.path.exists(model_path):
             self.skipTest(f"Model not found: {model_path}")
-        with patch('sys.argv', [
-            'lpmptool', '-b', BUNDLE_PATH, '-m', model_path,
-            '-o', self.output_dir, '--lab', 'regression',
-            '--include', 'controller-0', 'controller-1', 'compute-0'
-        ]):
+        with patch('sys.argv', self._build_argv(model_path)):
             with patch('builtins.print'):
                 lpmptool.main()
         # Verify some profile files were created (system or per-host)
@@ -686,11 +849,7 @@ class TestBundleRegression(LPMPTestBase):
         def capture(*a, **kw):
             output.append(' '.join(str(x) for x in a))
 
-        with patch('sys.argv', [
-            'lpmptool', '-b', BUNDLE_PATH, '-m', model_path,
-            '-o', self.output_dir, '--lab', 'regression',
-            '--include', 'controller-0', 'controller-1', 'compute-0'
-        ]):
+        with patch('sys.argv', self._build_argv(model_path)):
             with patch('builtins.print', side_effect=capture):
                 lpmptool.main()
         combined = '\n'.join(output)
@@ -761,6 +920,249 @@ class TestMemoryMonitorAndMisc(LPMPTestBase):
         capture.stop_capture()
         result = capture.get_captured_output()
         self.assertIn('silent output', result)
+
+
+# ---------------------------------------------------------------------------
+# Bundle regression: custom timestamp format groups
+# ---------------------------------------------------------------------------
+# Each test exercises one of the four timestamp_formats groups declared in
+# models/helpers/file_ignore_list_and_format_handling.yaml against a real
+# collect bundle. A throw-away model is written that targets a single log
+# file with a substring guaranteed to appear; if the engine fails to parse
+# that file's timestamp format every line is silently dropped and the
+# timeline output ends up empty, so a non-empty result proves the format
+# is being recognised end-to-end.
+
+
+@unittest.skipUnless(BUNDLE_AVAILABLE, f"Requires bundle at {BUNDLE_PATH}")
+@unittest.skipUnless(YAML_AVAILABLE, "Enable with: pip3 install --user pyyaml")
+class TestBundleCustomTimestampFormats(LPMPTestBase):
+    """Verify each YAML-declared timestamp format actually parses in bundle mode.
+
+    Skipped when --bundle is not provided. Each test gracefully skips
+    when the target file is not present in any host of the bundle.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.output_dir = os.path.join(self.temp_dir, 'output')
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def tearDown(self):
+        import shutil
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    def _build_mini_bundle(self, file_glob, pattern, max_lines=200):
+        """Extract a small slice of one matching log from the real bundle
+        into a self-contained temp bundle, and return its root path.
+
+        The slice contains at least one line matching `pattern` and is
+        capped at `max_lines` total lines. This keeps the engine's scan
+        bounded to a small fixed-size file regardless of how large the
+        source bundle's rotated copies are (charon.log* can be hundreds
+        of MB; lpmptool reading and decompressing that for each format
+        test is what made the suite slow).
+
+        Returns None if no matching file with at least one matching line
+        is found in the bundle — the caller skips the test in that case.
+        """
+        import glob
+        import gzip
+        if not BUNDLE_PATH or not os.path.isdir(BUNDLE_PATH):
+            return None
+
+        bare = file_glob.rstrip('*')
+        for host_dir in sorted(os.listdir(BUNDLE_PATH)):
+            host_path = os.path.join(BUNDLE_PATH, host_dir, 'var', 'log')
+            if not os.path.isdir(host_path):
+                continue
+            candidates = sorted(
+                set(glob.glob(os.path.join(host_path, bare))
+                    + glob.glob(os.path.join(host_path, bare + '*'))))
+
+            for src in candidates:
+                try:
+                    if src.endswith('.gz'):
+                        opener = gzip.open
+                    else:
+                        opener = open
+                    lines = []
+                    found = False
+                    with opener(src, 'rt', encoding='utf-8',
+                                errors='ignore') as f:
+                        for line in f:
+                            lines.append(line)
+                            if pattern in line:
+                                found = True
+                            if found and len(lines) >= max_lines:
+                                break
+                except (IOError, OSError):
+                    continue
+
+                if not found:
+                    continue
+
+                # Build a one-host mini bundle in self.temp_dir.
+                mini_root = os.path.join(self.temp_dir, 'mini_bundle')
+                mini_host_dir = 'controller-0_20260101.000000'
+                # Compute the path of src relative to host's var/log so
+                # subdirs like 'tuned/' are preserved.
+                rel = os.path.relpath(src, host_path)
+                if rel.endswith('.gz'):
+                    rel = rel[:-3]  # write plain text
+                dest = os.path.join(mini_root, mini_host_dir, 'var',
+                                    'log', rel)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with open(dest, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+                return mini_root
+
+        return None
+
+    def _write_model(self, label, file_glob, pattern):
+        """Write a one-off timeline model targeting a single file glob."""
+        model_path = os.path.join(self.temp_dir, 'tsfmt_model.yaml')
+        with open(model_path, 'w') as f:
+            f.write("blocks:\n")
+            f.write(f"  - label: \"{label}\"\n")
+            f.write(f"    file: \"{file_glob}\"\n")
+            f.write("    timeline:\n")
+            f.write(f"      - '{pattern}'\n")
+        return model_path
+
+    def _run_against_bundle(self, bundle_root, model_path):
+        """Run lpmptool against `bundle_root` and return the merged
+        timeline log contents.
+
+        Tolerates SystemExit since lpmptool may exit non-zero in some
+        bundle layouts; the profile files (if any) are written before
+        the exit and are what we inspect.
+        """
+        import io
+        import contextlib
+        with patch('sys.argv', [
+            'lpmptool', '-b', bundle_root, '-m', model_path,
+            '-o', self.output_dir, '--lab', 'tsfmt',
+        ]):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                try:
+                    lpmptool.main()
+                except SystemExit:
+                    pass
+
+        found = []
+        for root, _dirs, files in os.walk(self.output_dir):
+            for f in files:
+                if f.endswith('_profile.timeline.log'):
+                    found.append(os.path.join(root, f))
+        if not found:
+            return ''
+        body = []
+        for path in found:
+            try:
+                with open(path, 'r') as fh:
+                    body.append(fh.read())
+            except IOError:
+                pass
+        return '\n'.join(body)
+
+    def _assert_file_matches(self, file_glob, label, pattern, file_substring):
+        """Common harness for the format tests.
+
+        Builds a tiny self-contained bundle from one matching file in
+        the real bundle (capped at 200 lines, with at least one
+        matching line) and runs lpmptool against it. This exercises
+        the full engine path (file walk, timestamp parse dispatch,
+        timeline emit) while keeping per-test runtime under a second.
+        """
+        mini_root = self._build_mini_bundle(file_glob, pattern)
+        if mini_root is None:
+            self.skipTest(
+                f"Bundle has no '{file_glob}' file containing '{pattern}'; "
+                f"skipping format test")
+        model_path = self._write_model(label, file_glob, pattern)
+        body = self._run_against_bundle(mini_root, model_path)
+        # The engine writes the matching file's basename into the Log File
+        # column of every result row. Seeing it there proves the engine
+        # successfully parsed timestamps from that file.
+        self.assertIn(file_substring, body,
+                      f"No timeline rows reference '{file_substring}' — "
+                      f"timestamp format dispatch likely broken for "
+                      f"{file_glob}.")
+
+    # --- Format 1: "YYYY-MM-DD HH:MM:SS.fff" (dot-millis) ---------------
+
+    def test_format1_ceph_manager_log(self):
+        """ceph-manager.log uses 'YYYY-MM-DD HH:MM:SS.fff' (dot-millis)."""
+        # 'HEALTH_OK' appears in ceph_client Result lines on healthy
+        # systems, which is consistent across collect bundles. It's
+        # selective without being so narrow it never matches.
+        self._assert_file_matches(
+            file_glob='ceph-manager.log*',
+            label='ceph-manager timestamp parse',
+            pattern='HEALTH_OK',
+            file_substring='ceph-manager.log')
+
+    def test_format1_fm_api_log(self):
+        """fm-api.log uses 'YYYY-MM-DD HH:MM:SS.fff' (dot-millis)."""
+        # 'WARNING' shows up in fm-api when alarms or events are
+        # processed, present in typical bundles. Selective enough to
+        # avoid the per-line 'INFO' problem.
+        self._assert_file_matches(
+            file_glob='fm-api.log*',
+            label='fm-api timestamp parse',
+            pattern='WARNING',
+            file_substring='fm-api.log')
+
+    # --- Format 2: "YY-MM-DD HH:MM:SS.fff" (2-digit year) ---------------
+
+    def test_format2_charon_log(self):
+        """charon.log uses '\\d{2}-\\d{2}-\\d{2} HH:MM:SS.fff' (2-digit year)."""
+        # Use a selective phrase. 'LIB' (module tag) would match nearly every
+        # line in a verbose strongSwan charon log and slow the test down a lot
+        # without adding coverage. 'IKE_SA' appears in setup/teardown lines
+        # only, which is sufficient to prove timestamp dispatch works.
+        self._assert_file_matches(
+            file_glob='charon.log*',
+            label='charon timestamp parse',
+            pattern='IKE_SA',
+            file_substring='charon.log')
+
+    # --- Format 3: "YYYY-MM-DD HH:MM:SS:" (trailing colon, no millis) ---
+
+    def test_format3_lighttpd_error_log(self):
+        """lighttpd-error.log uses 'YYYY-MM-DD HH:MM:SS:' (trailing colon)."""
+        # Selective phrase. 'server' (without context) appears in the
+        # '(server.c.NNN)' prefix on nearly every line.
+        self._assert_file_matches(
+            file_glob='lighttpd-error.log*',
+            label='lighttpd timestamp parse',
+            pattern='server started',
+            file_substring='lighttpd-error.log')
+
+    # --- Format 4: "YYYY-MM-DD HH:MM:SS,fff" (comma-millis) -------------
+
+    def test_format4_tuned_log(self):
+        """tuned/tuned.log uses 'YYYY-MM-DD HH:MM:SS,fff' (comma-millis)."""
+        # Selective phrase. 'INFO' is the level on every line.
+        self._assert_file_matches(
+            file_glob='tuned/tuned.log*',
+            label='tuned timestamp parse',
+            pattern='static tuning',
+            file_substring='tuned.log')
+
+    def test_format4_mgr_restful_plugin_log(self):
+        """mgr-restful-plugin.log uses 'YYYY-MM-DD HH:MM:SS,fff' (comma-millis)."""
+        # 'init-wrapper' is the plugin's lifecycle wrapper module,
+        # appears in start/stop/status lines and shows up in typical
+        # bundles. Selective without being too narrow.
+        self._assert_file_matches(
+            file_glob='mgr-restful-plugin.log*',
+            label='mgr-restful timestamp parse',
+            pattern='init-wrapper',
+            file_substring='mgr-restful-plugin.log')
 
 
 if __name__ == '__main__':

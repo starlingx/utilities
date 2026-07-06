@@ -311,13 +311,23 @@ def start_progress_indicator(progress_type=ProgressType.DOTS):
 
 
 def stop_progress_indicator(progress_active):
-    """Stop progress indicator and clean up cursor position"""
+    """Stop progress indicator and clean up cursor position.
+
+    Safe to call with progress_active=None (no-op when progress was
+    never started, e.g. ProgressType.NONE).
+    """
+    if progress_active is None:
+        return
     progress_active[0] = False
     time.sleep(0.3)  # Give indicator time to stop
     # Get the true original stdout to ensure newline never goes to capture buffer
-    original_stdout = ConsoleCapture.get_true_original_stdout()
-    original_stdout.write('\n')  # New line after progress indicator
-    original_stdout.flush()
+    try:
+        original_stdout = ConsoleCapture.get_true_original_stdout()
+        original_stdout.write('\n')  # New line after progress indicator
+        original_stdout.flush()
+    except (ValueError, OSError):
+        # stdout may be closed in test environments; ignore.
+        pass
 
 
 def get_models_search_paths(verbose=0):
@@ -371,7 +381,10 @@ def detect_bundle_hosts(bundle_path):
     Returns tuple: (bundle_host_list, bundle_host_list_dated)
     - bundle_host_list: sorted list of hostnames (without date suffix)
     - bundle_host_list_dated: sorted list of full directory names (hostname_date)
-    Exits if no bundle hosts found or if date parts differ.
+
+    If host directories have different date parts the mismatch is
+    auto-accepted and a warning is logged. Each hostname is represented
+    once using the directory with the latest date part.
     """
     if not os.path.isdir(bundle_path) or bundle_path == '/':
         return [], []
@@ -394,16 +407,32 @@ def detect_bundle_hosts(bundle_path):
         print(f"Expected format: <hostname>_YYYYMMDD.HHMMSS in {bundle_path}", file=sys.stderr)
         sys.exit(1)
     # cspell:ignore hostnames
-    hostnames = []
     if len(bundle_hosts) > 1:
-        print("Error: Bundle host directories have different date parts", file=sys.stderr)
-        for date_part, hosts in bundle_hosts.items():
-            hostnames = [h[0] for h in hosts]
-            print(f"  {date_part}: {', '.join(hostnames)}", file=sys.stderr)
-        print("All bundle hosts must have the same date part", file=sys.stderr)
-        sys.exit(1)
+        # Mismatched date parts - log and auto-accept. Each hostname is
+        # collapsed to its latest-dated directory below.
+        print("Warning: Bundle host directories have different date parts", file=sys.stderr)
+        for date_part, hosts in sorted(bundle_hosts.items()):
+            host_names = [h[0] for h in hosts]
+            print(f"  {date_part}: {', '.join(host_names)}", file=sys.stderr)
+        print("Proceeding with the latest directory per host.", file=sys.stderr)
 
-    date_part, host_tuples = list(bundle_hosts.items())[0]
+        latest_per_host = {}  # hostname -> (date_part, dir_name)
+        for date_part, hosts in bundle_hosts.items():
+            for hostname, dir_name in hosts:
+                cur = latest_per_host.get(hostname)
+                if cur is None or date_part > cur[0]:
+                    latest_per_host[hostname] = (date_part, dir_name)
+
+        for date_part, hosts in bundle_hosts.items():
+            for hostname, dir_name in hosts:
+                kept_dir = latest_per_host[hostname][1]
+                if dir_name != kept_dir:
+                    print(f"Note: skipping older directory '{dir_name}' "
+                          f"(using '{kept_dir}' instead)", file=sys.stderr)
+
+        host_tuples = [(h, latest_per_host[h][1]) for h in latest_per_host]
+    else:
+        date_part, host_tuples = list(bundle_hosts.items())[0]
 
     # Sort: controller-0 first, controller-1, other controllers,
     # storage nodes, then all others alphabetically
@@ -613,23 +642,31 @@ def _parse_custom_timestamp(line, relpath):
 # Pre-compiled timestamp regexes (avoids per-line re.compile overhead)
 _RE_SYSINV_TS = re.compile(r'sysinv (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})')
 _RE_ISO_TS = re.compile(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?)')
+# Space-separated form with dot-millis at the start of the line. Matches
+# the common WRCP log layout used by ceph-manager.log, sysinv.log,
+# software-api.log, fm-api.log, keystone-all.log, rabbit@localhost.log,
+# horizon.log, barbican-api.log, tuned.log, mgr-restful-plugin.log, etc.
+# Anchored with `^` so in-message dates inside a log line don't match.
+_RE_SPACE_TS = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})')
 
 
 def parse_timestamp(line, relpath=None):
-    """Extract timestamp from log line supporting sysinv and ISO formats.
+    """Extract timestamp from log line supporting sysinv, ISO and space formats.
 
-    Formats supported:
+    Formats supported (in order):
     - sysinv: "sysinv 2024-01-06 12:30:45.123 message"
     - ISO:    "2024-01-06T12:30:45.123 message"
+    - space:  "2024-01-06 12:30:45.123 message"   (line-anchored)
 
     Returns datetime object or None if no valid timestamp found.
+    Falls back to file-pattern-driven custom formats when relpath is given.
     """
     # cspell:ignore sysinv
     if not line:
         return None
 
     # Cheap prefix guard for built-in formats: sysinv starts with 's',
-    # ISO starts with a digit. Other lines skip to custom format fallback.
+    # ISO/space both start with a digit.
 
     # Parse sysinv format: "sysinv YYYY-MM-DD HH:MM:SS.fff"
     if line[0] == 's' and line.startswith('sysinv '):
@@ -646,6 +683,17 @@ def parse_timestamp(line, relpath=None):
     if match:
         try:
             return datetime.fromisoformat(match.group(1))
+        except (ValueError, AttributeError):
+            pass
+
+    # Parse space-separated form: "YYYY-MM-DD HH:MM:SS.fff" — only
+    # accepted when it leads the line, which avoids matching in-message
+    # date strings.
+    match = _RE_SPACE_TS.match(line)
+    if match:
+        try:
+            return datetime.strptime(
+                match.group(1), '%Y-%m-%d %H:%M:%S.%f')
         except (ValueError, AttributeError):
             pass
 
@@ -823,7 +871,7 @@ def expand_and_sort_log_files(log_dir,
             mtime = os.path.getmtime(filepath)
             # Get date range if start_date is provided for smart filtering
             if start_date:
-                first_ts, last_ts = get_file_date_range(filepath)
+                first_ts, last_ts = get_file_date_range(filepath, relpath)
                 file_info.append((relpath, mtime, first_ts, last_ts))
             else:
                 file_info.append((relpath, mtime, None, None))
@@ -919,7 +967,7 @@ _VALID_BLOCK_KEYS = {
 _VALID_SETTINGS_KEYS = {
     'max_time_delta', 'block_time_tolerance',
     'start_date', 'stop_date', 'loops', 'max_log_length', 'profile',
-    'optional', 'controller', 'graph', 'host', 'timeline_patterns'
+    'optional', 'controller', 'graph', 'graph_style', 'host', 'timeline_patterns'
 }
 
 
@@ -1715,7 +1763,7 @@ def expand_wildcards_in_blocks(blocks,
                 if not os.path.exists(filepath):
                     pruned.append(f)
                     continue
-                first_ts, last_ts = get_file_date_range(filepath)
+                first_ts, last_ts = get_file_date_range(filepath, f)
                 if first_ts and last_ts:
                     if start_date and last_ts < start_date:
                         vlog3(f"Pruning {f}: file ends {last_ts} before start_date {start_date}")
@@ -1848,6 +1896,16 @@ _WINDOW_SKIP_BASENAMES = {
 _WINDOW_SKIP_EXTENSIONS = {
     '.db', '.sqlite', '.journal', '.pid', '.lock',
     '.png', '.jpg', '.gif', '.ico', '.bin', '.dat',
+    # Package/installer/archive formats — never log files
+    # NOTE: .gz is intentionally excluded — rotated logs use .gz
+    '.filez', '.so', '.a', '.o', '.pyc', '.pyo',
+    '.tar', '.tgz', '.tbz', '.tbz2', '.txz',
+    '.zip', '.bz2', '.xz', '.7z', '.rar',
+    '.deb', '.rpm', '.iso', '.img', '.vmdk',
+    '.elf', '.exe', '.dll', '.dylib',
+    '.jpeg', '.bmp', '.svg', '.tiff',
+    '.mp3', '.mp4', '.avi', '.mov',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
 }
 
 

@@ -44,7 +44,7 @@ blocks:
   - label: "SM Declared Dead"
     file: "sm.log*"
     patterns:
-      - "{hostname}.*declared dead"
+      - '{hostname}.*declared dead'
 
   - label: "hbsAgent Miss"
     file: "hbsAgent.log*"
@@ -52,19 +52,19 @@ blocks:
     optional: true
     context: [2,100]
     patterns:
-      - "Pulse Miss"
+      - 'Pulse Miss'
 
   - label: "SM Heartbeat Loss"
     file: "sm.log*"
     max_time_delta: 5
     patterns:
-      - "lose heartbeat"
+      - 'lose heartbeat'
 
   - label: "SM Fail Pending"
     file: "sm.log*"
     max_time_delta: 5
     patterns:
-      - "Entering fail-pending state"
+      - 'Entering fail-pending state'
 
   # ---- SWACT: survivor takes over ----
 
@@ -72,19 +72,19 @@ blocks:
     file: "sm.log*"
     max_time_delta: 10
     patterns:
-      - "Uncontrolled swact start"
+      - 'Uncontrolled swact start'
 
   - label: "Service Domain Waiting"
     file: "sm.log*"
     max_time_delta: 5
     patterns:
-      - "Set state backup->waiting"
+      - 'Set state backup->waiting'
 
   - label: "Host State Active"
     file: "sm.log*"
     max_time_delta: 5
     patterns:
-      - "host state is active"
+      - 'host state is active'
 
   # ---- SERVICE TAKEOVER: services go-active on survivor ----
   # These all fire within ~17ms in unpredictable order.
@@ -94,21 +94,21 @@ blocks:
     file: "sm.log*"
     max_time_delta: 10
     patterns:
-      - "was in the standby state"
+      - 'was in the standby state'
 
   - label: "Controller Services Go-Active"
     file: "sm.log*"
     max_time_delta: 5
     optional: true
     patterns:
-      - "Service group \\(controller-services\\) was in the standby state"
+      - 'Service group \(controller-services\) was in the standby state'
 
   - label: "OAM Services Go-Active"
     file: "sm.log*"
     max_time_delta: 5
     optional: true
     patterns:
-      - "Service group \\(oam-services\\) was in the standby state"
+      - 'Service group \(oam-services\) was in the standby state'
 
   # ---- DRBD ROLE CHANGES: survivor becomes primary ----
 
@@ -116,13 +116,13 @@ blocks:
     file: "kern.log*"
     max_time_delta: 15
     patterns:
-      - "PingAck did not arrive in time"
+      - 'PingAck did not arrive in time'
 
   - label: "DRBD Role Change to Primary"
     file: "kern.log*"
     max_time_delta: 10
     patterns:
-      - "role\\( Secondary -> Primary \\)"
+      - 'role\( Secondary -> Primary \)'
 
   # ---- SERVICES ENABLED on survivor ----
 
@@ -131,14 +131,14 @@ blocks:
     max_time_delta: 30
     optional: true
     patterns:
-      - "Service group \\(patching-services\\) was in the go-active state"
+      - 'Service group \(patching-services\) was in the go-active state'
 
   - label: "Storage Monitoring Active"
     file: "sm.log*"
     max_time_delta: 30
     optional: true
     patterns:
-      - "Service group \\(storage-monitoring-services\\) was in the go-active state"
+      - 'Service group \(storage-monitoring-services\) was in the go-active state'
 
   # ---- REBOOTED CONTROLLER RECOVERY ----
 
@@ -148,31 +148,31 @@ blocks:
     max_time_delta: 600
     profile: true
     patterns:
-      - "Kernel command line:"
+      - 'Kernel command line:'
 
   - label: "mtcClient Start-Up"
     file: "mtcClient.log*"
     override: "{peer_controller}"
     max_time_delta: 300
     patterns:
-      - "Daemon Start-Up"
+      - 'Daemon Start-Up'
 
   - label: "Config Failure"
     file: "mtcAgent.log*"
     present: true
     patterns:
-      - "{peer_controller} configuration fail"
+      - '{peer_controller} configuration fail'
 
   - label: "Peer MTCALIVE"
     file: "mtcAgent.log*"
     patterns:
-      - ["{peer_controller} is MTCALIVE", "mtcAlive ; going"]
+      - ['{peer_controller} is MTCALIVE', 'mtcAlive ; going']
 
   - label: "Peer Enabled"
     file: "mtcAgent.log*"
     optional: true
     patterns:
-      - ["{peer_controller} is ENABLED", "{peer_controller} is DEGRADED", "{peer_controller} is FAILED"]
+      - ['{peer_controller} is ENABLED', '{peer_controller} is DEGRADED', '{peer_controller} is FAILED']
 
   - label: "K8s Pod Recovery Done"
     file: "daemon.log*"
@@ -181,5 +181,5 @@ blocks:
     optional: true
     profile: true
     patterns:
-      - "k8s-pod-recovery.service: Succeeded"
+      - 'k8s-pod-recovery.service: Succeeded'
 

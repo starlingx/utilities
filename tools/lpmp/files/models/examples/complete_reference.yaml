@@ -28,7 +28,7 @@ settings:
     custom_events:
       - "Custom event started"
       - "Custom event completed"
-      - r"Custom pattern \d+"
+      - 'Custom pattern \d+'
 
 # BLOCKS - All block types and configurations
 blocks:
@@ -53,7 +53,7 @@ blocks:
     file: "mtcAgent.log*"
     patterns:
       - "{hostname} Unlock Action"                    # Variable substitution
-      - r"{hostname} is (ENABLED|DEGRADED)"          # Regex with variable
+      - '{hostname} is (ENABLED|DEGRADED)'          # Regex with variable
       - ["Host unlocked", "Host enabled"]            # OR pattern
     max_time_delta: 300
 
@@ -62,7 +62,7 @@ blocks:
     file: ["service.log", "service.log.1.gz", "syslog"]
     patterns:
       - ["Service ready", "Service active", "Service online"]
-      - r"Status: (RUNNING|ACTIVE)"
+      - 'Status: (RUNNING|ACTIVE)'
     profile: false
     optional: true
 
@@ -91,8 +91,8 @@ blocks:
   # Regex pair patterns
   - label: "Database Transaction"
     file: "db.log*"
-    start: r"BEGIN TRANSACTION \d+"
-    stop: r"COMMIT TRANSACTION \d+"
+    start: 'BEGIN TRANSACTION \d+'
+    stop: 'COMMIT TRANSACTION \d+'
     max_time_delta: 300
 
   # Variable substitution in pairs
@@ -120,7 +120,7 @@ blocks:
       - "Link Down"
       - "Link Up"
       - "Interface Error"
-      - r"eth\d+ link (up|down)"
+      - 'eth\d+ link (up|down)'
       - ["Connection lost", "Connection timeout"]
     optional: true
 
@@ -130,7 +130,7 @@ blocks:
     timeline:
       - "{hostname} boot complete"
       - "{hostname} shutdown initiated"
-      - r"{hostname} error: .*"
+      - '{hostname} error: .*'
     profile: true
 
   # ==========================================================================
@@ -193,7 +193,7 @@ blocks:
 #
 # Usage examples:
 #   - "{hostname} started in {env} environment"
-#   - r"{hostname}.*{cluster}.*version {version}"
+#   - '{hostname}.*{cluster}.*version {version}'
 #
 # Command line:
 #   lpmptool -m model.yaml --hostname worker-1 --var env=test

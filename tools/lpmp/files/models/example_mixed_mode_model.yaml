@@ -38,7 +38,7 @@
 # Pattern Syntax:
 #   - "string"                  - literal match
 #   - ["a", "b"]               - OR match (first found wins)
-#   - r"regex \d+"             - regex match
+#   - 'regex \d+'             - regex (use single quotes)
 #
 ########################################################################
 
@@ -63,8 +63,8 @@ blocks:
   - label: "System Initialization"
     file: ["daemon.log", "syslog"]
     patterns:
-      - "Starting system"
-      - ["Ready", "Complete"]            # OR patterns
+      - 'Starting system'
+      - ['Ready', 'Complete']            # OR patterns
     optional: false
     profile: true
     max_time_delta: 120
@@ -73,8 +73,8 @@ blocks:
   # Pair block measuring service startup duration
   - label: "Service Startup Duration"
     file: "service.log*"
-    start: "Service starting"
-    stop: "Service ready"
+    start: 'Service starting'
+    stop: 'Service ready'
     optional: true
     profile: false
     max_time_delta: 30
@@ -83,8 +83,8 @@ blocks:
   # Pair block measuring network initialization
   - label: "Network Initialization"
     file: "daemon.log*"
-    start: "network interface starting"
-    stop: "network interface up"
+    start: 'network interface starting'
+    stop: 'network interface up'
     optional: false
     profile: true
     controller: false

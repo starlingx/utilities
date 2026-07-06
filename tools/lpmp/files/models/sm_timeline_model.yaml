@@ -28,29 +28,29 @@ blocks:
   - label: "S M"
     file: "sm.log*"
     controller: true
-    timeline: "{sm}"
+    timeline: '{sm}'
 
   - label: "Auth"
     file: "auth.log*"
     controller: true
-    timeline: "{auth}"
+    timeline: '{auth}'
 
   - label: "Bash"
     file: "bash.log*"
     controller: true
-    timeline: "{bash}"
+    timeline: '{bash}'
 
   - label: "Kernel Boot"
     file: "kern.log*"
-    timeline: "{kernel}"
+    timeline: '{kernel}'
 
   - label: "mtcClient"
     file: "mtcClient.log*"
-    timeline: "{mtce_processes}"
+    timeline: '{mtce_processes}'
 
   - label: "Process Monitor"
     file: "pmond.log*"
-    timeline: "{mtce_processes}"
+    timeline: '{mtce_processes}'
 
 settings:
   start_date: 2026-02-12T04:00:00

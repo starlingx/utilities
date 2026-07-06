@@ -1211,6 +1211,41 @@ class TestContextBundleIntegration(LPMPTestBase):
         if not self.c0_logs or not self.c1_logs:
             self.skipTest('Need both controller-0 and controller-1 in bundle')
 
+        # Helper to check the engine-visible mtcAgent.log family
+        # (plain and any .gz rotations) for the anchor.
+        def _glob_contains(logs_dir, name_glob, needle):
+            import glob as _glob
+            import gzip as _gzip
+            candidates = sorted(set(
+                _glob.glob(os.path.join(logs_dir, name_glob))
+                + _glob.glob(os.path.join(logs_dir, name_glob + '*'))
+            ))
+            for path in candidates:
+                try:
+                    opener = (_gzip.open if path.endswith('.gz')
+                              else open)
+                    with opener(path, 'rt', encoding='utf-8',
+                                errors='ignore') as fh:
+                        for line in fh:
+                            if needle in line:
+                                return True
+                except (IOError, OSError):
+                    continue
+            return False
+
+        # The test runs with --include <local>. The local block only
+        # sees that host's logs, so the anchor must exist there. If c0
+        # has it, use c0 as local and c1 as the override peer; else if
+        # c1 has it, swap. Skip if neither has the anchor.
+        if _glob_contains(self.c0_logs, 'mtcAgent.log', 'Daemon Start'):
+            local_host, peer_host = 'controller-0', 'controller-1'
+        elif _glob_contains(self.c1_logs, 'mtcAgent.log', 'Daemon Start'):
+            local_host, peer_host = 'controller-1', 'controller-0'
+        else:
+            self.skipTest(
+                "Neither controller's mtcAgent.log has 'Daemon Start' "
+                "lines; nothing to anchor the override block on")
+
         model_data = {
             'blocks': [
                 {
@@ -1223,7 +1258,7 @@ class TestContextBundleIntegration(LPMPTestBase):
                     'label': 'Peer Event',
                     'file': 'mtcAgent.log',
                     'patterns': ['Daemon Start'],
-                    'override': 'controller-1',
+                    'override': peer_host,
                     'optional': True,
                     'context': 2,
                     'max_time_delta': 600,
@@ -1238,7 +1273,7 @@ class TestContextBundleIntegration(LPMPTestBase):
             '-b', self.bundle,
             '--model-file', self.model_file,
             '--output', self.output_dir,
-            '--include', 'controller-0',
+            '--include', local_host,
         ]):
             with patch('builtins.print'):
                 try:

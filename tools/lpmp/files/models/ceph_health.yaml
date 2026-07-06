@@ -1,0 +1,26 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Ceph Health — cluster health transitions, PG degradation, recovery
+########################################################################
+#
+# Description: Ceph cluster health —
+#              Current Ceph health: HEALTH_OK/WARN/ERR transitions,
+#              PG state changes (degraded/undersized/stale/peering),
+#              recovery and backfill progress, and pgmap summaries.
+#
+blocks:
+  - label: "Ceph Health"
+    file: ["containerd.log*", "daemon.log*", "ceph-manager.log*"]
+    timeline:
+      - 'Current Ceph health:'
+      - 'PG_DEGRADED'
+      - 'objects degraded'
+      - 'pgmap'
+      - 'stale'
+      - 'peering'
+      - 'recovery'
+      - 'backfill'
+      - 'near full'
+      - 'full ratio'

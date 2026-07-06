@@ -305,15 +305,82 @@ blocks:
 blocks:
   - label: "Service Enable Duration"
     file: "sm.log*"
-    start: r'Started.*service \(critical-service\)'
-    stop: r'Action \(enable\) completed.*service \(critical-service\)'
+    start: 'Started.*service \(critical-service\)'
+    stop: 'Action \(enable\) completed.*service \(critical-service\)'
     max_time_delta: 30
     profile: true  # Generate detailed per-block statistics
 ```
 
+### Quoting Convention for Pattern Strings
+
+LPMP supports both single and double quotes around YAML string values.
+You can use either; the tool does not care. The shipped models follow
+this convention to keep regex patterns readable:
+
+| Field                          | Quoting style |
+|--------------------------------|---------------|
+| `patterns`, `timeline`, `start`, `stop`, items in `timeline_patterns` named sets | **Single quotes** |
+| All other fields (`label`, `file`, `override`, `host`, etc.) | **Double quotes** |
+
+**Why single quotes for pattern fields?**
+
+Pattern values are compiled as Python regular expressions. Regex uses
+backslashes for metacharacters (`\d`, `\w`, `\s`, `\(`, `\)`, etc.).
+Single-quoted YAML passes backslashes through to the regex engine
+unchanged. Double-quoted YAML interprets backslash escapes itself, so
+every regex backslash must be doubled. Single quotes is just simpler.
+
+```yaml
+# Single quotes: write regex naturally
+- 'role\(.* -> Primary\)'         # one backslash, regex sees \(
+
+# Double quotes: every regex backslash must be doubled
+- "role\\(.* -> Primary\\)"        # two backslashes, regex sees \(
+```
+
+**Common mistakes when using double quotes:**
+
+YAML interprets `\w`, `\d`, `\s` and other unknown escape sequences as
+errors:
+
+```yaml
+# WRONG - YAML rejects unknown escape \w
+- "controller-1[\w-]+ kpi:action"     # syntax error
+
+# CORRECT - escape the backslash for YAML
+- "controller-1[\\w-]+ kpi:action"
+
+# CLEANER - use single quotes
+- 'controller-1[\w-]+ kpi:action'
+```
+
+**Apostrophes in patterns:** Single-quoted YAML cannot contain an
+unescaped single quote. To include one, double it: `'don''t'`. If the
+pattern has many apostrophes, fall back to double-quoted form.
+
+**Why double quotes for non-pattern fields?**
+
+Labels, file paths, and hostnames almost never contain regex
+metacharacters. Keeping them in double quotes matches the wider YAML
+ecosystem convention (Ansible, Kubernetes, Compose) and avoids
+diverging from common practice without a reason.
+
 ### 3. Timeline Blocks (Event Collection)
 
-Timeline blocks collect ALL matches for ALL specified patterns and sort them chronologically, with no order requirements.
+Timeline blocks collect events from log files. For each source log line, the
+patterns in the block's `timeline:` list are tried in the order they appear
+and the **first** pattern that matches a line emits one row; later patterns
+are not tried for that line. Results are sorted chronologically by
+timestamp.
+
+**OR-list syntax** (a nested list inside `timeline:`) is flattened into
+the same ordered alternation set — alternatives are tried in their listed
+order:
+
+```yaml
+timeline:
+  - ['active[+]undersized[+]degraded', 'active[+]undersized', 'active[+]clean']
+```
 
 **Use Cases:**
 - Event correlation across multiple sources
@@ -326,10 +393,10 @@ Timeline blocks collect ALL matches for ALL specified patterns and sort them chr
 settings:
   timeline_patterns:
     maintenance:
-      - "Host Add Completed"
-      - "*** Heartbeat Miss ***"
-      - "critical enable failure"
-      - "Swact.*complete"
+      - 'Host Add Completed'
+      - '\*\*\* Heartbeat Miss \*\*\*'   # escape regex metas in literal text
+      - 'critical enable failure'
+      - 'Swact.*complete'
 
 blocks:
   - label: "Maintenance Timeline"
@@ -343,10 +410,10 @@ blocks:
   - label: "System Events"
     file: "system.log*"
     timeline:
-      - "System started"
-      - "Service ready"
-      - "Network interface up"
-      - "System shutdown"
+      - 'System started'
+      - 'Service ready'
+      - 'Network interface up'
+      - 'System shutdown'
 ```
 
 ### 4. Window Blocks (Time-Range Log Extraction)

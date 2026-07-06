@@ -198,7 +198,12 @@ This design enables flexible modeling approaches from simple event detection to 
 - Ideal for service startup timing, operation duration analysis
 
 #### 3. Timeline Block Model (Event Collection)
-- Collects ALL matches for ALL patterns regardless of order
+- Each source log line produces **at most one row**. The patterns in the
+  block's `timeline:` list are tried in declared order and the first one
+  that matches a line emits the row; later patterns are not tried for
+  that line (first-match-wins).
+- Pattern order can therefore be significant — list specific patterns
+  **before** generic ones to avoid silent shadowing.
 - Sorts results chronologically by timestamp
 - No timing constraints or sequential requirements
 - Ideal for event correlation, maintenance timelines, multi-node bundle analysis
@@ -354,8 +359,11 @@ The bundle mode output structure organizes results hierarchically:
 │       ├── <hostname>/
 │       │   ├── <lab>_<hostname>_profile.timing
 │       │   ├── <lab>_<hostname>_profile.timing.csv
+│       │   ├── <lab>_<hostname>_profile.timeline_<graph>.csv  # collectd
+│       │   ├── <lab>_<hostname>_profile.timeline_<graph>.png  # collectd
 │       │   └── [per-block profiles if enabled]
-│       └── <lab>_system_profile.timing  # Merged timeline
+│       ├── <lab>_system_profile.timing                # Merged timeline
+│       └── <lab>_system_profile.timeline_<graph>.png  # Combined hosts graph
 ```
 
 ### System-Level Analysis
@@ -364,6 +372,15 @@ The bundle mode output structure organizes results hierarchically:
   (ISO, space+dot, space+comma, 2-digit year, no-millis)
 - Hostname prefixing for event source identification
 - System summary with per-host statistics
+- **System-level CPU/Memory graph**: when a collectd timeline model is run
+  in bundle mode with two or more hosts producing data, lpmp_graph.py
+  emits a single combined PNG overlaying every host on one set of axes
+  with a hostname-to-color legend. Color assignment is stable across
+  runs for the same host set. Palette scales from `tab10` (up to 10
+  hosts) to `tab20` (up to 20) to a sampled `hsv` colormap beyond that.
+  Honors the bundle host filter (`--hosts`, `--include`, `--exclude`,
+  or the single-host `--host` default) so the combined graph contains
+  exactly the host set the user selected.
 
 ## Timing Constraints and Tolerances
 
@@ -425,9 +442,26 @@ The bundle mode output structure organizes results hierarchically:
 
 ### Graph Integration
 - Automatic graph generation via lpmp_graph.py
-- Triggered by graph variable definition
-- CSV and PNG output generation
-- Currently supports collectd model profiles
+- Triggered by `graph` variable definition (`--var graph="<name>"`)
+- Per-host CSV and PNG output for collectd CPU and memory timelines
+- Bundle mode also produces a system-level combined PNG when two or
+  more hosts have data, with a hostname-to-color legend
+- Time-bounded graphing via `-s`/`-e` (forwarded from lpmptool)
+- Accepts both legacy and current collectd wording (`usage plugin` /
+  `usage:` and `dispatch`)
+- **Graph style selection**: models may declare `graph_style:` in
+  `settings` to choose how the captured timeline is rendered.
+  Two styles are supported:
+  - `line` (default) — numeric usage values plotted as a continuous
+    line. Used by the CPU and memory usage timeline models.
+  - `state` — three-level step plot of alarm state transitions
+    (okay / warning / failure) for the collectd overage timeline.
+    Only committed debounce transitions count; consecutive same-state
+    rows are collapsed; a synthetic baseline sample anchored at the
+    earliest in-window matched row (or `-s` if earlier) renders the
+    prior state before the first transition.
+  - System level combined graphs created for usage graphs.
+  - No combined system level graph produced for state-style models
 
 ### Error Handling
 - Graceful failure with clear error messages

@@ -318,49 +318,9 @@ The Log Pattern Matching Profiler (LPMP) is a sophisticated log analysis tool de
 - ✅ **Structured output**: Uses `PatternResult`, `PairResult`, and `TimelineResult` data structures for type-safe output generation
 - ⚠️ **Output Format Change Rule**: Always prompt user for confirmation whenever an output file format change is pending to ensure backward compatibility
 
-## Test Coverage Status
-
-**Total Tests:** 425 across 14 test files
-- **test_lpmp.py**: Main integration tests with comprehensive workflows
-- **test_model.py**: Model loading and validation functionality
-- **test_process_blocks.py**: Block processing engine tests
-- **test_timeline_models.py**: Timeline-specific functionality tests
-- **test_cli_arguments.py**: Command line interface validation
-- **test_edge_cases.py**: Edge cases and boundary conditions
-- **test_block_time_tolerance.py**: Time tolerance and constraint handling
-- **test_precedence_gaps.py**: Configuration precedence validation
-- **test_validate_model.py**: Model structure validation
-- **test_main_execution.py**: Main execution workflow tests
-- **test_optional_warnings.py**: Optional block warning handling
-- **test_summary_timing_format.py**: Output formatting validation
-- **test_warning_format.py**: Warning message formatting
-- **test_window_model.py**: Window model file discovery, auto time range, validation, loading
-
-**Current Test Results:** 435/435 tests passing (100% pass rate)
-
-**Code Coverage Analysis:**
-```
-Current Automated Test Code Coverage:
-============================================================
-lpmp_engine.py : 80% coverage
-lpmp_output.py : 83% coverage
-lpmp_graph.py  : 62% coverage
-lpmp_utils.py  : 78% coverage
-lpmptool       : 70% coverage
-Overall        : 75% coverage with 435 tests passing
-============================================================
-```
-
 **Test Cases Rules**
 - Do not create or run tests that use --help-model nor --hosts as command line options
 - Inform the user of any tests that use --help-model or --hosts if found. Ask what to do.
-
-**Coverage Quality:** Good
-- Edge cases covered
-- Error handling tested
-- Integration tests included
-- Mock-based testing for dependencies
-- Code coverage analysis available with `--with-cov` option
 
 ## Known Issues & Technical Debt
 

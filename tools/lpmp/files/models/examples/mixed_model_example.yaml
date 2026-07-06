@@ -1,0 +1,92 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+#
+# Model:   Mixed Model Example (syntax reference)
+# Purpose: Real-world example of a mixed pattern + pair model that
+#          profiles a host unlock sequence. Pattern blocks anchor the
+#          start and end of the analysis; pair blocks measure the
+#          duration of each phase in between. Inspired by the shipped
+#          kpi_unlock_pairing_model.yaml but trimmed for clarity.
+#
+#          This is an EXAMPLE model — runs against a real bundle but
+#          intentionally short for tutorial purposes. See the shipped
+#          functional model for the full version with all phases.
+#
+# Quoting:
+#   Patterns use SINGLE quotes so backslashes pass through to the
+#   regex engine unchanged. Use single quotes in your own models.
+#
+########################################################################
+
+settings:
+  max_time_delta: 600           # generous default for unlock timing
+
+blocks:
+
+  # =====================================================================
+  # PATTERN BLOCK — anchor the start of the analysis
+  # =====================================================================
+  # The first block in a mixed model establishes the timestamp baseline.
+  # All subsequent pair blocks search FORWARD from the matched timestamp
+  # of this block. Pattern blocks accept the same regex as pair blocks.
+  - label: "Unlock Triggered"
+    file: "mtcAgent.log*"
+    patterns:
+      - 'Info : {hostname} Unlock Action'
+
+  # =====================================================================
+  # PAIR BLOCK — measure shutdown duration
+  # =====================================================================
+  # Pair blocks measure the time between two events. Both start: and
+  # stop: accept full regex. Multiple files are searched in the order
+  # listed; the first match wins.
+  - label: "Shutdown Phase"
+    file: ["mtcAgent.log*", "auth.log*"]
+    start: 'Info : {hostname} Unlock Action'
+    stop: 'notice System is rebooting'
+
+  # =====================================================================
+  # PAIR BLOCK — measure the reboot blackout window
+  # =====================================================================
+  # The blackout phase runs from "system is rebooting" to "Kernel
+  # command line:" — the moment the new kernel starts logging.
+  - label: "Blackout Phase"
+    file: ["auth.log*", "kern.log*"]
+    start: 'notice System is rebooting'
+    stop: 'Kernel command line:'
+
+  # =====================================================================
+  # PAIR BLOCK — OS reaches network-online target
+  # =====================================================================
+  - label: "Network Online"
+    file: ["kern.log*", "daemon.log*"]
+    start: 'Kernel command line:'
+    stop: 'Reached target Network is Online'
+
+  # =====================================================================
+  # PAIR BLOCK — kubelet startup
+  # =====================================================================
+  # An optional pair: marked optional so the model still completes
+  # if kubelet didn't reach the steady state in this bundle.
+  - label: "Kubelet Startup"
+    file: "daemon.log*"
+    start: 'info Starting Kubernetes Kubelet Server'
+    stop: 'k8s-pod-recovery.service: Succeeded'
+    optional: true
+
+  # =====================================================================
+  # PATTERN BLOCK — confirm the unlock completed (alternation regex)
+  # =====================================================================
+  # Demonstrates the alternation operator (a|b|c) which matches any of
+  # several alternatives in one regex. (?:...) is a non-capturing
+  # group — slightly faster and avoids unintended capture groups.
+  # Matches whichever final state the host reaches.
+  - label: "Final State"
+    file: "mtcAgent.log*"
+    patterns:
+      - '{hostname}.* (?:unlocked-enabled-available|is ENABLED|is DEGRADED)'

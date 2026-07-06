@@ -1,4 +1,4 @@
 blocks:
   - label: "Worker Config"
     file: [ "daemon.log*", "user.log*" ]
-    timeline: "worker_config"
+    timeline: 'worker_config'

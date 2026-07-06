@@ -27,25 +27,25 @@
 settings:
   timeline_patterns:
     maintenance:
-      - "Error: {host}"
-      - "{host} Reinstall Action"
+      - 'Error: {host}'
+      - '{host} Reinstall Action'
       - "{host} mtcAlive ; going 'online'"
-      - "{host} Task: Reinstall Succeeded"
-      - "{host} Unlock Action"
-      - "{host} is ENABLED"
-      - "{host} Delete Operation Started"
-      - "{host} Deleted"
+      - '{host} Task: Reinstall Succeeded'
+      - '{host} Unlock Action'
+      - '{host} is ENABLED'
+      - '{host} Delete Operation Started'
+      - '{host} Deleted'
 
     sysinv:
-      - "Kubernetes exception in kube_get_node_status: \\(404\\)"
+      - 'Kubernetes exception in kube_get_node_status: \(404\)'
 
 blocks:
   - label: "Mtce"
     file: "mtcAgent.log*"
     controller: true
-    timeline: "{maintenance}"
+    timeline: '{maintenance}'
 
   - label: "sysinv"
     file: "sysinv.log*"
     controller: true
-    timeline: "{sysinv}"
+    timeline: '{sysinv}'

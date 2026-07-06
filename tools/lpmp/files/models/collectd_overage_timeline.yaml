@@ -24,9 +24,10 @@
 
 settings:
   graph: "{graph}"
+  graph_style: state
 
 blocks:
   - label: "{graph}"
     file: "collectd.log*"
     timeline:
-    - "{graph}"
+    - '{graph}'
