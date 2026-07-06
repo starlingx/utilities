@@ -544,6 +544,53 @@ wait_pods_running_on_node() {
     return 1
 }
 
+# Ensure that the oidc-dex pod is serving a valid (non-expired) certificate.
+# If the cert in the secret is expired, delete it to force cert-manager to
+# reissue, then restart dex to pick up the new cert. This prevents
+# stx-oidc-client from entering CrashLoopBackOff.
+ensure_dex_cert_renewed() {
+    local secret="oidc-auth-apps-certificate"
+    local ns="kube-system"
+    local i=0
+
+    local cert_data
+    cert_data=$(kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" \
+        get secret "${secret}" -o jsonpath='{.data.tls\.crt}' 2>/dev/null)
+
+    [ -z "${cert_data}" ] && return 0
+
+    if echo "${cert_data}" | base64 -d | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
+        log_info "OIDC cert is valid."
+        return 0
+    fi
+
+    log_warn "OIDC cert expired. Deleting secret to trigger cert-manager renewal..."
+    kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" delete secret "${secret}" 2>/dev/null || true
+
+    # Wait for cert-manager to reissue a valid cert
+    while [ $i -lt $RETRY_COUNT ]; do
+        cert_data=$(kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" \
+            get secret "${secret}" -o jsonpath='{.data.tls\.crt}' 2>/dev/null)
+        if [ -n "${cert_data}" ] && echo "${cert_data}" | base64 -d | \
+                openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
+            log_info "OIDC cert renewed successfully."
+            break
+        fi
+        sleep "${RETRY_SLEEP}"
+        i=$((i+1))
+    done
+
+    if [ $i -ge $RETRY_COUNT ]; then
+        log_warn "Timed out waiting for OIDC cert renewal after ${RETRY_COUNT} attempts."
+    else
+        # Restart pods to pick up renewed cert
+        kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" delete po \
+                -l app.kubernetes.io/name=dex 2>/dev/null || true
+        kubectl --kubeconfig "${KUBECONFIG}" -n "${ns}" delete po \
+                -l app=stx-oidc-client 2>/dev/null || true
+    fi
+}
+
 # This checks etcd CA, Kubernetes Root CA, and Front Proxy CA expiration dates.
 function check_manual_ca_certs {
     log_info "Checking manual CA certificates (threshold=${CERT_CHECKEND_DAYS} days)..."
@@ -681,6 +728,11 @@ check_and_recover_cert_manager() {
     log_warn "RESTAPI/REGISTRY certs not yet renewed. Initiating pod deletion on node ${NODE_FILTER} to force cert-manager reprocessing."
 
     delete_pods_on_node
+
+    # After restarting pods (including cert-manager), ensure dex picks up
+    # the renewed cert before waiting for all pods. This prevents
+    # stx-oidc-client from entering CrashLoopBackOff.
+    ensure_dex_cert_renewed
 
     # Wait for pods running on node
     if ! wait_pods_running_on_node; then
@@ -843,6 +895,11 @@ else
     fi
 
     delete_pods_on_node
+
+    # After restarting pods (including cert-manager), ensure dex picks up
+    # the renewed cert before waiting for all pods. This prevents
+    # stx-oidc-client from entering CrashLoopBackOff.
+    ensure_dex_cert_renewed
 
     if ! wait_pods_running_on_node; then
         send_ipmi_event "$EVENT_RENEW_FAIL_PODS"
