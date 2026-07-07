@@ -165,6 +165,7 @@ check_rc_die $? "Unable to copy factory-install cloud.cfg file"
 # configuration using the network-config file extracted from the seed
 # ISO.
 cloud-init clean &&
+cloud-init init --local &&
 cloud-init init &&
 cloud-init devel net-convert \
     --network-data $NETWORK_CFG_FILE \
