@@ -1,0 +1,11 @@
+[Unit]
+Description=StarlingX Task Affinity Functions (library)
+# This is a shell function library sourced by other scripts.
+# It is not a real service. This unit file exists solely to
+# suppress systemd-sysv-generator deprecation warnings.
+ConditionPathExists=!/dev/null
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+ExecStart=/bin/true
