@@ -19,5 +19,5 @@ override_dh_auto_install:
 
 override_dh_installsystemd:
 	dh_installsystemd -pworker-utils --name=affine-tasks affine-tasks.service
-	dh_installsystemd -pworker-utils --name=affine-platform.sh affine-platform.sh.service
+	dh_installsystemd -pworker-utils --name=affine-platform affine-platform.service
 
