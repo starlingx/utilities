@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2024 Wind River Systems, Inc.
+# Copyright (c) 2024-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,7 +15,7 @@ LOGFILE="${extradir}/${SERVICE}.info"
 USM_DIR="/opt/software"
 
 ###############################################################################
-# gather USM releases and deployments in-progress
+# Gather USM releases and deployments in-progress
 ###############################################################################
 function collect_usm {
     RELEASES=$(software list | tail -n +4 | awk '{ print $2; }')
@@ -27,13 +27,17 @@ function collect_usm {
     run_command "software list" "${LOGFILE}"
 
     for release in ${RELEASES}; do
-        run_command "software show --packages ${release}" "${LOGFILE}"
+        run_command "software show --packages --metapackages --pre-upgrade-deploy ${release}" "${LOGFILE}"
         sleep ${COLLECT_RUNCMD_DELAY}
     done
+
+    run_command "software metapackage list --all" "${LOGFILE}"
+
+    run_command "software metapackage list --pre-upgrade-deploy" "${LOGFILE}"
 }
 
 ###############################################################################
-# list feed content (files, directories, permissions)
+# List feed content (files, directories, permissions)
 ###############################################################################
 function collect_feed {
     for feed in /var/www/pages/feed/*; do
@@ -48,17 +52,17 @@ function collect_feed {
 if [ "$nodetype" = "controller" ] ; then
     echo    "${hostname}: Unified Software Management ..: ${LOGFILE}"
 
-    # collect usm info
+    # Collect usm info
     collect_usm
 
-    # collect feed info
+    # Collect feed info
     collect_feed
 
-    # copy /opt/software to extra dir, excluding large and temp directories
+    # Copy /opt/software to extra dir, excluding large and temp directories
     run_command "rsync -a /opt/software --exclude __pycache__ --exclude ostree_repo --exclude packages ${extradir}" "${LOGFILE}"
     sleep ${COLLECT_RUNCMD_DELAY}
 
-    # copy /var/www/pages/feed to extra dir, excluding large and temp directories
+    # Copy /var/www/pages/feed to extra dir, excluding large and temp directories
     run_command "rsync -a --exclude __pycache__ --exclude ostree_repo --exclude pxeboot /var/www/pages/feed ${extradir}" "${LOGFILE}"
     sleep ${COLLECT_RUNCMD_DELAY}
 fi
