@@ -51,7 +51,8 @@ OAM_CONNECTION_RETRY_INTERVAL_SECONDS = 30
 DEFAULT_RESTORE_TIMEOUT = 5400
 RESTORE_API_TIMEOUT = 600
 
-# Status file consumed by 95-trigger-local-install to choose --backup-source
+# Status file consumed by 95-trigger-onsite-local-restore to resolve
+# the backup dir
 STATUS_FILE = "/run/onsite-restore-status"
 
 
@@ -421,7 +422,7 @@ class OnsiteRestoreTrigger(BaseClass):
                     file_tuple[1].close()
 
     def write_status_file(self):
-        """Write a status file consumed by 95-trigger-local-install."""
+        """Write a status file consumed by 95-trigger-onsite-local-restore."""
         local_only_str = "true" if self.local_only else "false"
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(f"local_only={local_only_str}\n")

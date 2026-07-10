@@ -19,14 +19,14 @@ import requests as _requests
 
 SCRIPT_PATH = os.path.join(
     os.path.dirname(__file__),
-    "../onsite-restore/scripts/90-trigger-onsite-restore",
+    "../onsite-restore/scripts/90-send-onsite-restore-request",
 )
 TEST_CONFIG_DIR = "/home/sysadmin/enroll-config/20260507-120000"
 TEST_OLD_CONFIG_DIR = "/home/sysadmin/enroll-config/20260507-110000"
 
 
 class TestTriggerOnsiteRestore(unittest.TestCase):
-    """Test cases for the 90-trigger-onsite-restore script."""
+    """Test cases for the 90-send-onsite-restore-request script."""
 
     @classmethod
     def setUpClass(cls):
