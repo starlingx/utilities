@@ -1,0 +1,244 @@
+//
+// Copyright (c) 2026 Wind River Systems, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+
+package baoCommands
+
+import (
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
+	"github.com/spf13/cobra"
+)
+
+// rekey command flags
+var rekeyShares int
+var rekeyThreshold int
+
+var rekeyCmd = &cobra.Command{
+	Use:   "rekey DNSHost",
+	Short: "Initiate and drive a full rekey operation",
+	Long: `Initiate a rekey operation on the specified OpenBao server.
+This generates new unseal key shards and stores them as a new immutable
+generation secret in Kubernetes. The previous generation secret is retained.
+
+Requires --k8s flag since the new generation secret must be stored in Kubernetes.`,
+	Args:              cobra.ExactArgs(1),
+	PersistentPreRunE: setupCmd,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cmd.SilenceUsage = true
+		host := args[0]
+
+		slog.Debug("Action: rekey", "host", host)
+
+		if !useK8sConfig {
+			return fmt.Errorf("rekey requires --k8s flag to be set (generation secrets are stored in Kubernetes)")
+		}
+
+		// Create a client for the target host
+		newClient, err := globalConfig.SetupClient(host)
+		if err != nil {
+			return fmt.Errorf("failed to setup client for host %s: %w", host, err)
+		}
+
+		// Check server health before proceeding
+		healthResult, err := checkHealth(host, newClient)
+		if err != nil {
+			return fmt.Errorf("failed to check health on host %s: %w", host, err)
+		}
+
+		if !healthResult.Initialized {
+			return fmt.Errorf("server on host %s is not initialized; cannot rekey an uninitialized server", host)
+		}
+
+		if healthResult.Sealed {
+			return fmt.Errorf("server on host %s is sealed; unseal the server before attempting rekey", host)
+		}
+
+		// Discover the current generation if not already set
+		if globalConfig.CurrentKeySecret == "" {
+			gens, listErr := globalConfig.ListGenerationSecrets()
+			if listErr != nil {
+				return fmt.Errorf("failed to discover current generation: %w", listErr)
+			}
+			if len(gens) > 0 {
+				globalConfig.CurrentKeySecret = gens[len(gens)-1]
+				slog.Info("Discovered current generation from Kubernetes",
+					"currentKeySecret", globalConfig.CurrentKeySecret)
+			} else {
+				return fmt.Errorf("no generation secrets found; server must be initialized first")
+			}
+		}
+
+		// Load the current generation secret to ensure we have keys available
+		_, err = globalConfig.LoadGenerationSecret()
+		if err != nil {
+			return fmt.Errorf("failed to load current generation secret: %w", err)
+		}
+
+		// The openbao client's Sys() satisfies the rekey.SysAPI interface
+		sys := newClient.Sys()
+
+		// Create the rekey process
+		proc := &rekey.RekeyProcess{
+			Config:    &globalConfig,
+			State:     rekey.StateIdle,
+			NewShares: rekeyShares,
+			Threshold: rekeyThreshold,
+		}
+
+		// Check if a rekey is already in progress
+		inProgress, err := proc.CheckInProgress(sys)
+		if err != nil {
+			return fmt.Errorf("failed to check rekey status: %w", err)
+		}
+		if inProgress {
+			slog.Info("Rekey already in progress, driving to completion", "host", host)
+			if err := RecoverInProgressRekey(&globalConfig, nil, sys); err != nil {
+				return fmt.Errorf("failed to drive in-progress rekey: %w", err)
+			}
+			slog.Info("In-progress rekey driven to completion",
+				"host", host,
+				"newGeneration", globalConfig.CurrentKeySecret)
+			return nil
+		}
+
+		// Step 1: Initiate rekey
+		slog.Info("Initiating rekey", "host", host, "shares", rekeyShares, "threshold", rekeyThreshold)
+
+		err = proc.Start(sys)
+		if err != nil {
+			return fmt.Errorf("failed to initiate rekey: %w", err)
+		}
+
+		// Step 2: Submit shards
+		slog.Info("Submitting unseal key shards for rekey")
+
+		response, err := proc.SubmitShards(sys)
+		if err != nil {
+			return fmt.Errorf("failed to submit shards during rekey: %w", err)
+		}
+
+		// Step 3: Store the result as a new generation secret — retry on transient
+		// failures. The keys exist only in the RekeyUpdateResponse; losing them
+		// means the rekey is unrecoverable.
+		slog.Info("Storing new generation secret")
+
+		var storeErr error
+		for attempt := 1; attempt <= 3; attempt++ {
+			storeErr = proc.StoreResult(response)
+			if storeErr == nil {
+				break
+			}
+			slog.Error("Failed to store rekey result, retrying",
+				"attempt", attempt, "err", storeErr)
+			if attempt < 3 {
+				time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			}
+		}
+		if storeErr != nil {
+			return fmt.Errorf("failed to store rekey result after 3 attempts (keys may be lost): %w", storeErr)
+		}
+
+		// Re-read stored secret from K8s and confirm it matches what we stored.
+		// This guards against silent storage corruption before proceeding to
+		// verification (which would commit the new keys as active).
+		stored, err := globalConfig.LoadGenerationSecret()
+		if err != nil {
+			return fmt.Errorf("failed to re-read generation secret after store: %w", err)
+		}
+		if len(stored.Keys) != len(response.Keys) {
+			return fmt.Errorf("stored secret key count (%d) does not match response (%d)", len(stored.Keys), len(response.Keys))
+		}
+		for i, key := range response.Keys {
+			if stored.Keys[i] != key {
+				return fmt.Errorf("stored secret key[%d] does not match response", i)
+			}
+		}
+		slog.Debug("Re-read verification passed: stored secret matches in-memory response")
+
+		// Step 4: Verify the rekey (confirms we received correct keys)
+		if response.VerificationRequired {
+			slog.Info("Verifying rekey with new keys")
+
+			err = proc.Verify(sys, response)
+			if err != nil {
+				return fmt.Errorf("rekey verification failed: %w", err)
+			}
+		} else {
+			return fmt.Errorf("rekey did not require verification, but should have")
+		}
+
+		slog.Info("Rekey operation completed successfully",
+			"host", host,
+			"newGeneration", globalConfig.CurrentKeySecret)
+		return nil
+	},
+	PersistentPostRunE: cleanCmd,
+}
+
+var rekeyStatusCmd = &cobra.Command{
+	Use:   "status DNSHost",
+	Short: "Check if a rekey operation is in progress",
+	Long:  `Query the specified OpenBao server to determine if a rekey operation is currently in progress.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cmd.SilenceUsage = true
+		host := args[0]
+
+		slog.Debug("Action: rekey status", "host", host)
+
+		// Create a client for the target host
+		newClient, err := globalConfig.SetupClient(host)
+		if err != nil {
+			return fmt.Errorf("failed to setup client for host %s: %w", host, err)
+		}
+
+		// Check server health
+		healthResult, err := checkHealth(host, newClient)
+		if err != nil {
+			return fmt.Errorf("failed to check health on host %s: %w", host, err)
+		}
+
+		if !healthResult.Initialized {
+			return fmt.Errorf("server on host %s is not initialized", host)
+		}
+
+		if healthResult.Sealed {
+			return fmt.Errorf("server on host %s is sealed; cannot check rekey status", host)
+		}
+
+		// Use the rekey process to check status
+		proc := &rekey.RekeyProcess{
+			State: rekey.StateIdle,
+		}
+
+		sys := newClient.Sys()
+		inProgress, err := proc.CheckInProgress(sys)
+		if err != nil {
+			return fmt.Errorf("failed to check rekey status: %w", err)
+		}
+
+		if inProgress {
+			fmt.Printf("Rekey is IN PROGRESS on host %s\n", host)
+		} else {
+			fmt.Printf("No rekey in progress on host %s\n", host)
+		}
+
+		return nil
+	},
+}
+
+func init() {
+	rekeyCmd.Flags().IntVar(&rekeyShares, "shares", 5,
+		"Number of key shares to generate during rekey")
+	rekeyCmd.Flags().IntVar(&rekeyThreshold, "threshold", 3,
+		"Number of key shares required to unseal after rekey")
+
+	rekeyCmd.AddCommand(rekeyStatusCmd)
+	RootCmd.AddCommand(rekeyCmd)
+}

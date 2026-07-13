@@ -1,26 +1,15 @@
-//
-// Copyright (c) 2025 Wind River Systems, Inc.
-//
-// SPDX-License-Identifier: Apache-2.0
-//
-
-module github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands
+module github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey/test
 
 go 1.24.0
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/config => ../config
+replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey => ../
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey => ../rekey
+replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/config => ../../config
 
 require (
 	github.com/michel-thebeau-WR/openbao-manager-go/baomon/config v0.0.0-00010101000000-000000000000
 	github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey v0.0.0-00010101000000-000000000000
 	github.com/openbao/openbao/api/v2 v2.2.0
-	github.com/spf13/cobra v1.9.1
-	k8s.io/api v0.33.0
-	k8s.io/apimachinery v0.33.0
-	k8s.io/client-go v0.33.0
-	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -45,7 +34,6 @@ require (
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.6 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-5 // indirect
-	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
@@ -55,7 +43,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
@@ -68,10 +55,14 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	k8s.io/api v0.33.0 // indirect
+	k8s.io/apimachinery v0.33.0 // indirect
+	k8s.io/client-go v0.33.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
+	sigs.k8s.io/yaml v1.4.0 // indirect
 )
