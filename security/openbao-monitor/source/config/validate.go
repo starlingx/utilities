@@ -9,6 +9,9 @@ import (
 	"strconv"
 )
 
+// tokenPattern matches OpenBao/Vault token format
+var tokenPattern = regexp.MustCompile(`[sbr][.][a-zA-Z0-9]{24,}`)
+
 // Available log levels; these should match the levels available in helm chart
 var availableLogLevels = map[int]string{
 	1: "DEBUG",
@@ -33,7 +36,7 @@ func (configInstance MonitorConfig) validateDNS() error {
 
 func (configInstance MonitorConfig) validateTokens() error {
 	rootExists := false
-	r, _ := regexp.Compile("[sbr][.][a-zA-Z0-9]{24,}")
+
 	for releaseID, token := range configInstance.Tokens {
 		if token.Duration == 0 {
 			// There can only be one root token
@@ -45,7 +48,7 @@ func (configInstance MonitorConfig) validateTokens() error {
 		}
 		// Token key should have s, b, or r as the first character, and . as the second.
 		// The body of the token (key[2:]) should be 24 characters or more
-		if !r.MatchString(token.Key) {
+		if !tokenPattern.MatchString(token.Key) {
 			return fmt.Errorf(
 				"the token with release id %v has wrong key format", releaseID)
 		}

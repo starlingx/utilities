@@ -1,20 +1,17 @@
 SHELL := /bin/bash
-TASK  := build
-EXCLUDES := build test all
-
-.PHONY: $(EXCLUDES)
 
 BAOMON_NAME ?= baomon
 
-all: $(TASK)
+.PHONY: all build clean test
+
+all: build
 
 build:
-	@if [ -d $* ]; then \
-		go mod download; \
-		go mod tidy; \
-		go build -o $(BAOMON_NAME) .; \
-	fi
+	go mod download
+	go build -o $(BAOMON_NAME) .
 
 clean:
-	@echo "Clean all build artifacts"
 	rm -f $(BAOMON_NAME)
+
+test:
+	go test ./...

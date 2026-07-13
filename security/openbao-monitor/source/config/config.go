@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2025 Wind River Systems, Inc.
+// Copyright (c) 2025-2026 Wind River Systems, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-yaml/yaml"
 	clientapi "github.com/openbao/openbao/api/v2"
+	"gopkg.in/yaml.v3"
+	"k8s.io/client-go/kubernetes"
 )
 
 type ServerAddress struct {
@@ -96,7 +97,25 @@ type MonitorConfig struct {
 
 	// Prefix string used to find root token and unseal key shards
 	// Default is "cluster-key"
+	// DEPRECATED: kept for migration compatibility
 	SecretPrefix string `yaml:"SecretPrefix"`
+
+	// GenerationPrefix is the naming prefix for generation secrets.
+	// Default: "openbao-unseal-gen"
+	GenerationPrefix string `yaml:"GenerationPrefix"`
+
+	// CurrentKeySecret names the k8s secret holding the active generation's keys.
+	// Example: "openbao-unseal-gen-001"
+	CurrentKeySecret string `yaml:"CurrentKeySecret"`
+
+	// loadedGenerationSecret caches the active generation secret data in memory
+	// after it has been loaded from Kubernetes. This is not serialized to YAML.
+	loadedGenerationSecret *GenerationSecret `yaml:"-"`
+
+	// Clientset is the Kubernetes client used for all K8s operations.
+	// Set programmatically at startup; not serialized to YAML.
+	// Tests can set this to a fake clientset.
+	Clientset kubernetes.Interface `yaml:"-"`
 
 	// Indicates if openbao is run in a kubernetes environment
 	// Default is false
@@ -166,15 +185,56 @@ func (configInstance *MonitorConfig) ReadYAMLMonitorConfig(in io.Reader) error {
 	return nil
 }
 
-func (configInstance MonitorConfig) getRootTokenName() string {
-	secretPrefix = "cluster-key"
-
+func (configInstance *MonitorConfig) GetRootTokenName() string {
+	prefix := "cluster-key"
 	if configInstance.SecretPrefix != "" {
-		secretPrefix = configInstance.SecretPrefix
+		prefix = configInstance.SecretPrefix
 	}
-	rootTokenName := strings.Join([]string{secretPrefix, "root"}, "-")
+	return prefix + "-root"
+}
 
-	return rootTokenName
+// GetCurrentRootToken extracts the root token from the active generation secret.
+// If a generation secret is loaded in memory, it returns that root token.
+// Otherwise it falls back to the legacy Tokens map lookup.
+func (configInstance *MonitorConfig) GetCurrentRootToken() string {
+	if configInstance.loadedGenerationSecret != nil {
+		return configInstance.loadedGenerationSecret.RootToken
+	}
+
+	// Fallback to legacy token lookup
+	rootTokenName := configInstance.GetRootTokenName()
+	if token, ok := configInstance.Tokens[rootTokenName]; ok {
+		return token.Key
+	}
+
+	return ""
+}
+
+// GetUnsealKeys returns the unseal key list from the active generation secret.
+// If a generation secret is loaded in memory, it returns those keys.
+// Otherwise it falls back to the legacy UnsealKeyShards map.
+func (configInstance *MonitorConfig) GetUnsealKeys() []string {
+	if configInstance.loadedGenerationSecret != nil {
+		return configInstance.loadedGenerationSecret.Keys
+	}
+
+	// Fallback to legacy unseal key shards
+	var keys []string
+	for _, shard := range configInstance.UnsealKeyShards {
+		keys = append(keys, shard.Key)
+	}
+	return keys
+}
+
+// SetLoadedGenerationSecret sets the in-memory cached generation secret.
+// This is called after loading a generation secret from Kubernetes.
+func (configInstance *MonitorConfig) SetLoadedGenerationSecret(secret *GenerationSecret) {
+	configInstance.loadedGenerationSecret = secret
+}
+
+// GetLoadedGenerationSecret returns the in-memory cached generation secret.
+func (configInstance *MonitorConfig) GetLoadedGenerationSecret() *GenerationSecret {
+	return configInstance.loadedGenerationSecret
 }
 
 func (configInstance MonitorConfig) WriteYAMLMonitorConfig(out io.Writer) error {
@@ -195,7 +255,7 @@ func (configInstance MonitorConfig) WriteYAMLMonitorConfig(out io.Writer) error 
 
 // Create a new config based on the monitor config
 func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config, error) {
-	slog.Debug(fmt.Sprintf("Setting up api access config for host %v", dnshost))
+	slog.Debug("Setting up API access config", "host", dnshost)
 	defConfig := clientapi.DefaultConfig()
 
 	// Check if DefaultConfig has issues
@@ -213,14 +273,14 @@ func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config
 	// Set the DNS address as the configured address for the server
 	defConfig.Address = strings.Join([]string{"https://", dnsAddr.Host, ":", strconv.Itoa(dnsAddr.Port)}, "")
 
-	slog.Debug(fmt.Sprintf("Server address set to %v", defConfig.Address))
+	slog.Debug("Server address set", "address", defConfig.Address)
 
 	// Apply CACert entry to the config
 	var newTLSconfig clientapi.TLSConfig
 	slog.Debug("Applying the following cert configs:")
-	slog.Debug(fmt.Sprintf("CACert: %v", configInstance.CACert))
-	slog.Debug(fmt.Sprintf("ClientCert: %v", configInstance.ClientCert))
-	slog.Debug(fmt.Sprintf("ClientKey: %v", configInstance.ClientKey))
+	slog.Debug("CACert configured", "path", configInstance.CACert)
+	slog.Debug("ClientCert configured", "path", configInstance.ClientCert)
+	slog.Debug("ClientKey configured", "path", configInstance.ClientKey)
 
 	newTLSconfig.CACert = configInstance.CACert
 	newTLSconfig.ClientCert = configInstance.ClientCert
@@ -229,7 +289,7 @@ func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config
 	// This does nothing if newTLSconfig is empty
 	err := defConfig.ConfigureTLS(&newTLSconfig)
 	if err != nil {
-		return defConfig, fmt.Errorf("error with configuring TLS: %v", err)
+		return defConfig, fmt.Errorf("configuring TLS: %w", err)
 	}
 
 	slog.Debug("Configuring TLS successful")
@@ -244,38 +304,52 @@ func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config
 	return defConfig, nil
 }
 
-func (configInstance MonitorConfig) SetupClient(dnshost string) (*clientapi.Client, error) {
-	slog.Debug(fmt.Sprintf("Setting up client for host %v", dnshost))
+func (configInstance *MonitorConfig) SetupClient(dnshost string) (*clientapi.Client, error) {
+	slog.Debug("Setting up client", "host", dnshost)
 	newConfig, err := configInstance.NewConfig(dnshost)
 	if err != nil {
-		return nil, fmt.Errorf("error in creating new config: %v", err)
+		return nil, fmt.Errorf("creating new config: %w", err)
 	}
 
 	slog.Debug("Creating client for API access...")
 	newClient, err := clientapi.NewClient(newConfig)
 	if err != nil {
-		return nil, fmt.Errorf("error in creating new client: %v", err)
+		return nil, fmt.Errorf("creating new client: %w", err)
 	}
 
-	slog.Debug("Setting root token to use for client")
-
-	// Find & set root token if it exists
-	rootToken, tokenExists := configInstance.Tokens[configInstance.getRootTokenName()]
-	if tokenExists {
-		newClient.SetToken(rootToken.Key)
+	// GetCurrentRootToken handles both generation-based and legacy token lookup.
+	rootToken := configInstance.GetCurrentRootToken()
+	if rootToken != "" {
+		newClient.SetToken(rootToken)
 	}
 
 	slog.Debug("Client setup complete.")
 	return newClient, nil
 }
 
-// Parse the new keys from the init responce into the monitor config
-func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce *clientapi.InitResponse) error {
+// ParseInitResponseToGeneration converts an InitResponse directly into a GenerationSecret.
+// This is the preferred method for new code paths (generation-based storage).
+func ParseInitResponseToGeneration(response *clientapi.InitResponse) (*GenerationSecret, error) {
+	secret := &GenerationSecret{
+		Keys:       response.Keys,
+		KeysBase64: response.KeysB64,
+		RootToken:  response.RootToken,
+	}
+	if err := ValidateGenerationSecret(secret); err != nil {
+		return nil, fmt.Errorf("init response produced invalid generation secret: %w", err)
+	}
+	return secret, nil
+}
+
+// ParseInitResponse parses the new keys from the init response into the monitor config.
+// Deprecated: Use ParseInitResponseToGeneration for new code paths that use generation-based
+// secret storage. This method is retained for backward compatibility with legacy per-shard storage.
+func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, response *clientapi.InitResponse) error {
 	slog.Debug("Parsing response from /sys/init to monitor configs")
 
 	slog.Debug("Parsing the root token...")
 	// Parse in the root token
-	rootTokenName := configInstance.getRootTokenName()
+	rootTokenName := configInstance.GetRootTokenName()
 	if _, ok := configInstance.Tokens[rootTokenName]; ok {
 		return fmt.Errorf("an entry of the root token was already found")
 	}
@@ -284,12 +358,12 @@ func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce 
 	}
 	configInstance.Tokens[rootTokenName] = Token{
 		Duration: 0,
-		Key:      responce.RootToken,
+		Key:      response.RootToken,
 	}
 
 	slog.Debug("Parsing the unseal key shards...")
 	// Parse in the key shards for unseal
-	for i := range len(responce.Keys) {
+	for i := range len(response.Keys) {
 		keyShardName := strings.Join([]string{secretPrefix, strconv.Itoa(i)}, "-")
 		if _, ok := configInstance.UnsealKeyShards[keyShardName]; ok {
 			return fmt.Errorf("an entry of %v was already found under UnsealKeyShards", keyShardName)
@@ -298,14 +372,14 @@ func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce 
 			configInstance.UnsealKeyShards = make(map[string]KeyShards)
 		}
 		configInstance.UnsealKeyShards[keyShardName] = KeyShards{
-			Key:       responce.Keys[i],
-			KeyBase64: responce.KeysB64[i],
+			Key:       response.Keys[i],
+			KeyBase64: response.KeysB64[i],
 		}
 	}
 
 	slog.Debug("Parsing the recovery key shards...")
 	// Parse in the recovery key shards
-	for i := range len(responce.RecoveryKeys) {
+	for i := range len(response.RecoveryKeys) {
 		keyShardName := strings.Join([]string{secretPrefix, "recovery", strconv.Itoa(i)}, "-")
 		if _, ok := configInstance.UnsealKeyShards[keyShardName]; ok {
 			return fmt.Errorf("an entry of %v was already found under UnsealKeyShards", keyShardName)
@@ -314,8 +388,8 @@ func (configInstance *MonitorConfig) ParseInitResponse(dnshost string, responce 
 			configInstance.UnsealKeyShards = make(map[string]KeyShards)
 		}
 		configInstance.UnsealKeyShards[keyShardName] = KeyShards{
-			Key:       responce.RecoveryKeys[i],
-			KeyBase64: responce.RecoveryKeysB64[i],
+			Key:       response.RecoveryKeys[i],
+			KeyBase64: response.RecoveryKeysB64[i],
 		}
 	}
 
@@ -333,7 +407,7 @@ func (configInstance *MonitorConfig) InterpretLogLevel() string {
 		}
 
 		// error, but this code should not be reached if validateLogConfig works
-		slog.Error(fmt.Sprintf("the numeric LogLevel %v is not a valid log level", configInstance.LogLevel))
+		slog.Error("Invalid numeric log level", "level", configInstance.LogLevel)
 		return "INFO" // Default to INFO if the numeric level is invalid
 	}
 
