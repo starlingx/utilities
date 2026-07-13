@@ -271,3 +271,17 @@ func TestGetRootTokenName_CustomPrefix(t *testing.T) {
 		t.Errorf("getRootTokenName() = %q, want %q", got, "my-prefix-root")
 	}
 }
+
+func TestGetNamespace_DefaultWhenEmpty(t *testing.T) {
+	cfg := baoConfig.MonitorConfig{}
+	if got := cfg.GetNamespace(); got != "openbao" {
+		t.Errorf("GetNamespace() = %q, want %q", got, "openbao")
+	}
+}
+
+func TestGetNamespace_CustomValue(t *testing.T) {
+	cfg := baoConfig.MonitorConfig{Namespace: "my-namespace"}
+	if got := cfg.GetNamespace(); got != "my-namespace" {
+		t.Errorf("GetNamespace() = %q, want %q", got, "my-namespace")
+	}
+}

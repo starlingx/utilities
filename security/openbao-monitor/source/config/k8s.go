@@ -24,7 +24,11 @@ var podPrefix string = "stx-openbao"
 var podAddressSuffix string = "pod.cluster.local"
 var secretPrefix string = "cluster-key"
 
-type keySecret struct {
+// KeySecret represents the JSON payload stored in a legacy per-shard secret's
+// "strdata" field, e.g. {"keys":["hexkey"],"keys_base64":["base64key"]}.
+// It is shared by the legacy secret read/write paths and the one-time
+// legacy-to-generation migration.
+type KeySecret struct {
 	Key        []string `json:"keys"`
 	KeyEncoded []string `json:"keys_base64"`
 }
@@ -154,7 +158,7 @@ func (configInstance *MonitorConfig) MigrateSecretConfig(config *rest.Config) er
 				configInstance.Tokens[secretName] = Token{Duration: 0, Key: strings.TrimSpace(string(secretData))}
 			} else {
 				// secretData should be an unseal key shard and its base 64 encoded version
-				var newKey keySecret
+				var newKey KeySecret
 				err := json.Unmarshal(secretData, &newKey)
 				if err != nil {
 					return err
@@ -241,7 +245,7 @@ func (configInstance *MonitorConfig) StoreSecretConfig(config *rest.Config) erro
 		newShard := new(v1.Secret)
 		newShard.SetName(shardName)
 		newShard.SetNamespace(k8sNamespace)
-		var newSecret keySecret
+		var newSecret KeySecret
 		newSecret.Key = append(newSecret.Key, shard.Key)
 		newSecret.KeyEncoded = append(newSecret.KeyEncoded, shard.KeyBase64)
 		marshalData, err := json.Marshal(newSecret)
