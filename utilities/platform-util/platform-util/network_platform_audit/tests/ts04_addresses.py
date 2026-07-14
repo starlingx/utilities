@@ -13,6 +13,7 @@ from network_platform_audit.sysinv import _get_addr_list
 from network_platform_audit.sysinv import _get_addrpool_list
 from network_platform_audit.sysinv import _get_iface_network_count
 from network_platform_audit.sysinv import _get_sw_version
+from network_platform_audit.sysinv import _parse_dhcp_leases
 from network_platform_audit.sysinv import _run_on_host
 from network_platform_audit.sysinv import get_host_names
 from network_platform_audit.sysinv import local_hostname
@@ -26,6 +27,20 @@ def _collect_floating_ips():
             if val and val not in ("None", "-", ""):
                 floating_ips.add(val)
     return floating_ips
+
+
+def _collect_dhcp_leased_ips():
+    """IPs currently leased out by dnsmasq (e.g. pxeboot addrs picked up via
+    dhclient on other hosts) are not expected to appear in the local sysinv DB.
+    """
+    leases = _parse_dhcp_leases()
+    if leases:
+        log(f"  dnsmasq.leases: {len(leases)} active lease(s) excluded from DB check")
+        for lease in leases:
+            log(f"    {lease['ip']}  mac={lease['mac']}  name={lease['hostname']}")
+    else:
+        log("  [INFO] no dnsmasq.leases entries found")
+    return {lease["ip"] for lease in leases}
 
 
 def _parse_kernel_addrs(kernel_out):
@@ -78,13 +93,15 @@ def _check_deprecated(cat, hostname, ip, addr, local_sw_ver, ifname_to_network_c
             f"{hostname}: address {ip} is deprecated in kernel")
 
 
-def _warn_kernel_extra_addrs(cat, hostname, kernel_ips, db_ip_set, floating_ips):
+def _warn_kernel_extra_addrs(cat, hostname, kernel_ips, db_ip_set, floating_ips, dhcp_leased_ips):
     for kip in kernel_ips:
         try:
             addr_obj = ipaddress.ip_address(kip)
             if addr_obj.is_link_local or addr_obj.is_loopback:
                 continue
         except ValueError:
+            continue
+        if kip in dhcp_leased_ips:
             continue
         if kip not in db_ip_set and kip not in floating_ips:
             log(f"  [WARN] {hostname}: kernel address {kip} not in sysinv DB")
@@ -96,12 +113,13 @@ def test_addresses_vs_kernel():
     desc = [
         "1) system host-addr-list per host",
         "2) Verify each DB address is assigned in kernel (ip -o addr show)",
-        "3) Warn on kernel addresses not in DB (floating IPs excluded)",
+        "3) Warn on kernel addresses not in DB (floating IPs and DHCP-leased IPs excluded)",
         "4) Deprecated address check",
     ]
     print_category(cat, description=desc)
 
     floating_ips = _collect_floating_ips()
+    dhcp_leased_ips = _collect_dhcp_leased_ips()
 
     local_sw_ver = _get_sw_version(local_hostname())
     if local_sw_ver is not None:
@@ -145,4 +163,4 @@ def test_addresses_vs_kernel():
             if ip in deprecated_ips and ip not in floating_ips:
                 _check_deprecated(cat, hostname, ip, addr, local_sw_ver, ifname_to_network_count)
 
-        _warn_kernel_extra_addrs(cat, hostname, kernel_ips, db_ip_set, floating_ips)
+        _warn_kernel_extra_addrs(cat, hostname, kernel_ips, db_ip_set, floating_ips, dhcp_leased_ips)

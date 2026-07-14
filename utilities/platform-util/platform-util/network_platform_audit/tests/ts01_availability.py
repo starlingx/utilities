@@ -7,8 +7,8 @@ from network_platform_audit.log import log_result
 from network_platform_audit.sysinv import get_host_names
 
 
-def _check_host_availability(cat, hostname, avail, bad_avail):
-    if avail in bad_avail:
+def _check_host_availability(cat, hostname, avail):
+    if avail != "available":
         log_result(f"host {hostname}: availability={avail}", "FAILED")
         state.category_failures[cat].append(
             f"host {hostname} has availability={avail} (expected available)"
@@ -40,12 +40,10 @@ def test_host_availability():
         state.category_failures[cat].append("no hosts found in system host-list")
         return
 
-    bad_avail = {"degraded", "failed", "offline", "intest", "power-off"}
-
     for host in state.HOST_LIST:
         hostname = host.get("hostname", "?")
         avail = host.get("availability", "?")
         oper = host.get("operational", host.get("oper", "?"))
 
-        _check_host_availability(cat, hostname, avail, bad_avail)
+        _check_host_availability(cat, hostname, avail)
         _check_host_operational(cat, hostname, oper)

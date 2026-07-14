@@ -66,6 +66,17 @@ SUBCLOUD_RANGE_END = None
 SUBCLOUD_OAM_IP = None
 
 # ---------------------------------------------------------------------------
+# Platform capabilities (populated by startup_checks)
+# ---------------------------------------------------------------------------
+# True when 'system show' reports https_enabled = True
+HTTPS_ENABLED = False
+
+# The HTTP/HTTPS service port from service-parameter (service=http,
+# section=config, name=https_port or http_port).  None = not customised or
+# not yet resolved.  Cached here so it is read only once per run.
+HTTP_SERVICE_PORT = None
+
+# ---------------------------------------------------------------------------
 # Cross-test shared state
 # ---------------------------------------------------------------------------
 # Populated by test_addrpools(); consumed by test_heartbeat_extended().

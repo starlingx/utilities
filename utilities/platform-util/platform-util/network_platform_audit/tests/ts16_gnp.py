@@ -7,6 +7,7 @@ import re
 
 from network_platform_audit import state
 from network_platform_audit.kube import _get_gnp_list
+from network_platform_audit.kube import _gnp_chain_has_port
 from network_platform_audit.kube import _gnp_chain_has_subnet
 from network_platform_audit.kube import _gnp_selector_nodetypes
 from network_platform_audit.kube import _hosts_for_gnp
@@ -209,6 +210,18 @@ def _check_gnp_subnets_in_firewall_local(cat, gnp_name, expected_subnets, all_ip
             state.category_warnings[cat].append(f"GNP {gnp_name}: subnet {subnet} not in {fw_label}")
 
 
+def _check_gnp_ports_in_firewall_local(cat, gnp_name, expected_ports, all_ipt_out, use_nft, fw_label):
+    for port in expected_ports:
+        match_type = _gnp_chain_has_port(gnp_name, port, all_ipt_out, use_nft)
+        if match_type == "literal":
+            log_result(f"GNP {gnp_name}: {fw_label} has port {port}", "PASS")
+        elif match_type == "range":
+            log_result(f"GNP {gnp_name}: {fw_label} has port {port} (via range)", "PASS")
+        else:
+            log(f"  [WARN] GNP {gnp_name}: port {port} not found in {fw_label}")
+            state.category_warnings[cat].append(f"GNP {gnp_name}: port {port} not in {fw_label}")
+
+
 def _check_local_gnp_firewall(cat, gnps, pool_subnets_by_gnp, all_ipt_out, use_nft, fw_label):
     for gnp in gnps:
         gnp_name = gnp["name"]
@@ -225,6 +238,9 @@ def _check_local_gnp_firewall(cat, gnps, pool_subnets_by_gnp, all_ipt_out, use_n
 
         expected_subnets = list(set(pool_subnets_by_gnp.get(gnp_name, [])))
         _check_gnp_subnets_in_firewall_local(cat, gnp_name, expected_subnets, all_ipt_out, use_nft, fw_label)
+
+        expected_ports = list(set(gnp.get("ports_allow", [])))
+        _check_gnp_ports_in_firewall_local(cat, gnp_name, expected_ports, all_ipt_out, use_nft, fw_label)
 
 
 def _fetch_remote_ruleset(cat, rhost, use_nft):
@@ -275,6 +291,20 @@ def _check_gnp_subnets_in_firewall_remote(cat, rhost, gnp_name, expected_subnets
             )
 
 
+def _check_gnp_ports_in_firewall_remote(cat, rhost, gnp_name, expected_ports, r_all_ipt, use_nft, fw_label):
+    for port in expected_ports:
+        match_type = _gnp_chain_has_port(gnp_name, port, r_all_ipt, use_nft)
+        if match_type == "literal":
+            log_result(f"[{rhost}] GNP {gnp_name}: {fw_label} has port {port}", "PASS")
+        elif match_type == "range":
+            log_result(f"[{rhost}] GNP {gnp_name}: {fw_label} has port {port} (via range)", "PASS")
+        else:
+            log(f"  [WARN] [{rhost}] GNP {gnp_name}: port {port} not found in {fw_label}")
+            state.category_warnings[cat].append(
+                f"{rhost}: GNP {gnp_name}: port {port} not in {fw_label}"
+            )
+
+
 def _check_remote_gnp_firewall(cat, rhost, gnps, pool_subnets_by_gnp, r_all_ipt, use_nft, fw_label):
     for gnp in gnps:
         gnp_name = gnp["name"]
@@ -291,6 +321,9 @@ def _check_remote_gnp_firewall(cat, rhost, gnps, pool_subnets_by_gnp, r_all_ipt,
         expected_subnets = list(set(pool_subnets_by_gnp.get(gnp_name, [])))
         _check_gnp_subnets_in_firewall_remote(cat, rhost, gnp_name, expected_subnets, r_all_ipt, use_nft, fw_label)
 
+        expected_ports = list(set(gnp.get("ports_allow", [])))
+        _check_gnp_ports_in_firewall_remote(cat, rhost, gnp_name, expected_ports, r_all_ipt, use_nft, fw_label)
+
 
 def test_gnp_firewall():
     cat = "TestSuite 16 - Firewall / GlobalNetworkPolicy"
@@ -298,8 +331,10 @@ def test_gnp_firewall():
         "1) kubectl get globalnetworkpolicies -o json",
         "2) Verify each sysinv pool subnet is in matching GNP ingress nets",
         "3) Warn on GNP subnets with no matching sysinv pool",
-        "4) Verify GNP translated to iptables/ip6tables",
+        "4) Verify each GNP policy chain exists in iptables/ip6tables (or "
+        "nftables) on every target host",
         "5) Verify iptables subnet matches pool subnet",
+        "6) Verify GNP destination ports are present in iptables/nftables",
     ]
     print_category(cat, description=desc)
 

@@ -4,6 +4,8 @@
 import re
 
 from network_platform_audit import state
+from network_platform_audit.dc_firewall import _load_platform_firewall
+from network_platform_audit.dc_firewall import check_firewall_ports_to_subcloud
 from network_platform_audit.kube import _get_gnp_list
 from network_platform_audit.log import log
 from network_platform_audit.log import log_result
@@ -12,6 +14,7 @@ from network_platform_audit.run import run_log_only
 from network_platform_audit.run import tool_available
 from network_platform_audit.ssh import open_ssh_session
 from network_platform_audit.ssh import remote_run
+from network_platform_audit.sysinv import _parse_generic_table
 from network_platform_audit.sysinv import local_hostname
 
 
@@ -198,9 +201,26 @@ def _check_kernel_route(cat, sc_name, mgmt_subnet):
         state.category_failures[cat].append(f"subcloud {sc_name}: no kernel route for {mgmt_subnet}")
 
 
-def _check_l4_ports(cat, sc_name, mgmt_start_ip, gnps):
+def _check_l4_ports(cat, sc_name, mgmt_start_ip, gnps, ssh_target=None):
+    """Probe TCP ports expected to be open on the subcloud.
+
+    Port list comes from platform_firewall.SUBCLOUD (the authoritative source).
+    Falls back to the GNP-derived list when sysinv is not importable.
+    ssh_target is forwarded to check_firewall_ports_to_subcloud so it can use
+    ss remotely to distinguish 'service not running' from 'firewall blocked'.
+    """
     if not mgmt_start_ip:
         return
+
+    fw = _load_platform_firewall()
+    if fw is not None:
+        check_firewall_ports_to_subcloud(cat, sc_name, mgmt_start_ip, fw,
+                                         ssh_target=ssh_target,
+                                         oam_ip=state.SUBCLOUD_OAM_IP)
+        return
+
+    # Fallback: derive ports from GNP allow rules (less precise)
+    log(f"  [INFO] {sc_name}: platform_firewall unavailable - using GNP port fallback")
     all_ports = []
     for gnp in gnps:
         if "systemcontroller" in gnp["name"] or "admin" in gnp["name"]:
@@ -209,12 +229,15 @@ def _check_l4_ports(cat, sc_name, mgmt_start_ip, gnps):
     for port in all_ports[:10]:
         if not str(port).isdigit():
             continue
-        rc2, _, _ = run_log_only(["nc", "-vz", "-w", "3", mgmt_start_ip, str(port)])
+        nc_flag = ["-6"] if ":" in mgmt_start_ip else []
+        rc2, _, _ = run_log_only(["nc"] + nc_flag + ["-vz", "-w", "3", mgmt_start_ip, str(port)])
         if rc2 == 0:
             log_result(f"  {sc_name}: TCP {mgmt_start_ip}:{port} accessible", "PASS")
         else:
             log_result(f"  {sc_name}: TCP {mgmt_start_ip}:{port} accessible", "FAILED")
-            state.category_failures[cat].append(f"subcloud {sc_name}: TCP {mgmt_start_ip}:{port} unreachable")
+            state.category_failures[cat].append(
+                f"subcloud {sc_name}: TCP {mgmt_start_ip}:{port} unreachable"
+            )
 
 
 def _determine_ssh_target(sc_name, mgmt_start_ip):
@@ -251,21 +274,14 @@ def _check_remote_host_list(cat, sc_name, ssh_target, ssh_target_lbl):
         )
     if rc_sys == 0 and sys_out:
         bad_hosts = []
-        for line in sys_out.splitlines():
-            parts = [p.strip() for p in line.split("|") if p.strip()]
-            if len(parts) < 3:
+        for host in _parse_generic_table(sys_out, key_col="hostname"):
+            hostname_col = host.get("hostname", "")
+            avail_col = host.get("availability", "")
+            oper_col = host.get("operational", "")
+            if not hostname_col:
                 continue
-            hostname_col = parts[1] if len(parts) > 1 else ""
-            avail_col = ""
-            oper_col = ""
-            for p in parts:
-                if p in ("available", "degraded", "failed", "offline", "intest"):
-                    avail_col = p
-                if p in ("enabled", "disabled"):
-                    oper_col = p
-            if hostname_col and hostname_col not in ("hostname", "-" * len(hostname_col)):
-                if avail_col not in ("available", "") or oper_col not in ("enabled", ""):
-                    bad_hosts.append(f"{hostname_col}(avail={avail_col},oper={oper_col})")
+            if avail_col != "available" or oper_col != "enabled":
+                bad_hosts.append(f"{hostname_col}(avail={avail_col},oper={oper_col})")
         if bad_hosts:
             log_result(f"  {sc_name}: all hosts available/enabled", "FAILED")
             state.category_failures[cat].append(
@@ -359,9 +375,12 @@ def _process_subcloud(cat, sc_name, gnps):
     _check_dns_resolution(cat, sc_name, mgmt_start_ip)
     _check_subnet_in_gnp(cat, sc_name, mgmt_subnet, gnps)
     _check_kernel_route(cat, sc_name, mgmt_subnet)
-    _check_l4_ports(cat, sc_name, mgmt_start_ip, gnps)
 
+    # Determine SSH target early so _check_l4_ports can use ss remotely
     ssh_target, ssh_target_lbl = _determine_ssh_target(sc_name, mgmt_start_ip)
+
+    _check_l4_ports(cat, sc_name, mgmt_start_ip, gnps, ssh_target=ssh_target)
+
     if ssh_target:
         _run_remote_subcloud_checks(cat, sc_name, ssh_target, ssh_target_lbl)
 
@@ -372,7 +391,8 @@ def test_dc_systemcontroller():
         "1) Activated only when distributed_cloud_role = systemcontroller",
         "2) Requires --subcloud or --subcloud-range argument",
         "3) Per subcloud: availability, gateway reachability, mgmt IP reachability",
-        "4) DNS resolution, subnet in GNP, kernel route, L4 TCP ports",
+        "4) DNS resolution, subnet in GNP, kernel route",
+        "5) Firewall port reachability from platform_firewall.SUBCLOUD (falls back to GNP ports)",
     ]
     print_category(cat, description=desc)
 

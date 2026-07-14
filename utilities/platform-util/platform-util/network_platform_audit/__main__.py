@@ -52,7 +52,7 @@
 #   k8s_nodes            Kubernetes node, pod, and endpoint status
 #   coredns              CoreDNS internal, platform, and external resolution
 #   cluster_nat          DNAT functional and cross-node connectivity
-#   gnp                  GlobalNetworkPolicy vs addrpool subnets and iptables
+#   gnp                  GlobalNetworkPolicy vs addrpool subnets/ports and iptables/nftables
 #   endpoints            OpenStack endpoint ports in LISTEN and accessible
 #   mtu_functional       Full-size ping per interface MTU (IPv4+IPv6, DF bit)
 #   dc_systemcontroller  DC: subcloud gateway, DNS, routes, GNP, L4 ports
@@ -128,7 +128,7 @@ AVAILABLE_TESTS = {
     "k8s_nodes":             (test_k8s_nodes,              "Kubernetes node, pod, and endpoint status"),
     "coredns":               (test_coredns,                "CoreDNS internal, platform, and external resolution"),
     "cluster_nat":           (test_cluster_nat,            "DNAT functional and cross-node connectivity"),
-    "gnp":                   (test_gnp_firewall,           "GlobalNetworkPolicy vs addrpool subnets and iptables"),
+    "gnp":                   (test_gnp_firewall,           "GlobalNetworkPolicy vs addrpool subnets/ports and iptables/nftables"),
     "endpoints":             (test_openstack_endpoints,    "OpenStack endpoint ports in LISTEN and accessible"),
     "mtu_functional":        (test_mtu_functional,         "full-size ping per interface MTU (IPv4+IPv6, DF bit)"),
     "dc_systemcontroller":   (test_dc_systemcontroller,   "subcloud gateway, DNS, routes, GNP, L4 ports"),
@@ -154,16 +154,18 @@ def write_summary():
 
         if not fails and not warns:
             log(f"{cat:{col1}} | {'PASS':{col2}} | -")
-        elif fails:
-            all_pass = False
-            log(f"{cat:{col1}} | {'FAILED':{col2}} | - {fails[0]}")
-            for f in fails[1:]:
-                log(f"{'':{col1}} | {'':{col2}} | - {f}")
         else:
-            all_warn = True
-            log(f"{cat:{col1}} | {'WARN':{col2}} | - {warns[0]}")
-            for w in warns[1:]:
-                log(f"{'':{col1}} | {'':{col2}} | - {w}")
+            if fails:
+                all_pass = False
+                result = "FAILED"
+            else:
+                all_warn = True
+                result = "WARN"
+            tagged = [("FAILED", f) for f in fails] + [("WARN", w) for w in warns]
+            tag0, msg0 = tagged[0]
+            log(f"{cat:{col1}} | {result:{col2}} | - [{tag0}] {msg0}")
+            for tag, msg in tagged[1:]:
+                log(f"{'':{col1}} | {'':{col2}} | - [{tag}] {msg}")
 
     log("=" * 120)
 
@@ -258,6 +260,12 @@ def main():
                         metavar="PASSWORD",
                         help="SSH password for remote hosts.")
     args = parser.parse_args()
+
+    if args.subcloud_range and args.subcloud_oam_ip:
+        log("[ERROR] --subcloud-range and --subcloud-oam-ip cannot be used "
+            "together: --subcloud-oam-ip identifies a single subcloud, "
+            "not a range")
+        sys.exit(1)
 
     state.PAUSE_ENABLED = args.pause
     state.REPORT_FILE = args.log_file

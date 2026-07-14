@@ -289,3 +289,98 @@ def _gnp_chain_has_subnet(gnp_name, subnet, ipt_text, use_nft=False):
             if re.search(rf'-A {re.escape(chain)} .*--match-set.*MARK', ipt_text):
                 return "ipset"
         return None
+
+
+def _port_range(port):
+    """Parse a GNP port entry ("6443" or "30000:32767") into (lo, hi) ints."""
+    try:
+        if ":" in str(port):
+            lo_s, hi_s = str(port).split(":", 1)
+            return int(lo_s), int(hi_s)
+        return int(port), int(port)
+    except ValueError:
+        return None
+
+
+def _gnp_chain_has_port(gnp_name, port, ipt_text, use_nft=False):
+    """Check if a destination port appears in iptables/nftables for a given GNP.
+
+    Returns "literal" if the port (or an identical range) is matched
+    explicitly inside the GNP chain, "range" if covered by a broader port
+    range, or None if not found.
+    """
+    port_range = _port_range(port)
+    if port_range is None:
+        return None
+    port_lo, port_hi = port_range
+
+    if use_nft:
+        gnp_log_pattern = rf'log prefix "[^"]*{re.escape(gnp_name)}'
+        chain_blocks = []
+        for m in re.finditer(r'chain (cali-pi-\S+)\s*\{', ipt_text):
+            start = m.end()
+            depth = 1
+            pos = start
+            while pos < len(ipt_text) and depth > 0:
+                if ipt_text[pos] == '{':
+                    depth += 1
+                elif ipt_text[pos] == '}':
+                    depth -= 1
+                pos += 1
+            block = ipt_text[start:pos - 1]
+            if re.search(gnp_log_pattern, block):
+                chain_blocks.append(block)
+
+        if not chain_blocks:
+            return None
+
+        for chain_block in chain_blocks:
+            # nft renders a single port/range as "dport 6443" or "dport
+            # 30000-32767", and a multi-value port list as an anonymous set
+            # "dport { 22, 4545, 30000-32767 }" - handle both forms.
+            for m in re.finditer(r'dport\s+(\{[^}]*\}|\d+(?:-\d+)?)', chain_block):
+                token = m.group(1)
+                entries = token.strip('{} ').split(',') if token.startswith('{') else [token]
+                for entry in entries:
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    try:
+                        if '-' in entry:
+                            lo_s, hi_s = entry.split('-', 1)
+                            lo, hi = int(lo_s), int(hi_s)
+                        else:
+                            lo = hi = int(entry)
+                    except ValueError:
+                        continue
+                    if lo == port_lo and hi == port_hi:
+                        return "literal"
+                    if lo <= port_lo and hi >= port_hi:
+                        return "range"
+        return None
+    else:
+        chain_match = re.search(
+            rf'-A (cali-pi-\S+) .*Policy {re.escape(gnp_name)} ingress', ipt_text
+        )
+        if not chain_match:
+            return None
+        chain = chain_match.group(1)
+
+        for line in ipt_text.splitlines():
+            if f"-A {chain} " not in line:
+                continue
+            for m in re.finditer(r'--dports?\s+([\d,:]+)', line):
+                for token in m.group(1).split(','):
+                    try:
+                        if ':' in token:
+                            lo_s, hi_s = token.split(':', 1)
+                            lo, hi = int(lo_s), int(hi_s)
+                        else:
+                            lo = hi = int(token)
+                    except ValueError:
+                        continue
+                    if lo == port_lo and hi == port_hi:
+                        return "literal"
+                    if lo <= port_lo and hi >= port_hi:
+                        return "range"
+        return None
