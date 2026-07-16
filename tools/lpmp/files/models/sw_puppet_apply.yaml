@@ -1,0 +1,31 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Puppet Apply — manifest application success/failure/timeout
+########################################################################
+
+description: "Puppet manifest application — apply start/completion, manifest failures and timeouts, controller/worker/storage config application, and runtime manifest triggers."
+
+blocks:
+  - label: "Puppet Apply"
+    file: ["daemon.log*"]
+    timeline:
+      - 'Applying puppet'
+      - 'puppet manifest'
+      - 'Failed to run the puppet manifest'
+      - 'manifest timeout'
+      - 'controller_config'
+      - 'worker_config'
+      - 'storage_config'
+      - 'DONE'
+
+  - label: "Sysinv Config"
+    file: ["sysinv.log*"]
+    timeline:
+      - 'config_apply_runtime_manifest'
+      - 'configure_ihost'
+      - 'Config out-of-date'
+      - 'reboot required'
+      - 'runtime manifest'
+      - 'initial inventory completed'

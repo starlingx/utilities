@@ -25,6 +25,8 @@
 #
 ########################################################################
 
+description: "Duration of service management storage service deprovisioning using pair blocks in sm.log."
+
 blocks:
   - label: "ceph-osd"
     file: ["sm.log*"]

@@ -1,0 +1,36 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# PTP Sync — ptp4l/phc2sys state, clock jumps, sync loss
+########################################################################
+
+description: "PTP clock synchronization — ptp4l port state transitions (SLAVE/MASTER/UNCALIBRATED), phc2sys clock discipline, master offset tracking, clock jumps, clockClass changes, and sync failures."
+
+blocks:
+  - label: "PTP State"
+    file: ["daemon.log*"]
+    timeline:
+      - 'ptp4l'
+      - 'phc2sys'
+      - 'master offset'
+      - 'rms'
+      - 'selected best master'
+      - 'port.*UNCALIBRATED'
+      - 'port.*SLAVE'
+      - 'port.*MASTER'
+      - 'port.*FAULTY'
+      - 'clockClass'
+      - 'timeout'
+      - 'failed to step clock'
+      - 'clock jumped'
+
+  - label: "System Clock"
+    file: ["daemon.log*", "kern.log*"]
+    timeline:
+      - 'clock_adjtime'
+      - 'Time has been changed'
+      - 'hwclock'
+      - 'systemd-timesyncd'
+      - 'time step'
+      - 'PHC'

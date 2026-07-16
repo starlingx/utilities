@@ -60,7 +60,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
         """Test block-level max_time_delta overrides command line setting"""
         # Create model with block-level max_time_delta
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Block Override Test',
                     'file': 'test.log',
@@ -96,7 +96,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
     def test_block_level_overrides_command_line_negative(self):
         """Test block-level max_time_delta causes timeout when exceeded"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Block Timeout Test',
                     'file': 'test.log',
@@ -131,7 +131,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
     def test_command_line_overrides_model_positive(self):
         """Test command line max_time_delta overrides model setting"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Command Line Override Test',
                     'file': 'test.log',
@@ -169,7 +169,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
     def test_command_line_overrides_model_negative(self):
         """Test command line max_time_delta causes timeout when exceeded"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Command Line Timeout Test',
                     'file': 'test.log',
@@ -206,7 +206,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
     def test_model_overrides_default_positive(self):
         """Test model max_time_delta overrides default setting"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Model Override Test',
                     'file': 'test.log',
@@ -243,7 +243,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
     def test_model_overrides_default_negative(self):
         """Test model max_time_delta causes timeout when exceeded"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Model Timeout Test',
                     'file': 'test.log',
@@ -280,7 +280,7 @@ class TestMaxTimeDeltaPrecedence(LPMPTestBase):
     def test_default_fallback(self):
         """Test default max_time_delta is used when no other setting exists"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Default Fallback Test',
                     'file': 'test.log',
@@ -332,7 +332,7 @@ class TestCommandLineParameterOverrides(LPMPTestBase):
         """Test command line max_time_delta parameter precedence"""
         # Create model with different max_time_delta
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'CLI Override Test',
                 'file': 'test.log',
                 'start': 'start pattern',
@@ -368,7 +368,7 @@ class TestCommandLineParameterOverrides(LPMPTestBase):
         """Test command line verbose parameter precedence"""
         # Create model with different verbosity
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'CLI Verbose Test',
                 'file': 'test.log',
                 'start': 'start pattern',
@@ -393,7 +393,7 @@ class TestCommandLineParameterOverrides(LPMPTestBase):
     def test_model_settings_override_defaults(self):
         """Test model settings override default values for all parameters"""
         model_data = {
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Model Settings Test',
                 'file': 'test.log',
                 'start': 'start pattern',
@@ -432,7 +432,7 @@ if __name__ == '__main__':
             f.write(log_content)
 
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'First Match Ignore Test',
                     'file': 'test.log',

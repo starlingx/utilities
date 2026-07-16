@@ -1,0 +1,25 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Graceful Recovery — failure detection, recovery attempts, enable FSM
+########################################################################
+
+description: "Graceful recovery and host enable sequence — failure detection, recovery initiation, GoEnabled testing, host services completion, and out-of-service test failures."
+
+blocks:
+  - label: "Recovery Events"
+    file: ["mtcAgent.log*"]
+    timeline:
+      - 'Error'
+      - 'starting graceful recovery'
+      - 'Graceful Recovery'
+      - 'force failed'
+      - 'failed out-of-service test'
+      - 'Forcing Full Enable Sequence'
+      - 'GoEnabled Testing Complete'
+      - 'Host Services Complete'
+      - 'ip address resolution failed'
+      - 'Query Services Failed'
+      - 'Daemon Start-Up'
+      - 'critical enable failure'

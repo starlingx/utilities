@@ -21,6 +21,8 @@
 #
 ########################################################################
 
+description: "Duration of service management storage service provisioning using pair blocks in sm.log."
+
 blocks:
 
   - label: "storage-networking"

@@ -1,0 +1,19 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Collectd Thresholds — resource warning/failure/okay transitions
+########################################################################
+
+description: "Collectd resource threshold events — warning-to-failure and failure-to-okay transitions for CPU, memory, filesystem, and interface metrics."
+
+blocks:
+  - label: "Threshold Transitions"
+    file: ["collectd.log*"]
+    timeline:
+      - 'warning -> failure'
+      - 'failure -> okay'
+      - 'warning -> okay'
+      - 'okay -> warning'
+      - 'threshold'
+      - 'plugin_dispatch_notification'

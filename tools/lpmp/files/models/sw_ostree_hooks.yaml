@@ -1,0 +1,32 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Ostree & Deploy Hooks — ostree checkout, hook execution, patch scripts
+########################################################################
+
+description: "Ostree operations and deploy hooks — ostree checkout/pull/commit, deploy hook execution (pre/post start/install), activation scripts, and semantic checks."
+
+blocks:
+  - label: "Ostree Operations"
+    file: ["software.log*", "daemon.log*"]
+    timeline:
+      - 'ostree'
+      - 'checkout'
+      - 'sysroot'
+      - 'deploy'
+      - 'commit'
+      - 'pull'
+      - 'remote'
+      - 'feed'
+
+  - label: "Deploy Hooks"
+    file: ["software.log*", "daemon.log*"]
+    timeline:
+      - 'hook'
+      - 'pre_start'
+      - 'post_start'
+      - 'pre_install'
+      - 'post_install'
+      - 'activation_script'
+      - 'semantic'

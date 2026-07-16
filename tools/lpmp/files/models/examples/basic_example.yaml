@@ -6,6 +6,9 @@
 # =============================================================================
 
 # Basic global settings (all optional)
+
+description: "Basic LPMP example demonstrating essential features for getting started."
+
 settings:
   max_time_delta: 60                    # Max seconds between patterns
   start_date: "2024-01-06T10:00:00"     # Start analysis from this time

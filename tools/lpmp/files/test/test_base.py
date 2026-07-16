@@ -93,7 +93,7 @@ class LPMPTestBase(unittest.TestCase):
         class MockArgs:
             def __init__(self):
                 self.help_model = False
-                self.list_models = False
+                self.list_models = None
                 self.stats = False
                 self.hosts = False
                 self.include = None

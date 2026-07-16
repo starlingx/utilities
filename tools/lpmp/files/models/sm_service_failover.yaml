@@ -1,0 +1,36 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Service Manager — service state changes, failover, peer heartbeat
+########################################################################
+
+description: "Service Manager (SM) events — service state transitions (active/standby/failed), SM heartbeat loss between controllers, peer reset requests, blind guess elections."
+
+blocks:
+  - label: "Service State Changes"
+    file: ["sm.log*", "sm-customer.log*"]
+    timeline:
+      - 'declared dead'
+      - 'fail-pending'
+      - 'fail-failed'
+      - 'Entering fail-pending state'
+      - 'enabled-active'
+      - 'enabled-standby'
+      - 'enabled-go-standby'
+      - 'disabled'
+      - 'is deprovisioned'
+
+  - label: "SM Heartbeat and Peer"
+    file: ["sm.log*"]
+    timeline:
+      - 'lose heartbeat'
+      - 'Loss of heartbeat'
+      - 'nodes reachable'
+      - 'Blind guess'
+      - 'survivor'
+      - 'Trap connection has been broken'
+      - 'Request mtce to reset peer'
+      - 'sm: debug Started'
+      - 'sm: debug Shutdown complete'
+      - 'Waiting for node configuration'

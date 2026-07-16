@@ -1,0 +1,21 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# TLS Failures — x509 errors, handshake failures, cert validation
+########################################################################
+
+description: "TLS and x509 failures — certificate expired/not-yet-valid errors, TLS handshake failures, and connection refused due to cert issues on kube-apiserver port."
+
+blocks:
+  - label: "TLS Errors"
+    file: ["daemon.log*", "sysinv.log*"]
+    timeline:
+      - 'x509: certificate has expired'
+      - 'tls: failed to verify'
+      - 'certificate is not yet valid'
+      - 'x509'
+      - 'TLS handshake'
+      - 'connection refused.*6443'
+      - 'CERTIFICATE_VERIFY_FAILED'
+      - 'SSL'

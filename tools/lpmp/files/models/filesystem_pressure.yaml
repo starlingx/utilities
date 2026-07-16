@@ -1,0 +1,29 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Filesystem Pressure — disk space exhaustion, threshold crossings
+########################################################################
+
+description: "Filesystem pressure events — fsmond threshold crossings, ENOSPC errors, disk space warnings, image GC triggers, and kubelet eviction due to disk pressure."
+
+blocks:
+  - label: "Filesystem Monitor"
+    file: ["fsmond.log*"]
+    timeline:
+      - 'warning'
+      - 'failure'
+      - 'critical'
+      - 'threshold'
+
+  - label: "Disk Space Errors"
+    file: ["daemon.log*", "kern.log*"]
+    timeline:
+      - 'No space left on device'
+      - 'ENOSPC'
+      - 'disk space'
+      - 'filesystem full'
+      - 'image-gc'
+      - 'imagefs'
+      - 'eviction'
+      - 'DiskPressure'

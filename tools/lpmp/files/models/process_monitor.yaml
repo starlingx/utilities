@@ -1,0 +1,21 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Process Monitor — pmond process failures, restarts, and unrecoverable
+########################################################################
+
+description: "Process monitor (pmond) events — process failures, spawn failures, automatic restarts, unrecoverable conditions, and hostwd communication issues."
+
+blocks:
+  - label: "Process Monitor"
+    file: ["pmond.log*"]
+    timeline:
+      - 'process has failed'
+      - 'spawn failed'
+      - 'unrecoverable'
+      - 'process-restart'
+      - 'self-restart'
+      - 'Could not connect to hostwd'
+      - 'connected to host watchdog'
+      - 'manage_process_failure'

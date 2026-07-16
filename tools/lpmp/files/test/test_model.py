@@ -60,7 +60,7 @@ class TestModelFileSearch(LPMPTestBase):
         """Test finding model with absolute path (highest priority)"""
         model_path = os.path.join(self.temp_dir, 'test_model.yaml')
         with open(model_path, 'w') as f:
-            f.write('blocks: []\n')
+            f.write('description: Test model.\nblocks: []\n')
 
         result = find_model_file(model_path)
         self.assertEqual(result, model_path)
@@ -70,7 +70,7 @@ class TestModelFileSearch(LPMPTestBase):
         os.makedirs('subdir', exist_ok=True)
         model_path = os.path.join('subdir', 'test_model.yaml')
         with open(model_path, 'w') as f:
-            f.write('blocks: []\n')
+            f.write('description: Test model.\nblocks: []\n')
 
         result = find_model_file(model_path)
         self.assertIsNotNone(result)
@@ -81,7 +81,7 @@ class TestModelFileSearch(LPMPTestBase):
         os.makedirs('models', exist_ok=True)
         model_path = os.path.join('models', 'test_model.yaml')
         with open(model_path, 'w') as f:
-            f.write('blocks: []\n')
+            f.write('description: Test model.\nblocks: []\n')
 
         result = find_model_file('test_model.yaml')
         self.assertEqual(result, model_path)
@@ -107,7 +107,7 @@ class TestModelFileSearch(LPMPTestBase):
         """Test finding model in current directory when not in other locations"""
         model_path = 'test_model.yaml'
         with open(model_path, 'w') as f:
-            f.write('blocks: []\n')
+            f.write('description: Test model.\nblocks: []\n')
 
         result = find_model_file('test_model.yaml')
         self.assertEqual(result, model_path)
@@ -122,7 +122,7 @@ class TestModelFileSearch(LPMPTestBase):
         os.makedirs('models', exist_ok=True)
         model_path = os.path.join('models', 'test_model.yaml')
         with open(model_path, 'w') as f:
-            f.write('blocks: []\n')
+            f.write('description: Test model.\nblocks: []\n')
 
         result = find_model_file('test_model')
         self.assertIsNotNone(result)
@@ -133,7 +133,7 @@ class TestModelFileSearch(LPMPTestBase):
         os.makedirs('models', exist_ok=True)
         model_path = os.path.join('models', 'test_model.yaml')
         with open(model_path, 'w') as f:
-            f.write('blocks: []\n')
+            f.write('description: Test model.\nblocks: []\n')
 
         result_ext = find_model_file('test_model.yaml')
         result_no_ext = find_model_file('test_model')
@@ -263,7 +263,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_pattern_model(self):
         """Test loading pattern block model"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Test Pattern',
                     'file': 'test.log',
@@ -282,7 +282,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_pair_model(self):
         """Test loading pair block model"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Trigger',
                     'file': 'test.log',
@@ -308,7 +308,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_model_with_settings(self):
         """Test loading model with global settings"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Test',
                     'file': 'test.log',
@@ -343,7 +343,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_model_missing_blocks(self):
         """Test handling of model file without blocks section"""
         model_data = {
-            'settings': {
+            'description': 'Test model.', 'settings': {
                 'max_time_delta': 60
             }
         }
@@ -356,7 +356,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_model_invalid_pattern_block(self):
         """Test handling of pattern block missing required fields"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Incomplete Block',
                     # Missing 'file' and 'patterns' fields
@@ -372,7 +372,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_model_invalid_pair_block(self):
         """Test handling of pair block missing required fields"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Incomplete Pair Block',
                     'file': 'test.log',
@@ -398,7 +398,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_model_with_block_level_max_time_delta(self):
         """Test loading model with block-level max_time_delta"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Test Block Level Setting',
                     'file': 'test.log',
@@ -419,7 +419,7 @@ class TestModelLoading(unittest.TestCase):
     def test_load_model_mixed_max_time_delta_settings(self):
         """Test loading model with mixed block-level and no max_time_delta"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Block Without Setting',
                     'file': 'test.log',
@@ -466,7 +466,7 @@ class TestModelIncludes(unittest.TestCase):
     def test_include_settings_merge(self):
         """Test include merges settings and allows local overrides"""
         include_data = {
-            'settings': {
+            'description': 'Test model.', 'settings': {
                 'loops': 2,
                 'timeline_patterns': {
                     'maintenance': ['A', 'B'],
@@ -475,6 +475,7 @@ class TestModelIncludes(unittest.TestCase):
             }
         }
         model_data = {
+            'description': 'Test model.',
             'include': 'include.yaml',
             'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'patterns': ['test']}
@@ -518,14 +519,42 @@ class TestYAMLValidation(unittest.TestCase):
 
     def test_missing_blocks_section(self):
         """Test error when 'blocks' section is missing"""
-        model_data = {'settings': {'loops': 1}}
+        model_data = {'description': 'x', 'settings': {'loops': 1}}
         with open(self.model_file, 'w') as f:
             yaml.dump(model_data, f)
 
         with self.assertRaises(SystemExit):
             with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
                 load_model(self.model_file)
-                self.assertIn("missing required 'blocks:' section", mock_stderr.getvalue())
+                self.assertIn("missing required 'description: Test model.\nblocks:' section", mock_stderr.getvalue())
+
+    def test_missing_description_section(self):
+        """Test error when 'description' section is missing"""
+        model_data = {
+            'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['x']}]
+        }
+        with open(self.model_file, 'w') as f:
+            yaml.dump(model_data, f)
+
+        with self.assertRaises(SystemExit):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                load_model(self.model_file)
+                self.assertIn("missing required 'description:' section",
+                              mock_stderr.getvalue())
+
+    def test_description_must_be_non_empty_string(self):
+        """Test error when 'description' is empty or non-string"""
+        model_data = {
+            'description': '   ',
+            'blocks': [{'label': 'T', 'file': 't.log', 'patterns': ['x']}]
+        }
+        with open(self.model_file, 'w') as f:
+            yaml.dump(model_data, f)
+
+        with self.assertRaises(SystemExit):
+            with patch('sys.stderr', new_callable=StringIO) as mock_stderr:
+                load_model(self.model_file)
+                self.assertIn("description", mock_stderr.getvalue())
 
     def test_empty_blocks_list(self):
         """Test error when 'blocks' list is empty"""
@@ -539,7 +568,7 @@ class TestYAMLValidation(unittest.TestCase):
     def test_missing_label_field(self):
         """Test error when block is missing 'label' field"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'file': 'test.log', 'patterns': ['test']}
             ]
         }
@@ -552,7 +581,7 @@ class TestYAMLValidation(unittest.TestCase):
     def test_missing_file_field(self):
         """Test error when block is missing 'file' field"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'patterns': ['test']}
             ]
         }
@@ -565,7 +594,7 @@ class TestYAMLValidation(unittest.TestCase):
     def test_missing_patterns_and_start_stop(self):
         """Test error when block has neither 'patterns' nor 'start'/'stop'"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log'}
             ]
         }
@@ -578,7 +607,7 @@ class TestYAMLValidation(unittest.TestCase):
     def test_start_without_stop(self):
         """Test error when block has 'start' but no 'stop'"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'start': 'start pattern'}
             ]
         }
@@ -591,7 +620,7 @@ class TestYAMLValidation(unittest.TestCase):
     def test_stop_without_start(self):
         """Test error when block has 'stop' but no 'start'"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'Test', 'file': 'test.log', 'stop': 'stop pattern'}
             ]
         }
@@ -603,7 +632,7 @@ class TestYAMLValidation(unittest.TestCase):
 
     def test_blocks_not_list(self):
         """Test error when 'blocks' is not a list"""
-        model_data = {'blocks': 'not a list'}
+        model_data = {'description': 'Test model.', 'blocks': 'not a list'}
         with open(self.model_file, 'w') as f:
             yaml.dump(model_data, f)
 
@@ -612,7 +641,7 @@ class TestYAMLValidation(unittest.TestCase):
 
     def test_block_not_dict(self):
         """Test error when block is not a dictionary"""
-        model_data = {'blocks': ['not a dict']}
+        model_data = {'description': 'Test model.', 'blocks': ['not a dict']}
         with open(self.model_file, 'w') as f:
             yaml.dump(model_data, f)
 

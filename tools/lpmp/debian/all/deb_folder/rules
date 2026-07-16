@@ -22,6 +22,7 @@ override_dh_auto_install:
 	install -m 644 -p lpmp_output.py $(PYTHONDIR)/
 	install -m 644 -p lpmp_graph.py $(PYTHONDIR)/
 	install -m 644 -p lpmp_utils.py $(PYTHONDIR)/
+	install -m 644 -p lpmp_batch.py $(PYTHONDIR)/
 	install -m 644 -p docs/README.md $(PYTHONDIR)/
 	install -m 644 -p models/*.yaml $(VARLIB)/lpmp_models/
 	install -m 644 -p models/helpers/*.yaml $(VARLIB)/lpmp_models/helpers/

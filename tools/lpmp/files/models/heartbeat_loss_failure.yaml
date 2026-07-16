@@ -27,6 +27,8 @@
 #
 ########################################################################
 
+description: "Complete sequence of a heartbeat loss failure — initial miss, threshold reached, loss declaration, and cluster removal."
+
 blocks:
   # Initial heartbeat degradation detected by hbsAgent
   - label: "HBS Cluster Heartbeat Miss Detection"

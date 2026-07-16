@@ -1,0 +1,26 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# App Lifecycle — FluxCD reconciliation, helm releases, app apply/upload
+########################################################################
+
+description: "Application lifecycle — system application-apply/upload/remove operations, FluxCD reconciliation, HelmRelease state, and helm override changes."
+
+blocks:
+  - label: "Application Operations"
+    file: ["sysinv.log*", "daemon.log*"]
+    timeline:
+      - 'app-apply'
+      - 'app-upload'
+      - 'app-remove'
+      - 'application-apply'
+      - 'application-upload'
+      - 'application-remove'
+      - 'helm-override'
+      - 'HelmRelease'
+      - 'FluxCD'
+      - 'reconciliation'
+      - 'Reconcile'
+      - 'apply failed'
+      - 'apply completed'

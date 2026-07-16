@@ -69,7 +69,7 @@ class TestTimelineModelLoading(LPMPTestBase):
     def test_load_direct_timeline_model(self):
         """Test loading timeline model with direct pattern list"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Direct Timeline',
                     'file': 'test.log',
@@ -89,7 +89,7 @@ class TestTimelineModelLoading(LPMPTestBase):
     def test_load_named_reference_timeline_model(self):
         """Test loading timeline model with named pattern reference"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Named Timeline',
                     'file': 'test.log',
@@ -108,7 +108,7 @@ class TestTimelineModelLoading(LPMPTestBase):
         """Test loading timeline model with included pattern definitions"""
         # Create include file with timeline patterns
         include_data = {
-            'settings': {
+            'description': 'Test model.', 'settings': {
                 'timeline_patterns': {
                     'maintenance': ['Host Add Completed', 'Unlock Action'],
                     'network': ['Link Down', 'Link Up']
@@ -120,6 +120,7 @@ class TestTimelineModelLoading(LPMPTestBase):
 
         # Create main model file
         model_data = {
+            'description': 'Test model.',
             'include': 'patterns.yaml',
             'blocks': [
                 {
@@ -144,7 +145,7 @@ class TestTimelineModelLoading(LPMPTestBase):
     def test_timeline_model_validation_all_timeline_blocks(self):
         """Test that timeline models require all blocks to be timeline blocks"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Timeline Block',
                     'file': 'test.log',
@@ -166,7 +167,7 @@ class TestTimelineModelLoading(LPMPTestBase):
     def test_timeline_model_validation_missing_timeline_field(self):
         """Test validation error when timeline field is missing"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Invalid Block',
                     'file': 'test.log'
@@ -183,7 +184,7 @@ class TestTimelineModelLoading(LPMPTestBase):
     def test_timeline_model_with_optional_blocks(self):
         """Test timeline model with optional blocks"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Required Timeline',
                     'file': 'test.log',
@@ -209,7 +210,7 @@ class TestTimelineModelLoading(LPMPTestBase):
     def test_timeline_model_with_controller_flag(self):
         """Test timeline model with controller-only blocks"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Controller Timeline',
                     'file': 'test.log',
@@ -595,7 +596,7 @@ class TestTimelineModelDetection(LPMPTestBase):
     def test_detect_pure_timeline_model(self):
         """Test detection of pure timeline model (all blocks are timeline)"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Timeline 1',
                     'file': 'test1.log',
@@ -621,7 +622,7 @@ class TestTimelineModelDetection(LPMPTestBase):
     def test_detect_mixed_model_error(self):
         """Test error detection for mixed timeline/non-timeline models"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Timeline Block',
                     'file': 'test1.log',
@@ -644,7 +645,7 @@ class TestTimelineModelDetection(LPMPTestBase):
     def test_detect_non_timeline_model(self):
         """Test detection of non-timeline model (no timeline blocks)"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Pattern Block',
                     'file': 'test1.log',
@@ -700,7 +701,7 @@ class TestTimelineModelIntegration(LPMPTestBase):
         """Test complete timeline model processing workflow"""
         # Create include file with timeline patterns
         include_data = {
-            'settings': {
+            'description': 'Test model.', 'settings': {
                 'timeline_patterns': {
                     'maintenance': ['Host Add Completed', 'Unlock Action', 'Lock Action'],
                     'network': ['Link Down', 'Link Up']
@@ -712,6 +713,7 @@ class TestTimelineModelIntegration(LPMPTestBase):
 
         # Create timeline model
         model_data = {
+            'description': 'Test model.',
             'include': 'patterns.yaml',
             'blocks': [
                 {
@@ -765,7 +767,7 @@ class TestTimelineModelIntegration(LPMPTestBase):
     def test_timeline_model_with_controller_filtering(self):
         """Test timeline model with controller-only blocks"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Controller Events',
                     'file': 'integration.log',
@@ -819,7 +821,7 @@ class TestTimelineModelIntegration(LPMPTestBase):
     def test_timeline_model_error_handling(self):
         """Test error handling in timeline model processing"""
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Required Timeline',
                     'file': 'integration.log',

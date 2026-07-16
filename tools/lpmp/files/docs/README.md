@@ -81,7 +81,9 @@ optional arguments:
   --include HOST [HOST ...]
                         Include only specified hosts (space-separated, only with --bundle)
   --lab LAB             Lab name for identification (default: lab)
-  --list-models, -lm    List available functional and example model files
+  --list-models [TYPE], -lm [TYPE]
+                        List available model files, optionally filtered to a single type:
+                        timeline, pattern, pair, or example
   --logs-dir LOGS_DIR, -l LOGS_DIR
                         Directory containing log files (default: var/log, relative to bundle)
   --loops LOOPS, -n LOOPS
@@ -365,7 +367,7 @@ For detailed information about:
 - **Architecture and design**:        See [ARCHITECTURE.md](ARCHITECTURE.md)
 - **Development and advanced usage**: See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 - **Interactive model help**:         Run `lpmptool --help-model`
-- **Available models**:               Run `lpmptool --list-models` (add `--sort` for alphabetical)
+- **Available models**:               Run `lpmptool --list-models` (or `-lm timeline|pattern|pair|example` to filter)
 
 ## Version
 

@@ -1,0 +1,21 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Host Watchdog — system health quorum, forced reboots, unhealthy state
+########################################################################
+
+description: "Host watchdog (hostwd) events — quorum health checks, forced reboots, unhealthy system declarations, and pmon communication failures."
+
+blocks:
+  - label: "Watchdog Events"
+    file: ["hostwd.log*"]
+    timeline:
+      - 'Initiating reboot'
+      - 'Process Quorum Health'
+      - 'Quorum failed'
+      - 'declaring system unhealthy'
+      - 'not receiving messages'
+      - 'PMON reports unrecoverable'
+      - 'Failed to enable watchdog'
+      - 'kdump is'

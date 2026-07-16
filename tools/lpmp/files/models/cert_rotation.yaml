@@ -1,0 +1,36 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Certificate Rotation — cert-mon detection, kube-cert-rotation, renewal
+########################################################################
+
+description: "Certificate monitoring and rotation — cert-mon expiry/validity detection, kube-cert-rotation.sh execution, kubeadm cert renewal, and cert-alarm events (500.200/500.210)."
+
+blocks:
+  - label: "Certificate Monitoring"
+    file: ["cert-mon.log*", "cert-alarm.log*"]
+    timeline:
+      - 'certificate has expired'
+      - 'not yet valid'
+      - 'cert.*renew'
+      - 'cert.*expir'
+      - 'Root CA'
+      - 'renewal will not be attempted'
+      - 'notAfter'
+      - 'notBefore'
+      - 'certificate monitor'
+      - 'alarm.*500.200'
+      - 'alarm.*500.210'
+
+  - label: "Certificate Rotation"
+    file: ["cron.log*", "daemon.log*"]
+    timeline:
+      - 'kube-cert-rotation'
+      - 'kubeadm.*cert'
+      - 'cert.*renew'
+      - 'cert.*rotation'
+      - 'apiserver.*cert'
+      - 'kubelet.*cert'
+      - 'front-proxy'
+      - 'admin.conf'

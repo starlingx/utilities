@@ -958,7 +958,7 @@ def find_model_file(model_file):
 
 
 # Valid keys for LPMP model structure validation
-_VALID_TOP_KEYS = {'blocks', 'settings', 'include'}
+_VALID_TOP_KEYS = {'blocks', 'settings', 'include', 'description'}
 _VALID_BLOCK_KEYS = {
     'label', 'file', 'patterns', 'start', 'stop', 'timeline',
     'optional', 'present', 'profile', 'controller', 'override',
@@ -995,6 +995,13 @@ def validate_model_structure(data):
             unknown_settings = set(settings.keys()) - _VALID_SETTINGS_KEYS
             if unknown_settings:
                 errors.append(f"unknown settings keys: {sorted(unknown_settings)}")
+
+    # Validate description: required, must be a non-empty string
+    description = data.get('description')
+    if description is None:
+        errors.append('missing description section')
+    elif not isinstance(description, str) or not description.strip():
+        errors.append('description must be a non-empty string')
 
     # Validate blocks
     blocks = data.get('blocks')
@@ -1096,6 +1103,26 @@ def validate_model_file(filepath):
         return False, None
     except Exception:
         return False, None
+
+
+def get_model_description(filepath):
+    """Read a model's top-level `description:` value without a full load.
+
+    Returns the description string on success, or an empty string when
+    the file is missing, malformed, or has no description key. Used by
+    the --list-models desc/description filter to build the flat
+    name-plus-description view.
+    """
+    try:
+        with open(filepath, 'r') as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, dict):
+            desc = data.get('description')
+            if isinstance(desc, str):
+                return desc.strip()
+    except (yaml.YAMLError, IOError, OSError):
+        pass
+    return ''
 
 
 def expand_stacked_patterns(blocks):
@@ -1237,6 +1264,18 @@ def load_model(model_file):
 
         if merged_settings:
             data['settings'] = merged_settings
+
+    # Validate 'description' section exists (required, non-empty string)
+    if 'description' not in data:
+        print(f"Error: Model file '{model_file}' missing required 'description:' section",
+              file=sys.stderr)
+        print("Use --help-model for model file format information", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(data['description'], str) or not data['description'].strip():
+        print(f"Error: 'description' must be a non-empty string in '{model_file}'",
+              file=sys.stderr)
+        print("Use --help-model for model file format information", file=sys.stderr)
+        sys.exit(1)
 
     # Validate 'blocks' section exists
     if 'blocks' not in data:
@@ -1483,7 +1522,30 @@ def load_model(model_file):
     return blocks, settings, model_type
 
 
-def create_output_directory(args, run_start_time, hostname=None):
+def create_output_directory(args, run_start_time, hostname=None,
+                            extra_dir=None, dir_name=None):
+    """Build (and create) the output directory for a run.
+
+    Args:
+        extra_dir: optional extra path segment inserted between the
+            top-level prefix and the run directory. Batch mode uses
+            this for its 'tool runtime' directory level (see
+            lpmp_batch.py), so the layout becomes
+            '<prefix>/<extra_dir>/<run_dir>' instead of the mainline
+            '<prefix>/<run_dir>'. Ignored (None) for mainline runs.
+        dir_name: optional override for the run directory's own name.
+            Defaults to '<timestamp>_<model>' when not given.
+    """
+    # Top-level directory prefix. Callers may set `args._dir_prefix`
+    # to override the default 'lpmp_<lab>'; batch mode uses this to
+    # emit 'lpmp_batch_<lab>' so the layout is visibly distinct from
+    # mainline runs sharing the same lab name.
+    dir_prefix = getattr(args, '_dir_prefix', None) or f"lpmp_{args.lab_name}"
+
+    model_name = os.path.splitext(os.path.basename(args.model_file))[0]
+    time_str = run_start_time.strftime("%Y%m%d_%H%M%S")
+    run_dir_name = dir_name or f"{time_str}_{model_name}"
+
     if args.output:
         # Detect if output is current directory and skip creation
         if args.output == '.' or os.path.abspath(args.output) == os.getcwd():
@@ -1493,24 +1555,28 @@ def create_output_directory(args, run_start_time, hostname=None):
                 output_dir = '.'
             return ensure_output_dir(output_dir) if output_dir != '.' else '.'
 
-        # Maintain lpmp_<lab>/<timestamp>_<model> structure under -o path (bundle and non-bundle)
-        model_name = os.path.splitext(os.path.basename(args.model_file))[0]
-        time_str = run_start_time.strftime("%Y%m%d_%H%M%S")
-        base_dir = os.path.join(args.output, f"lpmp_{args.lab_name}", f"{time_str}_{model_name}")
+        # Maintain <prefix>[/<extra_dir>]/<run_dir_name> under -o path
+        # (bundle and non-bundle).
+        path_parts = [args.output, dir_prefix]
+        if extra_dir:
+            path_parts.append(extra_dir)
+        path_parts.append(run_dir_name)
+        base_dir = os.path.join(*path_parts)
         output_dir = base_dir
         if hostname:
             output_dir = os.path.join(base_dir, hostname)
     else:
-        model_name = os.path.splitext(os.path.basename(args.model_file))[0]
-        time_str = run_start_time.strftime("%Y%m%d_%H%M%S")
-
         # Use bundle directory as base in bundle mode, otherwise current directory
         if hasattr(args, 'bundle_name') and args.bundle_name != '/':
             base_path = args.bundle_name
         else:
             base_path = os.getcwd()
 
-        base_dir = os.path.join(base_path, f"lpmp_{args.lab_name}", f"{time_str}_{model_name}")
+        path_parts = [base_path, dir_prefix]
+        if extra_dir:
+            path_parts.append(extra_dir)
+        path_parts.append(run_dir_name)
+        base_dir = os.path.join(*path_parts)
         if hostname:
             output_dir = os.path.join(base_dir, hostname)
         else:
@@ -1589,6 +1655,26 @@ def ensure_output_dir(path):
         # Catch any other unexpected errors
         print(f"Error: Unexpected error creating output directory '{path}': {e}", file=sys.stderr)
         raise
+
+
+def prune_empty_output_dirs(root):
+    """Walk `root` bottom-up and remove any empty subdirectories.
+
+    `os.rmdir` only succeeds when a directory is empty, so this is a
+    safe cleanup: subtrees that produced output are left untouched,
+    and only the empty per-host or per-model dirs from zero-match
+    runs get removed. Silently ignores directories that are already
+    gone, still populated, or unwritable.
+    """
+    if not root or not os.path.isdir(root):
+        return
+    for dirpath, _dirs, _files in os.walk(root, topdown=False):
+        try:
+            os.rmdir(dirpath)
+        except OSError:
+            # Not empty, or removed under us, or permission issue —
+            # any of those are fine: leave the dir alone.
+            pass
 
 
 def format_result_line(
@@ -1805,6 +1891,83 @@ def print_output_files(bundle_base_dir):
     all_files = _collect_files(bundle_base_dir)
     for file_path in sorted(all_files):
         print(file_path)
+
+
+def format_long_listing(path):
+    """Return a list of strings mimicking `ls -lrt <path>` for the
+    immediate children of `path` (no recursion into subdirectories).
+
+    Entries are sorted oldest-modified-first, matching `ls -lrt`'s
+    reverse-of-default time order, so the entries touched most
+    recently by the run that just finished sort to the bottom.
+    Falls back to a numeric uid/gid when the `pwd`/`grp` modules are
+    unavailable or the id has no passwd/group entry (e.g. running as
+    an id with no local account).
+
+    Returns an empty list if `path` doesn't exist or isn't a
+    directory.
+    """
+    if not path or not os.path.isdir(path):
+        return []
+
+    try:
+        with os.scandir(path) as it:
+            entries = []
+            for entry in it:
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                entries.append((entry.name, st))
+    except OSError:
+        return []
+
+    if not entries:
+        return ["total 0"]
+
+    entries.sort(key=lambda e: e[1].st_mtime)
+
+    def _owner(uid):
+        try:
+            import pwd
+            return pwd.getpwuid(uid).pw_name
+        except (ImportError, KeyError, OSError):
+            return str(uid)
+
+    def _group(gid):
+        try:
+            import grp
+            return grp.getgrgid(gid).gr_name
+        except (ImportError, KeyError, OSError):
+            return str(gid)
+
+    import stat as stat_module
+
+    rows = []
+    for name, st in entries:
+        mode_str = stat_module.filemode(st.st_mode)
+        mtime = datetime.fromtimestamp(st.st_mtime).strftime("%b %d %H:%M")
+        rows.append((
+            mode_str, st.st_nlink, _owner(st.st_uid), _group(st.st_gid),
+            st.st_size, mtime, name,
+        ))
+
+    nlink_w = max(len(str(r[1])) for r in rows)
+    owner_w = max(len(r[2]) for r in rows)
+    group_w = max(len(r[3]) for r in rows)
+    size_w = max(len(str(r[4])) for r in rows)
+
+    # st_blocks is in 512-byte units; ls reports "total" in 1024-byte
+    # blocks, hence the //2. Not available on all platforms.
+    total_blocks = sum(getattr(st, 'st_blocks', 0) for _, st in entries) // 2
+
+    lines = [f"total {total_blocks}"]
+    for mode_str, nlink, owner, group, size, mtime, name in rows:
+        lines.append(
+            f"{mode_str} {nlink:>{nlink_w}} {owner:<{owner_w}} "
+            f"{group:<{group_w}} {size:>{size_w}} {mtime} {name}"
+        )
+    return lines
 
 
 def get_help_section(section_name):

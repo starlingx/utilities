@@ -25,6 +25,8 @@
 #
 ########################################################################
 
+description: "Regex syntax reference showing common regular expression constructs across pattern and pair blocks."
+
 settings:
   # Allow generous time gaps between blocks since this is a tutorial,
   # not a strict timing analysis. Real models should set tighter values.

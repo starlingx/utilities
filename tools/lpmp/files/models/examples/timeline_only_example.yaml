@@ -7,6 +7,9 @@
 # =============================================================================
 
 # Include shared pattern library for reusable patterns
+
+description: "Pure timeline-block example demonstrating chronological event collection across log sources."
+
 include: "shared_patterns.yaml"
 
 # Global settings for timeline analysis

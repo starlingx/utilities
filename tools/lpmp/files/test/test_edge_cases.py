@@ -25,6 +25,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -39,6 +40,7 @@ from lpmp_utils import create_output_directory       # noqa: E402
 from lpmp_utils import detect_model_type             # noqa: E402
 from lpmp_utils import ensure_output_dir             # noqa: E402
 from lpmp_utils import expand_wildcards_in_blocks    # noqa: E402
+from lpmp_utils import format_long_listing           # noqa: E402
 from lpmp_utils import format_result_line            # noqa: E402
 from lpmp_utils import get_models_search_paths       # noqa: E402
 from lpmp_utils import ModelType                     # noqa: E402
@@ -411,6 +413,68 @@ class TestOutputGenerationFunctions(LPMPTestBase):
 
         with self.assertRaises((PermissionError, OSError)):
             create_output_directory(args, run_start_time)
+
+
+class TestFormatLongListing(LPMPTestBase):
+    """Test format_long_listing (ls -lrt style helper used by batch
+    mode's final output summary).
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    def test_nonexistent_path_returns_empty(self):
+        result = format_long_listing(os.path.join(self.temp_dir, 'nope'))
+        self.assertEqual(result, [])
+
+    def test_file_not_dir_returns_empty(self):
+        p = os.path.join(self.temp_dir, 'a_file')
+        with open(p, 'w') as f:
+            f.write('x')
+        self.assertEqual(format_long_listing(p), [])
+
+    def test_empty_dir_reports_total_zero(self):
+        lines = format_long_listing(self.temp_dir)
+        self.assertEqual(lines, ["total 0"])
+
+    def test_entries_sorted_oldest_first(self):
+        first = os.path.join(self.temp_dir, 'first')
+        second = os.path.join(self.temp_dir, 'second')
+        os.makedirs(first)
+        time.sleep(0.02)
+        os.makedirs(second)
+        lines = format_long_listing(self.temp_dir)
+        # First line is the "total" header; the rest are entries in
+        # oldest-mtime-first order.
+        entry_lines = lines[1:]
+        first_idx = next(i for i, line in enumerate(entry_lines)
+                         if line.endswith('first'))
+        second_idx = next(i for i, line in enumerate(entry_lines)
+                          if line.endswith('second'))
+        self.assertLess(first_idx, second_idx)
+
+    def test_output_includes_names_and_total_header(self):
+        os.makedirs(os.path.join(self.temp_dir, 'a_dir'))
+        with open(os.path.join(self.temp_dir, 'a_file.txt'), 'w') as f:
+            f.write('hello')
+        lines = format_long_listing(self.temp_dir)
+        self.assertTrue(lines[0].startswith('total '))
+        joined = '\n'.join(lines)
+        self.assertIn('a_dir', joined)
+        self.assertIn('a_file.txt', joined)
+
+    def test_does_not_recurse_into_subdirectories(self):
+        sub = os.path.join(self.temp_dir, 'sub')
+        os.makedirs(sub)
+        with open(os.path.join(sub, 'nested.txt'), 'w') as f:
+            f.write('x')
+        lines = format_long_listing(self.temp_dir)
+        joined = '\n'.join(lines)
+        self.assertNotIn('nested.txt', joined)
 
 
 class TestFileProcessingFunctions(LPMPTestBase):

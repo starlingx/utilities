@@ -4,23 +4,26 @@
 ########################################################################
 # Ceph Health — cluster health transitions, PG degradation, recovery
 ########################################################################
-#
-# Description: Ceph cluster health —
-#              Current Ceph health: HEALTH_OK/WARN/ERR transitions,
-#              PG state changes (degraded/undersized/stale/peering),
-#              recovery and backfill progress, and pgmap summaries.
-#
+
+description: "Ceph cluster health — HEALTH_OK/WARN/ERR transitions, PG state changes (degraded/undersized/stale), recovery and backfill progress, storage alarms, and mon quorum changes."
+
 blocks:
   - label: "Ceph Health"
-    file: ["containerd.log*", "daemon.log*", "ceph-manager.log*"]
+    file: ["ceph-manager.log*"]
     timeline:
-      - 'Current Ceph health:'
-      - 'PG_DEGRADED'
+      - 'HEALTH_OK'
+      - 'HEALTH_WARN'
+      - 'HEALTH_ERR'
       - 'objects degraded'
-      - 'pgmap'
+      - 'pgs degraded'
+      - 'pgs undersized'
       - 'stale'
-      - 'peering'
-      - 'recovery'
-      - 'backfill'
+      - 'Ceph status changed'
+      - 'Ceph health'
+      - 'storage alarm'
       - 'near full'
       - 'full ratio'
+      - 'mons down'
+      - 'quorum'
+      - 'recovery'
+      - 'backfill'

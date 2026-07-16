@@ -56,7 +56,7 @@ class TestForceOption(unittest.TestCase):
             shutil.rmtree(self.temp_dir)
 
     def _make_model(self, blocks, settings=None):
-        data = {'blocks': blocks}
+        data = {'description': 'Test model.', 'blocks': blocks}
         if settings:
             data['settings'] = settings
         with open(self.model_file, 'w') as f:

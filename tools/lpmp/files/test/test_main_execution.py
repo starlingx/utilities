@@ -84,6 +84,7 @@ class TestMainExecution(LPMPTestBase):
     def create_pattern_model(self, label='Test Pattern', pattern='test pattern', filename='test.log'):
         """Helper: Create simple pattern block model"""
         return {
+            'description': 'Test pattern model.',
             'blocks': [
                 {
                     'label': label,
@@ -96,6 +97,7 @@ class TestMainExecution(LPMPTestBase):
     def create_pair_model(self, label='Test Pair', start='start', stop='stop', filename='test.log'):
         """Helper: Create simple pair block model"""
         return {
+            'description': 'Test pair model.',
             'blocks': [
                 {
                     'label': label,
@@ -149,7 +151,7 @@ class TestMainExecution(LPMPTestBase):
             "2024-01-06T10:00:05.000 second pattern match\n"
         )
         model_path = self.create_model_file({
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {'label': 'First', 'file': 'test.log', 'patterns': ['test pattern']},
                 {'label': 'Second', 'file': 'test.log', 'patterns': ['second pattern']},
             ]
@@ -174,7 +176,7 @@ class TestMainExecution(LPMPTestBase):
             "2024-01-06T10:00:03.000 operation stop here\n"
         )
         model_path = self.create_model_file({
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Operation',
                 'file': 'test.log',
                 'start': 'operation start',
@@ -202,7 +204,7 @@ class TestMainExecution(LPMPTestBase):
             "2024-01-06T10:00:02.000 event alpha happened again\n"
         )
         model_path = self.create_model_file({
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Events',
                 'file': 'test.log',
                 'timeline': ['event alpha', 'event beta']
@@ -269,7 +271,7 @@ class TestMainExecution(LPMPTestBase):
         """Test block_time_tolerance from model settings is applied to args"""
         self.create_log_file("2024-01-06T10:00:00.000 test pattern\n")
         model_path = self.create_model_file({
-            'settings': {'block_time_tolerance': 12.5},
+            'description': 'Test model.', 'settings': {'block_time_tolerance': 12.5},
             'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
         })
         captured = {}
@@ -294,7 +296,7 @@ class TestMainExecution(LPMPTestBase):
         """Test controller setting from model is applied to args"""
         self.create_log_file("2024-01-06T10:00:00.000 test pattern\n")
         model_path = self.create_model_file({
-            'settings': {'controller': True},
+            'description': 'Test model.', 'settings': {'controller': True},
             'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
         })
         captured = {}
@@ -319,7 +321,7 @@ class TestMainExecution(LPMPTestBase):
         """Test optional setting from model is applied to args"""
         self.create_log_file("2024-01-06T10:00:00.000 test pattern\n")
         model_path = self.create_model_file({
-            'settings': {'optional': True},
+            'description': 'Test model.', 'settings': {'optional': True},
             'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
         })
         captured = {}
@@ -344,7 +346,7 @@ class TestMainExecution(LPMPTestBase):
         """Test max_log_length from model settings overrides default"""
         self.create_log_file("2024-01-06T10:00:00.000 test pattern\n")
         model_path = self.create_model_file({
-            'settings': {'max_log_length': 300},
+            'description': 'Test model.', 'settings': {'max_log_length': 300},
             'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
         })
         captured = {}
@@ -371,9 +373,9 @@ class TestMainExecution(LPMPTestBase):
         os.makedirs(models_dir)
         for name in ['pattern_model.yaml', 'pair_model.yaml']:
             model = {
-                'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
+                'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
             } if 'pattern' in name else {
-                'blocks': [{'label': 'T', 'file': 'test.log', 'start': 's', 'stop': 'e'}]
+                'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 'test.log', 'start': 's', 'stop': 'e'}]
             }
             with open(os.path.join(models_dir, name), 'w') as f:
                 yaml.dump(model, f)
@@ -410,6 +412,283 @@ class TestMainExecution(LPMPTestBase):
                         lpmptool.main()
                     self.assertEqual(cm.exception.code, 0)
 
+    # -----------------------------------------------------------------
+    # --list-models: grouped output, dynamic columns, filter argument
+    # -----------------------------------------------------------------
+
+    def _make_test_models_dir(self):
+        """Create a small tempdir containing one of each model type
+        plus an example subdir and a helpers subdir, matching the real
+        model tree layout expected by collect_model_files.
+        """
+        root = os.path.join(self.temp_dir, 'lm_models')
+        os.makedirs(root)
+        os.makedirs(os.path.join(root, 'examples'))
+        os.makedirs(os.path.join(root, 'helpers'))
+
+        # Two timeline models
+        for name in ('timeline_alpha.yaml', 'timeline_bravo.yaml'):
+            with open(os.path.join(root, name), 'w') as f:
+                yaml.dump({
+                    'description': 'Test timeline model.',
+                    'blocks': [{'label': 'T', 'file': 't.log', 'timeline': ['x']}],
+                }, f)
+
+        # One pattern model
+        with open(os.path.join(root, 'pattern_alpha.yaml'), 'w') as f:
+            yaml.dump({
+                'description': 'Test pattern model.',
+                'blocks': [{'label': 'P', 'file': 't.log', 'patterns': ['x']}],
+            }, f)
+
+        # One pair model
+        with open(os.path.join(root, 'pair_alpha.yaml'), 'w') as f:
+            yaml.dump({
+                'description': 'Test pair model.',
+                'blocks': [{'label': 'PP', 'file': 't.log', 'start': 's', 'stop': 'e'}],
+            }, f)
+
+        # One example (in the examples subdir)
+        with open(os.path.join(root, 'examples', 'example_alpha.yaml'), 'w') as f:
+            yaml.dump({
+                'description': 'Test example.',
+                'blocks': [{'label': 'X', 'file': 't.log', 'patterns': ['x']}],
+            }, f)
+
+        # One helper
+        with open(os.path.join(root, 'helpers', 'helper_alpha.yaml'), 'w') as f:
+            yaml.dump({'timeline_patterns': {'shared': ['x']}}, f)
+
+        return root
+
+    def _run_lm(self, filter_arg=None, extra_argv=None, search_root=None):
+        """Run lpmptool with --list-models (optionally with a filter)
+        against a synthetic models tree and return the captured
+        stdout lines. Raises AssertionError if exit code != 0.
+        """
+        root = search_root or self._make_test_models_dir()
+        argv = ['lpmptool', '--list-models']
+        if filter_arg is not None:
+            argv.append(filter_arg)
+        if extra_argv:
+            argv.extend(extra_argv)
+
+        output = []
+
+        def capture(*a, **kw):
+            output.append(' '.join(str(x) for x in a))
+
+        with patch('sys.argv', argv):
+            with patch('lpmptool.get_models_search_paths', return_value=[root]):
+                with patch('builtins.print', side_effect=capture):
+                    with self.assertRaises(SystemExit) as cm:
+                        lpmptool.main()
+        self.assertEqual(cm.exception.code, 0,
+                         msg=f"non-zero exit: {'|'.join(output)}")
+        return output, root
+
+    def test_list_models_grouped_headers_present(self):
+        """--list-models shows TIMELINE, PATTERN, PAIR, EXAMPLE, HELPER sections"""
+        output, _ = self._run_lm()
+        combined = '\n'.join(output)
+        self.assertIn('TIMELINE MODELS', combined)
+        self.assertIn('PATTERN MODELS', combined)
+        self.assertIn('PAIR MODELS', combined)
+        self.assertIn('EXAMPLE MODELS', combined)
+        self.assertIn('HELPER FILES', combined)
+
+    def test_list_models_summary_line(self):
+        """Unfiltered listing ends with a total summary line"""
+        output, _ = self._run_lm()
+        combined = '\n'.join(output)
+        self.assertRegex(combined, r'Total:\s+\d+\s+timeline')
+        self.assertRegex(combined, r'\d+\s+pattern')
+        self.assertRegex(combined, r'\d+\s+pair')
+
+    def test_list_models_filter_timeline_only(self):
+        """-lm timeline shows only TIMELINE MODELS section"""
+        output, _ = self._run_lm(filter_arg='timeline')
+        combined = '\n'.join(output)
+        self.assertIn('TIMELINE MODELS', combined)
+        self.assertNotIn('PATTERN MODELS', combined)
+        self.assertNotIn('PAIR MODELS', combined)
+        self.assertNotIn('EXAMPLE MODELS', combined)
+        self.assertNotIn('HELPER FILES', combined)
+
+    def test_list_models_filter_pattern_only(self):
+        """-lm pattern shows only PATTERN MODELS section"""
+        output, _ = self._run_lm(filter_arg='pattern')
+        combined = '\n'.join(output)
+        self.assertIn('PATTERN MODELS', combined)
+        self.assertIn('pattern_alpha', combined)
+        self.assertNotIn('TIMELINE MODELS', combined)
+        self.assertNotIn('PAIR MODELS', combined)
+
+    def test_list_models_filter_pair_only(self):
+        """-lm pair shows only PAIR MODELS section"""
+        output, _ = self._run_lm(filter_arg='pair')
+        combined = '\n'.join(output)
+        self.assertIn('PAIR MODELS', combined)
+        self.assertIn('pair_alpha', combined)
+        self.assertNotIn('TIMELINE MODELS', combined)
+        self.assertNotIn('PATTERN MODELS', combined)
+
+    def test_list_models_filter_example_only(self):
+        """-lm example shows only EXAMPLE MODELS section"""
+        output, _ = self._run_lm(filter_arg='example')
+        combined = '\n'.join(output)
+        self.assertIn('EXAMPLE MODELS', combined)
+        self.assertIn('example_alpha', combined)
+        self.assertNotIn('TIMELINE MODELS', combined)
+
+    def test_list_models_invalid_filter_exits_1(self):
+        """-lm <unknown> prints a helpful error and exits 1"""
+        stderr_out = []
+
+        def capture_err(*a, **kw):
+            stderr_out.append(' '.join(str(x) for x in a))
+
+        with patch('sys.argv', ['lpmptool', '--list-models', 'bogus']):
+            with patch('lpmptool.get_models_search_paths',
+                       return_value=[self._make_test_models_dir()]):
+                with patch('builtins.print', side_effect=capture_err):
+                    with self.assertRaises(SystemExit) as cm:
+                        lpmptool.main()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertTrue(
+            any('not recognized' in line for line in stderr_out),
+            msg=f"expected error text not in stderr: {stderr_out}"
+        )
+
+    def test_list_models_columned_lines_within_max_width(self):
+        """Grouped output rows never exceed DEFAULT_LIST_MODELS_MAX_WIDTH"""
+        output, _ = self._run_lm()
+        max_width = lpmptool.DEFAULT_LIST_MODELS_MAX_WIDTH
+        overflow = [line for line in output if len(line) > max_width]
+        self.assertEqual(
+            overflow, [],
+            msg=f"Lines exceed max width {max_width}: {overflow}"
+        )
+
+    def test_list_models_short_names_pack_more_columns(self):
+        """Filtered view with only short names packs more columns
+        than the unfiltered view whose longest name is longer.
+        """
+        # Build a dir where the timeline set has short names and
+        # the pattern set has a long name.
+        root = os.path.join(self.temp_dir, 'lm_cols')
+        os.makedirs(root)
+        for name in ('a.yaml', 'b.yaml', 'c.yaml', 'd.yaml', 'e.yaml', 'f.yaml'):
+            with open(os.path.join(root, name), 'w') as f:
+                yaml.dump({
+                    'description': 'Test model.',
+                    'blocks': [{'label': 'T', 'file': 't.log',
+                                'timeline': ['x']}],
+                }, f)
+        # A pattern model with a very long name (37 chars w/o ext)
+        long_pattern = 'this_is_an_extremely_long_pattern_mod.yaml'
+        with open(os.path.join(root, long_pattern), 'w') as f:
+            yaml.dump({
+                'description': 'Test model.',
+                'blocks': [{'label': 'P', 'file': 't.log',
+                            'patterns': ['x']}],
+            }, f)
+
+        # Unfiltered: column width is dictated by the long pattern name.
+        out_all, _ = self._run_lm(search_root=root)
+        out_tl, _ = self._run_lm(filter_arg='timeline', search_root=root)
+
+        def _cols_from_output(lines, section):
+            """Count columns in the first data row of a given section."""
+            in_sec = False
+            for line in lines:
+                if line.startswith(section):
+                    in_sec = True
+                    continue
+                if in_sec and line.strip() and not line.startswith(('=', 'ERRORS')):
+                    return len(line.split())
+            return 0
+
+        cols_all = _cols_from_output(out_all, 'TIMELINE MODELS')
+        cols_tl = _cols_from_output(out_tl, 'TIMELINE MODELS')
+        # Short-name-only filtered view packs at least as many columns
+        # (usually more) as the unfiltered view constrained by long name.
+        self.assertGreaterEqual(cols_tl, cols_all)
+
+    def test_list_models_error_section_surfaces_broken_model(self):
+        """A model with a YAML error appears in ERRORS section"""
+        root = self._make_test_models_dir()
+        # Add a broken model (invalid YAML with 'description: Test model.\nblocks:' text so
+        # validate_model_file reports a yaml error).
+        with open(os.path.join(root, 'broken.yaml'), 'w') as f:
+            f.write('description: Test model.\nblocks:\n  - not valid : : :\n')
+        output, _ = self._run_lm(search_root=root)
+        combined = '\n'.join(output)
+        self.assertIn('ERRORS', combined)
+        self.assertIn('broken.yaml', combined)
+
+    def test_list_models_description_key_accepted(self):
+        """Models with a description: top-level key are accepted (no error)."""
+        # _make_test_models_dir puts description: on every model.
+        output, _ = self._run_lm()
+        combined = '\n'.join(output)
+        self.assertNotIn('ERRORS', combined)
+        self.assertIn('timeline_alpha', combined)
+
+    def test_list_models_filter_desc_flat_listing(self):
+        """-lm desc produces a flat name:description list (no headers)"""
+        output, _ = self._run_lm(filter_arg='desc')
+        combined = '\n'.join(output)
+        # Flat mode has no per-type headers.
+        self.assertNotIn('TIMELINE MODELS', combined)
+        self.assertNotIn('PATTERN MODELS', combined)
+        self.assertNotIn('PAIR MODELS', combined)
+        # But every model shows up with its description.
+        self.assertIn('timeline_alpha', combined)
+        self.assertIn('Test timeline model.', combined)
+        self.assertIn('pattern_alpha', combined)
+        self.assertIn('Test pattern model.', combined)
+        self.assertIn('pair_alpha', combined)
+        self.assertIn('Test pair model.', combined)
+        # Header banner and total line still shown.
+        self.assertIn('Available Model Descriptions', combined)
+        self.assertRegex(combined, r'Total:\s+\d+\s+timeline')
+
+    def test_list_models_filter_description_alias(self):
+        """-lm description works as an alias for -lm desc"""
+        root = self._make_test_models_dir()
+        out_desc, _ = self._run_lm(filter_arg='desc', search_root=root)
+        out_full, _ = self._run_lm(filter_arg='description', search_root=root)
+        # Same header signals same code path.
+        self.assertEqual(
+            [ln for ln in out_desc if 'Available Model' in ln],
+            [ln for ln in out_full if 'Available Model' in ln],
+        )
+
+    def test_list_models_desc_ordered_timeline_pattern_pair(self):
+        """desc listing orders items timeline, pattern, pair, example."""
+        output, _ = self._run_lm(filter_arg='desc')
+
+        # Find the row index of each representative model
+        def _idx(name):
+            for i, line in enumerate(output):
+                if line.startswith(name):
+                    return i
+            return -1
+        t_idx = _idx('timeline_alpha')
+        p_idx = _idx('pattern_alpha')
+        pp_idx = _idx('pair_alpha')
+        e_idx = _idx('example_alpha')
+        # All models must be present.
+        self.assertGreater(t_idx, 0)
+        self.assertGreater(p_idx, 0)
+        self.assertGreater(pp_idx, 0)
+        self.assertGreater(e_idx, 0)
+        # Ordering: timeline < pattern < pair < example.
+        self.assertLess(t_idx, p_idx)
+        self.assertLess(p_idx, pp_idx)
+        self.assertLess(pp_idx, e_idx)
+
     def test_system_mode_loops_2_produces_two_passes(self):
         """Test loops=2 produces two pass summaries"""
         self.create_log_file(
@@ -442,7 +721,7 @@ class TestMainExecution(LPMPTestBase):
             "2024-01-06T10:00:01.000 event beta\n"
         )
         model_path = self.create_model_file({
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Events',
                 'file': 'test.log',
                 'timeline': ['event alpha', 'event beta']
@@ -647,7 +926,7 @@ class TestMainExecution(LPMPTestBase):
             with open(os.path.join(logs_dir, 'test.log'), 'w') as f:
                 f.write(f"2024-01-06T10:00:00.000 {hostname} started\n")
         model_path = self.create_model_file({
-            'blocks': [{
+            'description': 'Test model.', 'blocks': [{
                 'label': 'Host Start',
                 'file': 'test.log',
                 'patterns': ['{hostname} started']
@@ -886,7 +1165,7 @@ class TestMemoryMonitorAndMisc(LPMPTestBase):
         with open(os.path.join(logs_dir, 'test.log'), 'w') as f:
             f.write("2024-01-06T10:00:00.000 test pattern\n")
         model_data = {
-            'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
+            'description': 'Test model.', 'blocks': [{'label': 'T', 'file': 'test.log', 'patterns': ['test']}]
         }
         model_path = os.path.join(temp_dir, 'model.yaml')
         with open(model_path, 'w') as f:
@@ -1024,7 +1303,7 @@ class TestBundleCustomTimestampFormats(LPMPTestBase):
         """Write a one-off timeline model targeting a single file glob."""
         model_path = os.path.join(self.temp_dir, 'tsfmt_model.yaml')
         with open(model_path, 'w') as f:
-            f.write("blocks:\n")
+            f.write("description: Test model.\nblocks:\n")
             f.write(f"  - label: \"{label}\"\n")
             f.write(f"    file: \"{file_glob}\"\n")
             f.write("    timeline:\n")
@@ -1163,6 +1442,91 @@ class TestBundleCustomTimestampFormats(LPMPTestBase):
             label='mgr-restful timestamp parse',
             pattern='init-wrapper',
             file_substring='mgr-restful-plugin.log')
+
+
+@unittest.skipUnless(YAML_AVAILABLE, "Enable with: pip3 install --user pyyaml")
+class TestEmptyOutputDirPruning(LPMPTestBase):
+    """End-of-run cleanup: empty per-host / per-model directories that
+    came from zero-match runs must not linger under
+    <output>/lpmp_<lab>/.
+
+    Batch mode already skips empty dir creation. Mainline used to
+    leave the tree behind — this class locks in the bottom-up sweep
+    that mirrors the batch behaviour.
+    """
+
+    def setUp(self):
+        import shutil
+        self.temp_dir = tempfile.mkdtemp()
+        self.logs_dir = os.path.join(self.temp_dir, 'var', 'log')
+        os.makedirs(self.logs_dir, exist_ok=True)
+        self.output_dir = os.path.join(self.temp_dir, 'output')
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def tearDown(self):
+        import shutil
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _make_unmatchable_model(self):
+        """Timeline model whose pattern will never match any log line
+        so the run produces zero rows and would otherwise leave an
+        empty output dir behind.
+        """
+        model = {
+            'description': 'Empty-result timeline model.',
+            'blocks': [{
+                'label': 'Nope',
+                'file': 'test.log',
+                'timeline': ['UNMATCHABLE_TOKEN_ZZZZZZZ'],
+            }],
+        }
+        path = os.path.join(self.temp_dir, 'nomatch.yaml')
+        with open(path, 'w') as f:
+            yaml.dump(model, f)
+        return path
+
+    def _write_log(self, content='2026-01-01T00:00:00.000 unrelated\n'):
+        path = os.path.join(self.logs_dir, 'test.log')
+        with open(path, 'w') as f:
+            f.write(content)
+        return path
+
+    def test_zero_match_run_leaves_no_empty_directories(self):
+        """Timeline run with no matches must not leave empty per-run
+        directories under <output>/lpmp_<lab>/.
+        """
+        model = self._make_unmatchable_model()
+        self._write_log()
+        argv = [
+            'lpmptool', '-m', model, '-l', self.logs_dir,
+            '-o', self.output_dir, '--lab', 'pruning_lab',
+        ]
+        with patch('sys.argv', argv), \
+                patch('sys.stdout'), patch('sys.stderr'):
+            try:
+                lpmptool.main()
+            except SystemExit as e:
+                # Timeline zero-match is not an error.
+                self.assertIn(e.code, (0, None))
+
+        # The tool-created wrapper 'lpmp_pruning_lab/' may or may not
+        # exist depending on whether anything at all was written under
+        # it. In this zero-match case the whole subtree must be gone.
+        lpmp_root = os.path.join(self.output_dir, 'lpmp_pruning_lab')
+        if os.path.exists(lpmp_root):
+            # If the wrapper survived, it must contain no empty
+            # <time>_<model> subdir left over from the zero-match run.
+            for entry in os.listdir(lpmp_root):
+                sub = os.path.join(lpmp_root, entry)
+                self.assertTrue(
+                    any(os.walk(sub)) and any(
+                        files for _r, _d, files in os.walk(sub)
+                    ),
+                    msg=f"Empty subdir survived pruning: {sub}"
+                )
+        # The user-supplied -o directory itself is never touched.
+        self.assertTrue(os.path.isdir(self.output_dir))
 
 
 if __name__ == '__main__':

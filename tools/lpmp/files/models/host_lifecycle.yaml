@@ -1,0 +1,28 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Host Lifecycle — lock, unlock, reboot, swact, host state transitions
+########################################################################
+
+description: "Host lifecycle state transitions — lock/unlock/reboot/swact actions and resulting host state changes (enabled/degraded/disabled/failed)."
+
+blocks:
+  - label: "Host Lifecycle"
+    file: ["mtcAgent.log*", "mtcAgent_event.log*"]
+    timeline:
+      - 'Unlock Action'
+      - 'Lock Action'
+      - 'Reboot Action'
+      - 'reboot'
+      - 'Administrative SWACT'
+      - 'Swact Request complete'
+      - 'Swact in progress'
+      - 'is ENABLED'
+      - 'is DEGRADED'
+      - 'unlocked-enabled'
+      - 'unlocked-disabled'
+      - 'locked-disabled'
+      - 'Host Add Completed'
+      - 'Booting \(timeout:'
+      - 'is MTCALIVE'

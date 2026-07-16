@@ -57,7 +57,7 @@ class TestWarningFormat(LPMPTestBase):
         # Create test model with optional pattern block
         model_file = os.path.join(self.temp_dir, "model.yaml")
         model_data = {
-            'blocks': [
+            'description': 'Test model.', 'blocks': [
                 {
                     'label': 'Found Block',
                     'file': 'test.log',

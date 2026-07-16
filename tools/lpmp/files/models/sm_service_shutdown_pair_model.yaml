@@ -33,6 +33,9 @@
 ########################################################################
 
 # Settings for pair mode
+
+description: "Duration of each SM service disable operation during shutdown using pair blocks in sm.log."
+
 settings:
   optional: true
   block_time_tolerance: 15  # time tolerance for out-of-order log entries

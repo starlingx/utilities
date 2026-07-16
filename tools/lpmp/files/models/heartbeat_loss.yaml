@@ -1,0 +1,25 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Heartbeat Loss — confirmed failures, threshold misses, MNFA
+########################################################################
+
+description: "Heartbeat failure events — confirmed heartbeat loss declarations, miss counts at threshold (3+), MNFA activation/exit, and heartbeat failure alarms (200.005/200.009)."
+
+blocks:
+  - label: "Heartbeat Failures"
+    file: ["hbsAgent.log*", "mtcAgent.log*"]
+    timeline:
+      - 'heartbeat loss'
+      - 'Heartbeat Loss'
+      - 'network heartbeat failure'
+      - 'Clstr heartbeat miss 3'
+      - 'Clstr heartbeat miss 4'
+      - 'Clstr Pulse Miss.*\(  3\)'
+      - 'Clstr Pulse Miss.*\(  4\)'
+      - 'MNFA new candidate'
+      - 'MNFA enter'
+      - 'MNFA exit'
+      - 'alarm.*200.005'
+      - 'alarm.*200.009'

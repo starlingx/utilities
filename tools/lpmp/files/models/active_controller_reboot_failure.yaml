@@ -33,6 +33,8 @@
 #
 ########################################################################
 
+description: "Active controller reboot failure sequence — reboot trigger, log blackout, survivor detection, and uncontrolled recovery."
+
 settings:
   controller: true
   max_time_delta: 45

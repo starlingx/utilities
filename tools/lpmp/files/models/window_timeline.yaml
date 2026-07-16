@@ -12,6 +12,8 @@
 #
 ########################################################################
 
+description: "Scan all log files in the logs directory to collect timestamped events across all sources within a time window."
+
 blocks:
   - label: "All logs"
     file: "*"

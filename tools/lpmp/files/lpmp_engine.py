@@ -505,19 +505,9 @@ def process_pattern_block(args, block, start_date, max_time_delta=None):
     override_logs_dir = None
     if block.get('override') and hasattr(args, 'bundle_name') and args.bundle_name != '/':
         override_hostname = block['override']  # Should already be substituted by apply_variable_substitution
-        # Build override logs directory path - check bundle directory for available hosts
-        if hasattr(args, 'bundle_host_list_dated'):
-            # First try the included hosts list
-            for hostname, dated_dir in zip(getattr(args, 'bundle_host_list', []), args.bundle_host_list_dated):
-                if hostname == override_hostname:
-                    override_logs_dir = os.path.join(
-                        args.bundle_name, dated_dir,
-                        getattr(args, 'original_logs_dir', 'var/log')
-                    )
-                    break
-
-        # If not found in included hosts, check all available hosts in bundle directory
-        if override_logs_dir is None and hasattr(args, 'bundle_name'):
+        # Always check all available hosts in bundle directory, not just filtered bundle_host_list
+        # This ensures overrides work even when using --include/--exclude filtering
+        if hasattr(args, 'bundle_name'):
             try:
                 bundle_entries = os.listdir(args.bundle_name)
                 for entry in bundle_entries:
@@ -650,19 +640,9 @@ def process_pair_block(args, block, after_timestamp, global_max_time_delta=45):
     override_logs_dir = None
     if block.get('override') and hasattr(args, 'bundle_name') and args.bundle_name != '/':
         override_hostname = block['override']  # Should already be substituted by apply_variable_substitution
-        # Build override logs directory path - check bundle directory for available hosts
-        if hasattr(args, 'bundle_host_list_dated'):
-            # First try the included hosts list
-            for hostname, dated_dir in zip(getattr(args, 'bundle_host_list', []), args.bundle_host_list_dated):
-                if hostname == override_hostname:
-                    override_logs_dir = os.path.join(
-                        args.bundle_name, dated_dir,
-                        getattr(args, 'original_logs_dir', 'var/log')
-                    )
-                    break
-
-        # If not found in included hosts, check all available hosts in bundle directory
-        if override_logs_dir is None and hasattr(args, 'bundle_name'):
+        # Always check all available hosts in bundle directory, not just filtered bundle_host_list
+        # This ensures overrides work even when using --include/--exclude filtering
+        if hasattr(args, 'bundle_name'):
             try:
                 bundle_entries = os.listdir(args.bundle_name)
                 for entry in bundle_entries:
@@ -1081,7 +1061,28 @@ def process_blocks_auto_detect(args,
                 temp_results = []  # Clear after output
 
             attempted_file = block['file'][0] if isinstance(block['file'], list) else block['file']
-            full_file_path = os.path.join(args.logs_dir, attempted_file)
+
+            # Determine which logs directory was used for search (for error reporting)
+            override_logs_dir = None
+            if block.get('override') and hasattr(args, 'bundle_name') and args.bundle_name != '/':
+                override_hostname = block['override']
+                try:
+                    bundle_entries = os.listdir(args.bundle_name)
+                    for entry in bundle_entries:
+                        if (
+                            entry.startswith(override_hostname + '_')
+                            and os.path.isdir(os.path.join(args.bundle_name, entry))
+                        ):
+                            override_logs_dir = os.path.join(
+                                args.bundle_name, entry,
+                                getattr(args, 'original_logs_dir', 'var/log')
+                            )
+                            break
+                except OSError:
+                    pass
+
+            search_logs_dir = override_logs_dir if override_logs_dir else args.logs_dir
+            full_file_path = os.path.join(search_logs_dir, attempted_file)
 
             if 'patterns' in block:
                 pattern = block['patterns'][0] if block['patterns'] else 'unknown pattern'

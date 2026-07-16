@@ -1,0 +1,36 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# Subcloud Lifecycle — deploy state transitions, online/offline, manage
+########################################################################
+
+description: "Subcloud lifecycle events — deploy state machine (install/bootstrap/config), online/offline transitions, manage/unmanage, rehome, and enroll operations."
+
+blocks:
+  - label: "Subcloud Deploy"
+    file: ["dcmanager*.log*"]
+    timeline:
+      - 'installing'
+      - 'install-complete'
+      - 'install-failed'
+      - 'bootstrapping'
+      - 'bootstrap-complete'
+      - 'bootstrap-failed'
+      - 'configuring'
+      - 'deploy-complete'
+      - 'deploy-failed'
+      - 'rehoming'
+      - 'rehome-failed'
+      - 'enrolling'
+      - 'enroll-complete'
+
+  - label: "Subcloud State"
+    file: ["dcmanager*.log*"]
+    timeline:
+      - 'online'
+      - 'offline'
+      - 'managed'
+      - 'unmanaged'
+      - 'secondary'
+      - 'peer'

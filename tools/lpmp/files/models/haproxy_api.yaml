@@ -1,0 +1,23 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# HAProxy — backend failures, health checks, API gateway errors
+########################################################################
+
+description: "HAProxy API gateway events — backend server down/up, health check failures, 502/503 errors, connection timeouts, and SSL certificate issues on the K8s/platform API proxy."
+
+blocks:
+  - label: "HAProxy Events"
+    file: ["haproxy.log*"]
+    timeline:
+      - 'Server.*is DOWN'
+      - 'Server.*is UP'
+      - 'no server available'
+      - 'Connection refused'
+      - 'timeout'
+      - ' 503 '
+      - ' 502 '
+      - 'Health check'
+      - 'SSL handshake failure'
+      - 'backend.*has no server'

@@ -1,0 +1,25 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# DRBD — primary/secondary transitions, sync state, split-brain
+########################################################################
+
+description: "DRBD replication events — primary/secondary role changes, sync source/target, split-brain detection, resync progress, and connection state."
+
+blocks:
+  - label: "DRBD State"
+    file: ["daemon.log*", "kern.log*"]
+    timeline:
+      - 'drbd'
+      - 'Primary'
+      - 'Secondary'
+      - 'SyncSource'
+      - 'SyncTarget'
+      - 'StandAlone'
+      - 'Connected'
+      - 'Inconsistent'
+      - 'split-brain'
+      - 'resync'
+      - 'WFConnection'
+      - 'Diskless'

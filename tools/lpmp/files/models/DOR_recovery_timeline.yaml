@@ -1,3 +1,13 @@
+########################################################################
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+########################################################################
+
+description: "Dead Office Recovery (DOR) event collection from mtcAgent logs."
+
 blocks:
   - label: "DOR Recovery"
     file: "mtcAgent.log*"

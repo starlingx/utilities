@@ -1,0 +1,32 @@
+########################################################################
+# Copyright (c) 2026 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+########################################################################
+# IP & Routing — address changes, route events, connectivity failures
+########################################################################
+
+description: "IP address and routing events — address add/remove/deprecate, route changes, connection refused/timeout, unreachable hosts, and firewall (iptables/conntrack) issues."
+
+blocks:
+  - label: "IP Address Events"
+    file: ["daemon.log*", "kern.log*"]
+    timeline:
+      - 'address added'
+      - 'address removed'
+      - 'Withdrawing address'
+      - 'deprecated'
+      - 'preferred_lft'
+      - 'route added'
+      - 'route deleted'
+
+  - label: "Connectivity Failures"
+    file: ["daemon.log*", "kern.log*"]
+    timeline:
+      - 'unreachable'
+      - 'no route to host'
+      - 'connection timed out'
+      - 'Connection refused'
+      - 'port.*unreachable'
+      - 'iptables'
+      - 'nf_conntrack'
+      - 'table full'
