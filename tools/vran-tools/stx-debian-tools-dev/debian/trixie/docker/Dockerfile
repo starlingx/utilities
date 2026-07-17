@@ -112,9 +112,8 @@ RUN set -ex && \
         iproute2 \
         linux-cpupower \
         net-tools \
-        opae-libs opae-tools opae-tools-extra opae-devel \
+        opae opae-extra-tools opae-devel \
         pcm \
-        python3-opae.admin python3-opae.pacsign \
         tcpdump \
         trace-cmd \
         tree \
