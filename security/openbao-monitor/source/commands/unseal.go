@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 )
@@ -15,13 +14,12 @@ import (
 var printResponse bool
 var waitTime int
 
-// A single instance of unseal.
-func tryUnseal(keyShard baoConfig.KeyShards, client *clientapi.Client) (*clientapi.SealStatusResponse, error) {
+// tryUnseal submits a single unseal key to the server.
+func tryUnseal(key string, client *clientapi.Client) (*clientapi.SealStatusResponse, error) {
 	slog.Debug("Attempting unseal...")
-	key := keyShard.Key
 	UnsealResult, err := client.Sys().Unseal(key)
 	if err != nil {
-		return UnsealResult, fmt.Errorf("error with unseal call: %v", err)
+		return UnsealResult, fmt.Errorf("unseal call: %w", err)
 	}
 	slog.Debug("Unseal attempt successful")
 	return UnsealResult, nil
@@ -29,7 +27,7 @@ func tryUnseal(keyShard baoConfig.KeyShards, client *clientapi.Client) (*clienta
 
 // run unseal on all keys associated with dnshost until unsealed.
 func runUnseal(dnshost string, client *clientapi.Client) (*clientapi.SealStatusResponse, error) {
-	slog.Debug(fmt.Sprintf("Attempting to run unseal on host %v", dnshost))
+	slog.Debug("Attempting to run unseal on host", "host", dnshost)
 
 	slog.Debug("Checking if the server is already unsealed")
 	healthResult, err := checkHealth(dnshost, client)
@@ -40,15 +38,23 @@ func runUnseal(dnshost string, client *clientapi.Client) (*clientapi.SealStatusR
 		return nil, fmt.Errorf("the server on host %v is already unsealed", dnshost)
 	}
 
+	// Use generation keys if CurrentKeySecret is set
+	if globalConfig.CurrentKeySecret != "" && useK8sConfig {
+		return runUnsealFromGeneration(dnshost, client)
+	}
+
 	tryCount := 1
 	for keyName, keyShard := range globalConfig.UnsealKeyShards {
 		// Don't use recovery keys
 		if !strings.Contains(keyName, "recovery") {
-			slog.Debug(fmt.Sprintf("Unseal attempt %v", tryCount))
-			UnsealResult, err := tryUnseal(keyShard, client)
+			slog.Debug("Unseal attempt", "count", tryCount)
+			UnsealResult, err := tryUnseal(keyShard.Key, client)
 			if printResponse {
-				responsePrint, _ := json.MarshalIndent(UnsealResult, "", "  ")
-				slog.Debug(fmt.Sprintf("Unseal responce result: %v", string(responsePrint)))
+				responsePrint, err := json.MarshalIndent(UnsealResult, "", "  ")
+				if err != nil {
+					slog.Debug("Failed to marshal unseal response", "err", err)
+				}
+				slog.Debug("Unseal response", "result", string(responsePrint))
 			}
 			if err != nil {
 				return UnsealResult, err
@@ -58,25 +64,56 @@ func runUnseal(dnshost string, client *clientapi.Client) (*clientapi.SealStatusR
 				return UnsealResult, nil
 			}
 			if tryCount == UnsealResult.T {
-				slog.Debug(fmt.Sprintf("Number of tries reached the threshold. waiting for %v seconds before checking unseal status.", waitTime))
+				slog.Debug("Threshold reached, waiting before checking", "waitSeconds", waitTime)
 				time.Sleep(time.Second * time.Duration(waitTime))
 				healthResult, err := checkHealth(dnshost, client)
 				if err != nil {
-					return UnsealResult, fmt.Errorf("health check error after reaching unseal threshold: %v", err)
+					return UnsealResult, fmt.Errorf("health check error after reaching unseal threshold: %w", err)
 				}
 				if !healthResult.Sealed {
 					slog.Debug("Unseal complete.")
 					return UnsealResult, nil
 				} else {
-					return UnsealResult, fmt.Errorf("server %v still unsealed after reaching threshold", dnshost)
+					return UnsealResult, fmt.Errorf("server %v still sealed after reaching threshold", dnshost)
 				}
 			}
-			slog.Debug(fmt.Sprintf("The server is still sealed: threshold %v, progress %v", UnsealResult.T, UnsealResult.Progress))
+			slog.Debug("Server still sealed", "threshold", UnsealResult.T, "progress", UnsealResult.Progress)
 			tryCount++
 		}
 	}
 
 	return nil, fmt.Errorf("exhausted all non-recovery keys associated with %v", dnshost)
+}
+
+// runUnsealFromGeneration loads the current generation secret and uses those
+// keys to unseal the server.
+func runUnsealFromGeneration(dnshost string, client *clientapi.Client) (*clientapi.SealStatusResponse, error) {
+	slog.Debug("Using generation-based keys for unseal")
+
+	_, err := getK8sConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get k8s config for generation load: %w", err)
+	}
+
+	genSecret, err := globalConfig.LoadGenerationSecret()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load generation secret: %w", err)
+	}
+
+	for i, key := range genSecret.Keys {
+		slog.Debug("Unseal attempt", "attempt", i+1)
+		result, err := tryUnseal(key, client)
+		if err != nil {
+			return result, err
+		}
+		if !result.Sealed {
+			slog.Debug("Unseal complete.")
+			return result, nil
+		}
+		slog.Debug("Still sealed", "threshold", result.T, "progress", result.Progress)
+	}
+
+	return nil, fmt.Errorf("exhausted all generation keys for %v", dnshost)
 }
 
 var unsealCmd = &cobra.Command{
@@ -89,23 +126,26 @@ non-recovery keys with its name on it to unseal.`,
 	PersistentPostRunE: cleanCmd,
 	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slog.Debug(fmt.Sprintf("Action: unseal %v", args[0]))
+		slog.Debug("Action: unseal", "host", args[0])
 
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
-			return fmt.Errorf("unseal failed with error: %v", err)
+			return fmt.Errorf("unseal failed with error: %w", err)
 		}
 		UnsealResult, err := runUnseal(args[0], newClient)
-		UnsealPrint, _ := json.MarshalIndent(UnsealResult, "", "  ")
+		UnsealPrint, marshalErr := json.MarshalIndent(UnsealResult, "", "  ")
+		if marshalErr != nil {
+			slog.Debug("Failed to marshal unseal result", "err", marshalErr)
+		}
 		if printResponse {
-			slog.Debug(fmt.Sprintf("Final unseal result: %v", string(UnsealPrint)))
+			slog.Debug("Final unseal result", "result", string(UnsealPrint))
 		}
 		if err != nil {
-			return fmt.Errorf("unseal failed with error: %v", err)
+			return fmt.Errorf("unseal failed with error: %w", err)
 		}
 
-		slog.Debug(fmt.Sprintf("Unseal successful. Result: %v", string(UnsealPrint)))
-		slog.Info(fmt.Sprintf("Unseal successful for host %v", args[0]))
+		slog.Debug("Unseal successful", "result", string(UnsealPrint))
+		slog.Info("Unseal successful", "host", args[0])
 
 		return nil
 	},
