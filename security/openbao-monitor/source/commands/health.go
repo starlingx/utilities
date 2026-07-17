@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 Wind River Systems, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
 package baoCommands
 
 import (
@@ -10,10 +13,10 @@ import (
 )
 
 func checkHealth(dnshost string, client *clientapi.Client) (*clientapi.HealthResponse, error) {
-	slog.Debug(fmt.Sprintf("Attempting to check health on host %v", dnshost))
+	slog.Debug("Checking health", "host", dnshost)
 	healthResult, err := client.Sys().Health()
 	if err != nil {
-		return nil, fmt.Errorf("error during call to check health: %v", err)
+		return nil, fmt.Errorf("error during call to check health: %w", err)
 	}
 
 	slog.Debug("health check complete")
@@ -29,21 +32,21 @@ var healthCmd = &cobra.Command{
 	PersistentPostRunE: cleanCmd,
 	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slog.Debug(fmt.Sprintf("Action: Health %v", args[0]))
+		slog.Debug("Action: health", "host", args[0])
 
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
-			return fmt.Errorf("server health failed with error: %v", err)
+			return fmt.Errorf("server health failed with error: %w", err)
 		}
 		healthResult, err := checkHealth(args[0], newClient)
 		if err != nil {
-			return fmt.Errorf("server health failed with error: %v", err)
+			return fmt.Errorf("server health failed with error: %w", err)
 		}
 		healthPrint, err := json.MarshalIndent(healthResult, "", "  ")
 		if err != nil {
-			return fmt.Errorf("unable to marshal health check result: %v", err)
+			return fmt.Errorf("unable to marshal health check result: %w", err)
 		}
-		slog.Debug(fmt.Sprintf("Health check command successful for host %v", args[0]))
+		slog.Debug("Health check successful", "host", args[0])
 		fmt.Print(string(healthPrint))
 
 		return nil

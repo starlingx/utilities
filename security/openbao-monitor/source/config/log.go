@@ -13,6 +13,7 @@ const (
 
 type BaoHandler struct {
 	slog.Handler
+
 	level slog.Leveler
 	l     *log.Logger
 }
@@ -36,6 +37,13 @@ func (h *BaoHandler) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
+func (h *BaoHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &BaoHandler{Handler: h.Handler.WithAttrs(attrs), level: h.level, l: h.l}
+}
+
+func (h *BaoHandler) WithGroup(name string) slog.Handler {
+	return &BaoHandler{Handler: h.Handler.WithGroup(name), level: h.level, l: h.l}
+}
 func NewBaoHandler(out io.Writer, opts *slog.HandlerOptions) *BaoHandler {
 	newHandler := &BaoHandler{
 		level: slog.LevelInfo,

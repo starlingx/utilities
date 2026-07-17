@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2025 Wind River Systems, Inc.
+// Copyright (c) 2025-2026 Wind River Systems, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -13,6 +13,7 @@ import (
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -27,16 +28,16 @@ var configFile string
 var useK8sConfig bool
 var useInClusterConfig bool
 var kubeConfigPath string
-var flgTimeout int
-var flgLogLevel string
+var flagTimeout int
+var flagLogLevel string
 
 // root option names
 var configFileName string = "config"
 var useK8sConfigName string = "k8s"
 var useInClusterConfigName string = "in-cluster"
 var kubeConfigPathName string = "kubeconfig"
-var flgTimeoutName string = "timeout"
-var flgLogLevelName string = "log-level"
+var flagTimeoutName string = "timeout"
+var flagLogLevelName string = "log-level"
 
 func getK8sConfig() (*rest.Config, error) {
 	var config *rest.Config
@@ -49,7 +50,7 @@ func getK8sConfig() (*rest.Config, error) {
 			return nil, err
 		}
 	} else {
-		slog.Debug(fmt.Sprintf("The monitor is running outside the kubernetes cluster. Using configs from %v", kubeConfigPath))
+		slog.Debug("Running outside cluster, using kubeconfig", "path", kubeConfigPath)
 		config, err = clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 		if err != nil {
 			return nil, err
@@ -78,11 +79,11 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 	if !cmd.Flags().Changed(useInClusterConfigName) {
 		useInClusterConfig = globalConfig.UseInClusterConfig
 	}
-	if cmd.Flags().Changed(flgTimeoutName) {
-		globalConfig.Timeout = flgTimeout
+	if cmd.Flags().Changed(flagTimeoutName) {
+		globalConfig.Timeout = flagTimeout
 	}
-	if cmd.Flags().Changed(flgLogLevelName) {
-		globalConfig.LogLevel = flgLogLevel
+	if cmd.Flags().Changed(flagLogLevelName) {
+		globalConfig.LogLevel = flagLogLevel
 	}
 
 	// Set default configuration for logs if no custum configs are given
@@ -100,7 +101,7 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 		// Setup Logs
 		logWriter, err = os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			return fmt.Errorf("error in opening the log file to write: %v", err)
+			return fmt.Errorf("error in opening the log file to write: %w", err)
 		}
 	}
 
@@ -110,7 +111,7 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 		Level: LogLevel,
 	}))
 	slog.SetDefault(baoLogger)
-	slog.Debug(fmt.Sprintf("Set log level: %v", logLevel))
+	slog.Debug("Log level set", "level", logLevel)
 
 	// If useK8sConfig is set to true, then it will override the following configs:
 	// ServerAddresses, Tokens, UnsealKeyShards
@@ -120,6 +121,13 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+
+		// Initialize the Kubernetes clientset for generation secret operations
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			return fmt.Errorf("failed to create kubernetes clientset: %w", err)
+		}
+		globalConfig.Clientset = clientset
 
 		// Get the necessary configs from kubernetes
 		err = globalConfig.MigrateK8sConfig(config)
@@ -133,26 +141,22 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 
 func cleanCmd(cmd *cobra.Command, args []string) error {
 	slog.Debug("Running cleanup...")
-	if !useK8sConfig {
-		configWriter, err := os.OpenFile(configFile, os.O_WRONLY|os.O_TRUNC, 0644)
-		if err != nil {
-			return fmt.Errorf("error with opening config file to write in the changed configs: %v", err)
-		}
+	configWriter, err := os.OpenFile(configFile, os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		slog.Warn("Unable to write config file", "err", err)
+	} else {
 		err = globalConfig.WriteYAMLMonitorConfig(configWriter)
 		if err != nil {
-			return fmt.Errorf("error with writing the changed configs: %v", err)
+			slog.Warn("Failed writing config", "err", err)
 		}
-		err = configWriter.Close()
-		if err != nil {
-			return fmt.Errorf("error with closing the changed config file: %v", err)
-		}
+		configWriter.Close()
 	}
 
 	// Close the log file
 	if logWriter != os.Stderr {
 		err := logWriter.Close()
 		if err != nil {
-			return fmt.Errorf("error with closing the log file: %v", err)
+			return fmt.Errorf("error with closing the log file: %w", err)
 		}
 	}
 
@@ -167,7 +171,7 @@ var RootCmd = &cobra.Command{
 
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		slog.Error(fmt.Sprintf("The monitor failed with error: %v", err))
+		slog.Error("Monitor failed", "err", err)
 		if baoLogger != nil && logWriter != os.Stderr {
 			// If logging was setup on a file, print error separately to stderr as well.
 			fmt.Fprintln(os.Stderr, err)
@@ -185,8 +189,8 @@ func init() {
 		"Set this to true if the monitor is run in a kubernetes pod")
 	RootCmd.PersistentFlags().StringVar(&kubeConfigPath, kubeConfigPathName, "/etc/kubernetes/admin.conf",
 		"The path for kubernetes config file (KUBECONFIG)")
-	RootCmd.PersistentFlags().IntVar(&flgTimeout, flgTimeoutName, 60,
+	RootCmd.PersistentFlags().IntVar(&flagTimeout, flagTimeoutName, 60,
 		"Time, in seconds, the client will wait for each request before returning timeout exceeded error")
-	RootCmd.PersistentFlags().StringVar(&flgLogLevel, flgLogLevelName, "INFO",
+	RootCmd.PersistentFlags().StringVar(&flagLogLevel, flagLogLevelName, "INFO",
 		"Minimum log level printed in the logs")
 }

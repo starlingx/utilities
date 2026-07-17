@@ -1,6 +1,7 @@
 package baoConfig
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -62,18 +64,37 @@ func (configInstance *MonitorConfig) MigratePodConfig(config *rest.Config) error
 		return err
 	}
 
-	// clear existing DNS names
-	configInstance.ServerAddresses = make(map[string]ServerAddress)
+	// Build new address map from the pod list before replacing the old one.
+	// This ensures that a partial failure (e.g., list succeeded but no pods
+	// have IPs yet) does not destroy the previous valid addresses.
+	newAddresses := make(map[string]ServerAddress)
 
-	// Use pod and its ip to fill in the "ServerAddresses" section
-	r, _ := regexp.Compile(fmt.Sprintf("%v-\\d$", podPrefix))
+	// Use pod and its ip to fill in the "ServerAddresses" section.
+	// Bug fix: pods in ContainerCreating or early startup have empty PodIP.
+	// Without this check, we'd store an invalid address like
+	// ".openbao.pod.cluster.local" which causes health checks to fail with
+	// connection errors, preventing the unseal logic from ever being reached.
+	// Discovered via robustness test T7 (block apiserver during unseal).
+	r := regexp.MustCompile(fmt.Sprintf("%v-\\d$", podPrefix))
 	for _, pod := range pods.Items {
 		podName := pod.ObjectMeta.Name
 		if r.Match([]byte(podName)) {
 			podIP := pod.Status.PodIP
+			if podIP == "" {
+				slog.Debug("Skipping pod with no IP (not yet scheduled or starting)", "pod", podName)
+				continue
+			}
 			podURL := fmt.Sprintf("%v.%v.%v", strings.ReplaceAll(podIP, ".", "-"), k8sNamespace, podAddressSuffix)
-			configInstance.ServerAddresses[podName] = ServerAddress{podURL, podPort}
+			newAddresses[podName] = ServerAddress{podURL, podPort}
 		}
+	}
+
+	// Only replace addresses if we got at least one valid address,
+	// or if no server pods exist at all (legitimate scale-to-zero).
+	if len(newAddresses) > 0 || len(pods.Items) == 0 {
+		configInstance.ServerAddresses = newAddresses
+	} else {
+		slog.Warn("No server pods with IP found, retaining previous addresses")
 	}
 	slog.Debug("All addresses obtained.")
 
@@ -235,4 +256,139 @@ func (configInstance *MonitorConfig) StoreSecretConfig(config *rest.Config) erro
 	}
 
 	return nil
+}
+
+// StoreGenerationSecret creates a new immutable Kubernetes secret for a key
+// generation event. The secret is stored with labels for discovery and its
+// data field contains the JSON-marshaled GenerationSecret. On success,
+// c.CurrentKeySecret is updated to genName.
+//
+// If the secret already exists (AlreadyExists error), the function compares
+// the existing data with what we intended to store. If they are identical,
+// the operation is treated as a success (idempotent retry). If the data
+// differs, a fatal error is returned indicating corruption or conflict.
+func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *GenerationSecret) error {
+	if c.Clientset == nil {
+		return fmt.Errorf("clientset is nil: K8s client not initialized")
+	}
+	namespace := c.Namespace
+	if namespace == "" {
+		namespace = k8sNamespace
+	}
+
+	slog.Debug("Storing generation secret", "namespace", namespace, "name", genName)
+
+	// Marshal the GenerationSecret to JSON
+	data, err := json.Marshal(secret)
+	if err != nil {
+		return fmt.Errorf("failed to marshal generation secret: %w", err)
+	}
+
+	immutable := true
+	seqNum := ExtractSeqNum(genName)
+
+	k8sSecret := &v1.Secret{
+		ObjectMeta: metaV1.ObjectMeta{
+			Name:      genName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app":        "openbao",
+				"component":  "unseal-keys",
+				"generation": seqNum,
+			},
+		},
+		Immutable: &immutable,
+		Data: map[string][]byte{
+			"data": data,
+		},
+	}
+
+	secretClient := c.Clientset.CoreV1().Secrets(namespace)
+	ctx := context.Background()
+
+	_, err = secretClient.Create(ctx, k8sSecret, metaV1.CreateOptions{})
+	if err != nil {
+		if k8sErrors.IsAlreadyExists(err) {
+			slog.Info("Generation secret already exists, checking data consistency", "name", genName)
+			existing, getErr := secretClient.Get(ctx, genName, metaV1.GetOptions{})
+			if getErr != nil {
+				return fmt.Errorf("failed to read existing generation secret %s: %w", genName, getErr)
+			}
+			existingData, ok := existing.Data["data"]
+			if !ok {
+				return fmt.Errorf("existing generation secret %s has no 'data' field", genName)
+			}
+			if bytes.Equal(existingData, data) {
+				slog.Info("Existing generation secret has identical data, treating as success", "name", genName)
+				c.CurrentKeySecret = genName
+				return nil
+			}
+			return fmt.Errorf("generation secret %s already exists with different data: corruption or conflict", genName)
+		}
+		return fmt.Errorf("failed to create generation secret %s: %w", genName, err)
+	}
+
+	c.CurrentKeySecret = genName
+	slog.Info("Generation secret stored successfully", "name", genName)
+	return nil
+}
+
+// LoadGenerationSecret reads the current generation secret from Kubernetes,
+// deserializes and validates it, then caches it in memory via SetLoadedGenerationSecret.
+// The secret to read is determined by c.CurrentKeySecret.
+//
+// Returns descriptive errors for:
+//   - CurrentKeySecret is empty
+//   - Secret not found in Kubernetes
+//   - No "data" field in the secret
+//   - Malformed JSON in the "data" field
+//   - Validation failure (wrong key count, empty root token)
+func (c *MonitorConfig) LoadGenerationSecret() (*GenerationSecret, error) {
+	if c.CurrentKeySecret == "" {
+		return nil, fmt.Errorf("currentKeySecret is empty: no generation secret name configured")
+	}
+	if c.Clientset == nil {
+		return nil, fmt.Errorf("clientset is nil: K8s client not initialized")
+	}
+
+	namespace := c.Namespace
+	if namespace == "" {
+		namespace = k8sNamespace
+	}
+
+	slog.Debug("Loading generation secret", "namespace", namespace, "name", c.CurrentKeySecret)
+
+	secretClient := c.Clientset.CoreV1().Secrets(namespace)
+	ctx := context.Background()
+
+	k8sSecret, err := secretClient.Get(ctx, c.CurrentKeySecret, metaV1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return nil, fmt.Errorf("generation secret %q not found in namespace %q", c.CurrentKeySecret, namespace)
+		}
+		return nil, fmt.Errorf("failed to read generation secret %q: %w", c.CurrentKeySecret, err)
+	}
+
+	// Extract the "data" field from the k8s secret
+	rawData, ok := k8sSecret.Data["data"]
+	if !ok {
+		return nil, fmt.Errorf("generation secret %q has no 'data' field", c.CurrentKeySecret)
+	}
+
+	// Deserialize JSON into GenerationSecret
+	var genSecret GenerationSecret
+	if err := json.Unmarshal(rawData, &genSecret); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal generation secret %q: %w", c.CurrentKeySecret, err)
+	}
+
+	// Validate the loaded secret
+	if err := ValidateGenerationSecret(&genSecret); err != nil {
+		return nil, fmt.Errorf("generation secret %q failed validation: %w", c.CurrentKeySecret, err)
+	}
+
+	// Cache the loaded secret in memory
+	c.SetLoadedGenerationSecret(&genSecret)
+
+	slog.Info("Generation secret loaded successfully", "name", c.CurrentKeySecret)
+	return &genSecret, nil
 }
