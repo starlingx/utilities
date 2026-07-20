@@ -387,6 +387,10 @@ function print_help()
     echo ""
     echo "collect [--omit-certs]                          ... do not include certificates in the collect data"
     echo ""
+    echo "Run diagnostics scripts:"
+    echo ""
+    echo "collect [--diags]                               ... run diagnostics scripts on collected hosts"
+    echo ""
     echo "Create a collect report"
     echo ""
     echo "collect [--report | -r ]                        ... run the collect report tool on the collected bundle"
@@ -415,6 +419,7 @@ VERBOSE=false
 SKIP_MASK=false
 OMIT_CERTS=false
 INVENTORY=false
+WANT_DIAGS=false
 SUBCLOUD_COLLECT=false
 SUBCLOUD_LOGIN_PROMPT="controller-"
 
@@ -867,6 +872,10 @@ while [[ ${#} -gt 0 ]] ; do
         OMIT_CERTS=true
         ;;
 
+        --diags)
+        WANT_DIAGS=true
+        ;;
+
         -in|--inline)
         # switch to inline ; one-after-the-other (legacy) mode
         PARALLEL_COLLECT_MODE=false
@@ -914,6 +923,15 @@ while [[ ${#} -gt 0 ]] ; do
     shift # past argument or value
 done
 
+# When --diags is specified, statically extend the global and per-host
+# timeouts by COLLECT_DIAGS_OVERALL_TIMEOUT (5 minutes) to account for
+# the additional time the diagnostic scripts may take on each host.
+if [ "${WANT_DIAGS}" = true ] ; then
+    TIMEOUT=$((TIMEOUT + COLLECT_DIAGS_OVERALL_TIMEOUT))
+    COLLECT_HOST_TIMEOUT=$((COLLECT_HOST_TIMEOUT + COLLECT_DIAGS_OVERALL_TIMEOUT))
+    dlog "diags enabled ; extended TIMEOUT to ${TIMEOUT}s and COLLECT_HOST_TIMEOUT to ${COLLECT_HOST_TIMEOUT}s"
+fi
+
 # The default TIMEOUT may have been revised with the --timeout option.
 # Update UNTIL with updated global timeout time in secs.
 let UNTIL=${SECONDS}+${TIMEOUT}
@@ -944,6 +962,7 @@ dlog "STARTDATE = ${STARTDATE}"
 dlog "ENDDATE   = ${ENDDATE}"
 dlog "SKIPMASK  = ${SKIP_MASK}"
 dlog "OMITCERTS = ${OMIT_CERTS}"
+dlog "WANTDIAGS = ${WANT_DIAGS}"
 dlog "ALLHOSTS  = ${ALLHOSTS}"
 dlog "LISTING   = ${LISTING}"
 dlog "CLEAN     = ${CLEAN}"
@@ -2476,7 +2495,7 @@ function collect_host_run()
 
     if [ "${host}" == "${HOSTNAME}" ] ;  then
 
-        collect_cmd="sudo REMOTE_HOST=false OMIT_CERTS=${OMIT_CERTS} SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}"
+        collect_cmd="sudo REMOTE_HOST=false WANT_DIAGS=${WANT_DIAGS} OMIT_CERTS=${OMIT_CERTS} SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}"
         log "${collect_cmd}"
 
 /usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
@@ -2514,7 +2533,7 @@ EOF
 
         ssh_cmd="${SSH_CMD} ${UN}@${host}"
         log "${ssh_cmd}"
-        collect_cmd="sudo REMOTE_HOST=true OMIT_CERTS=${OMIT_CERTS} SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}"
+        collect_cmd="sudo REMOTE_HOST=true WANT_DIAGS=${WANT_DIAGS} OMIT_CERTS=${OMIT_CERTS} SKIP_MASK=${SKIP_MASK} ${collect_host} ${TARNAME} ${STARTDATE_OPTION} ${STARTDATE} ${STARTTIME} ${ENDDATE_OPTION} ${ENDDATE} ${ENDTIME} ${DEBUG} ${INVENTORY}"
         log  "${collect_cmd}"
 
 /usr/bin/expect ${expect_debug} << EOF > ${redirect} 2>&1
@@ -2653,6 +2672,9 @@ function collect_subcloud_run()
     # pass security options if specified
     [ "${SKIP_MASK}" = true ] && collect_cmd+=" --skip-mask"
     [ "${OMIT_CERTS}" = true ] && collect_cmd+=" --omit-certs"
+
+    # pass the diags option to the subcloud if specified
+    [ "${WANT_DIAGS}" = true ] && collect_cmd+=" --diags"
 
     # all subcloud hosts are collected in parallel unless legacy more is specified
     [ "${PARALLEL_COLLECT_MODE}" = false ] && collect_cmd+=" -in"

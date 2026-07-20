@@ -12,6 +12,7 @@ export SBINDIR = $(ROOT)/usr/sbin
 override_dh_auto_install:
 
 	install -m 755 -d $(SYSCONFDIR)/collect.d
+	install -m 755 -d $(SYSCONFDIR)/collect.d/diagnostic.d
 	install -m 755 -d $(SYSCONFDIR)/collect
 	install -m 755 -d $(SYSCONFDIR)/collect/plugins
 	install -m 755 -d $(ROOT)/usr/local/sbin
@@ -105,6 +106,8 @@ override_dh_auto_install:
 
 	ln -sf /usr/local/sbin/collect $(SBINDIR)/collect
 	ln -sf /usr/local/sbin/collect $(ROOT)/usr/local/bin/collect
+
+	ln -sf /usr/local/bin/network_diagnostics $(SYSCONFDIR)/collect.d/diagnostic.d/network_diagnostics
 
 override_dh_usrlocal:
 	echo "do nothing"

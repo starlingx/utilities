@@ -13,6 +13,14 @@ declare -i SUDO_TIMEOUT_DEFAULT=60
 declare -i COLLECT_HOST_TIMEOUT_DEFAULT=900
 declare -i CREATE_TARBALL_TIMEOUT_DEFAULT=200
 
+# diagnostics timeouts (used by collect_host when --diags is specified)
+# per-script timeout : maximum time any single diagnostic script may run.
+#   Set to 3x the expected runtime to allow for complex systems with
+#   multiple failures, many hosts and slow dependencies.
+# overall timeout    : maximum total time for all diagnostic scripts
+declare -i COLLECT_DIAGS_SCRIPT_TIMEOUT=210
+declare -i COLLECT_DIAGS_OVERALL_TIMEOUT=300
+
 declare -i TIMEOUT_MIN_MINS=10
 declare -i TIMEOUT_MAX_MINS=120
 declare -i TIMEOUT_DEF_MINS=30
