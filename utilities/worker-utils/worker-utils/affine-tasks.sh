@@ -56,8 +56,16 @@ CPUMAP_FUNCTIONS=${CPUMAP_FUNCTIONS:-"/etc/init.d/cpumap_functions.sh"}
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
 # Global parameters
-CGDIR_K8S=/sys/fs/cgroup/cpuset/k8sinfra
-CGDIR_DOCKER=/sys/fs/cgroup/cpuset/docker
+# Detect cgroup version and set paths
+if [ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = "cgroup2fs" ]; then
+    CGROUP_V2=true
+    CGDIR_K8S=/sys/fs/cgroup/k8sinfra.slice
+    CGDIR_DOCKER=/sys/fs/cgroup/docker.slice
+else
+    CGROUP_V2=false
+    CGDIR_K8S=/sys/fs/cgroup/cpuset/k8sinfra
+    CGDIR_DOCKER=/sys/fs/cgroup/cpuset/docker
+fi
 INIT_INTERVAL_SECONDS=10
 CHECK_INTERVAL_SECONDS=30
 PRINT_INTERVAL_SECONDS=300
@@ -423,7 +431,7 @@ function reaffineable_pids {
                 sed 's/,$/\n/')
     pidlist=$(ps --ppid ${pids_excl} -p ${pids_excl} --deselect \
                 -o pid=,cgroup= | \
-                awk '!/cpuset:\/(k8sinfra|docker|machine.slice)/ {print $1; }')
+                awk '!/cpuset:\/(k8sinfra|docker|machine.slice)/ && !/0::\/(k8sinfra\.slice|docker\.slice|machine\.slice)/ {print $1; }')
     echo "${pidlist[@]}"
 }
 
