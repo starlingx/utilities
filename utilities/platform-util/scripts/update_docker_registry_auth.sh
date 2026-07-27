@@ -1,6 +1,6 @@
 #!/bin/bash -e
 #
-# Copyright (c) 2021-2023 Wind River Systems, Inc.
+# Copyright (c) 2021-2023, 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -82,12 +82,11 @@ for REGISTRY in ${REGISTRY_LIST}; do
     fi
 
     NEW_SECRET_VALUE=${NEW_CREDS}
-    openstack secret store -n ${REGISTRY}-secret -p "${NEW_SECRET_VALUE}" \
-        >/dev/null
-    echo -n "."
-    NEW_SECRET_REF=$(openstack secret list | grep -wF ${REGISTRY}-secret |\
-        awk '{print $2}')
-    NEW_SECRET_UUID=$(echo "${NEW_SECRET_REF}" | awk -F/ '{print $6}')
+    echo -n "Storing new secret."
+    NEW_SECRET_REF=$(openstack secret store -n ${REGISTRY}-secret \
+        -p "${NEW_SECRET_VALUE}" -f value -c "Secret href")
+    NEW_SECRET_UUID=$(echo "${NEW_SECRET_REF}" | awk -F/ '{print $NF}')
+    echo -n "Updating service parameter."
     system service-parameter-modify docker "${REGISTRY}" \
         auth-secret="${NEW_SECRET_UUID}" > /dev/null
     echo -n "."
