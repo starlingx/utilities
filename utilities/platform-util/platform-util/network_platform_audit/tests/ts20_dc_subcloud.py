@@ -4,6 +4,8 @@
 import re
 
 from network_platform_audit import state
+from network_platform_audit.dc_firewall import _load_platform_firewall
+from network_platform_audit.dc_firewall import check_firewall_ports_to_sc
 from network_platform_audit.log import log
 from network_platform_audit.log import log_result
 from network_platform_audit.log import print_category
@@ -270,6 +272,7 @@ def test_dc_subcloud():
         "6) Ping SC mgmt floating and SC OAM floating",
         "7) TCP 8443 on SC OAM floating (firewall-allowed port)",
         "8) Central registry (registry.central:443) reachable",
+        "9) Firewall port reachability from platform_firewall.SYSTEMCONTROLLER",
     ]
     print_category(cat, description=desc)
 
@@ -291,3 +294,16 @@ def test_dc_subcloud():
     _check_sc_floating_reachable(cat, sc_mgmt_floating, sc_oam_floating)
     _check_sc_oam_tcp_8443(cat, sc_oam_floating)
     _check_central_registry(cat)
+
+    # Firewall port reachability: probe each port that the System Controller
+    # is expected to have open (platform_firewall.SYSTEMCONTROLLER dict)
+    fw = _load_platform_firewall()
+    if fw is None:
+        log("  [WARN] platform_firewall unavailable - SC firewall port checks skipped")
+        state.category_warnings[cat].append(
+            "sysinv.common.platform_firewall not importable - SC firewall port checks skipped"
+        )
+    elif not sc_ip:
+        log("  [INFO] SC IP unknown - firewall port checks skipped")
+    else:
+        check_firewall_ports_to_sc(cat, sc_ip, fw, oam_ip=sc_oam_floating)

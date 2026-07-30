@@ -113,9 +113,16 @@ def startup_checks():
     m = re.search(r"distributed_cloud_role\s*\|\s*(\S+)", out)
     if m:
         state.DC_ROLE = m.group(1)
-    log(f"[OK] system_mode={state.SYSTEM_MODE}  dc_role={state.DC_ROLE}")
 
-    # 7) Build host list
+    # 7) Detect https_enabled
+    m = re.search(r"https_enabled\s*\|\s*(\S+)", out)
+    if m:
+        state.HTTPS_ENABLED = m.group(1).lower() in ("true", "yes", "1")
+
+    log(f"[OK] system_mode={state.SYSTEM_MODE}  dc_role={state.DC_ROLE}"
+        f"  https_enabled={state.HTTPS_ENABLED}")
+
+    # 8) Build host list
     log("[..] querying system host-list...")
     rc, out, _ = _run_system_list("system host-list")
     if rc != 0:
@@ -125,7 +132,7 @@ def startup_checks():
         state.HOST_LIST = _parse_host_table(out)
     log(f"[OK] {len(state.HOST_LIST)} hosts found")
 
-    # 8) Open persistent SSH sessions to remote hosts
+    # 9) Open persistent SSH sessions to remote hosts
     if not state.IS_SIMPLEX:
         local_host = os.uname().nodename
         remote_hosts = [h.get("hostname") for h in state.HOST_LIST
@@ -337,6 +344,47 @@ def _run_on_host(hostname, cmd, silent=False):
     if not silent:
         log_exec(f"[{hostname}] {_cmd_str(cmd)}", rc, out, err)
     return rc, out, err
+
+
+# ---------------------------------------------------------------------------
+# dnsmasq / DHCP helpers
+# ---------------------------------------------------------------------------
+
+def _detect_dnsmasq_file(filename):
+    """Return path to the newest /opt/platform/config/<ver>/<filename>, or None."""
+    base = "/opt/platform/config"
+    if not os.path.isdir(base):
+        return None
+    version_dirs = [d for d in os.listdir(base) if re.match(r"\d{2}\.\d{2}", d)]
+    version_dirs.sort(key=lambda v: [int(x) for x in v.split(".")], reverse=True)
+    for ver in version_dirs:
+        path = os.path.join(base, ver, filename)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _parse_dhcp_leases():
+    """Parse dnsmasq.leases into a list of {mac, ip, hostname} dicts.
+
+    Line format: <expiry> <mac> <ip> <hostname> <client_id>
+    """
+    leases = []
+    leases_file = _detect_dnsmasq_file("dnsmasq.leases")
+    if not leases_file:
+        return leases
+    try:
+        with open(leases_file) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                _, mac, ip, lease_hostname = parts[:4]
+                if re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
+                    leases.append({"mac": mac.lower(), "ip": ip, "hostname": lease_hostname})
+    except OSError:
+        pass
+    return leases
 
 
 # ---------------------------------------------------------------------------

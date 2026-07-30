@@ -10,8 +10,7 @@
 #             operator attention is directed before network checks begin.
 #   Data:     system host-list
 #   Check:    availability and operational fields per host
-#   FAILED:   availability in {degraded, failed, offline, intest, power-off}
-#             or operational != enabled
+#   FAILED:   availability != available or operational != enabled
 #
 # ts02_interfaces    - Interfaces vs Kernel
 #   Purpose:  Confirm that the sysinv interface model (type, MTU, VLAN ID,
@@ -90,14 +89,17 @@
 # ts09_dns           - DNS
 #   Purpose:  Confirm that the platform DNS configuration is consistent and
 #             that nameservers are reachable and resolving platform hostnames
-#             correctly.
-#   Data:     system dns-show, /etc/resolv.conf
+#             correctly, on every host in the system.
+#   Data:     system dns-show, /etc/resolv.conf, getent hosts (per host,
+#             local + remote via SSH)
 #   Check:    nameservers from sysinv match /etc/resolv.conf;
-#             each nameserver: ICMP ping, TCP port 53, UDP port 53 (dig);
-#             forward resolution of controller-0 and controller
-#   FAILED:   nameserver unreachable (ICMP); TCP/UDP port 53 not open;
-#             hostname does not resolve
-#   WARN:     sysinv and resolv.conf nameserver lists differ
+#             each nameserver: ICMP ping, TCP port 53, UDP port 53 - reachable
+#             requires ping success AND (TCP-53 or UDP-53) success;
+#             forward resolution of controller-0 and controller on every host
+#   FAILED:   all configured nameservers unreachable; hostname does not
+#             resolve on a host
+#   WARN:     sysinv and resolv.conf nameserver lists differ;
+#             some (not all) nameservers unreachable (partial availability)
 #
 # ts10_dhcp          - DHCP (dnsmasq)
 #   Purpose:  Verify that the dnsmasq DHCP/TFTP service is running and
@@ -109,7 +111,8 @@
 #             TFTP port 69 in LISTEN;
 #             dnsmasq.leases file exists;
 #             dnsmasq host-record IPs reachable (ping);
-#             /etc/hosts name resolution on all hosts (local + remote via SSH)
+#             /etc/hosts name resolution on all hosts (local + remote via SSH),
+#             ping skipped for loopback entries (127.0.0.1, ::1)
 #   FAILED:   dnsmasq not listening; TFTP port not in LISTEN;
 #             host-record IP unreachable; /etc/hosts entry does not resolve
 #
@@ -166,16 +169,22 @@
 #
 # ts16_gnp           - Firewall / GlobalNetworkPolicy
 #   Purpose:  Verify that Calico GlobalNetworkPolicies allow the correct
-#             platform subnets and that the resulting iptables/nftables chains
-#             are present on every target host.
+#             platform subnets and destination ports, and that the resulting
+#             iptables/nftables chains are present on every target host.
 #   Data:     kubectl get globalnetworkpolicies -o json,
 #             kubectl get globalnetworksets -o json,
 #             iptables-save / nft list ruleset (per host via SSH)
 #   Check:    each sysinv pool subnet appears in matching GNP ingress nets
 #             (literal CIDR or via GlobalNetworkSet / ipset reference);
 #             GNP chain is present in iptables/nftables on each target host;
+#             GNP destination ports (ports_allow) appear in the translated
+#             iptables/nftables chain (literal dport match or covered by a
+#             broader port range);
 #             systemcontroller subnets included in GNP rules (DC only)
 #   FAILED:   pool subnet absent from GNP; GNP chain missing on host
+#   WARN:     GNP subnet or port present in the GNP but not found in the
+#             translated iptables/nftables chain; orphan GNP subnet with no
+#             matching sysinv pool
 #
 # ts17_openstack     - OpenStack / Keystone Endpoints
 #   Purpose:  Confirm that sysinv-related OpenStack service endpoints are
@@ -190,14 +199,18 @@
 #   Purpose:  Detect MTU mismatches or path fragmentation issues by sending
 #             full-size ICMP probes (DF bit set) sized to each interface MTU
 #             across all platform networks between the local controller and
-#             every remote host.
+#             every remote host; additionally probes jumbo (9000) capability
+#             on networks configured below that size.
 #   Data:     system host-if-list, system host-addr-list
 #   Check:    for each platform network, send a full-size ICMP probe
 #             (payload = interface MTU - IP/ICMP overhead, DF bit set)
 #             from the local controller to every remote host IP on that subnet;
-#             tests both IPv4 (ping -M do -s) and IPv6 (ping6 -M do -s)
-#   FAILED:   ping returns fragmentation-needed or unreachable;
-#             path cannot carry MTU-sized frames end-to-end
+#             tests both IPv4 (ping -M do -s) and IPv6 (ping6 -M do -s);
+#             on networks below jumbo (9000), also probes a fixed 9000-byte
+#             payload with fragmentation allowed (informational)
+#   FAILED:   ping returns fragmentation-needed or unreachable at the
+#             configured MTU; path cannot carry MTU-sized frames end-to-end
+#   WARN:     jumbo (9000) probe fails even with fragmentation allowed
 #
 # ts19_dc_systemcontroller - Distributed Cloud: System Controller
 #   Purpose:  From the system controller, validate each managed subcloud:
@@ -209,24 +222,40 @@
 #             management gateway reachable (ping);
 #             subcloud DNS resolves platform hostnames;
 #             GNP contains systemcontroller subnet in ingress rules;
-#             critical TCP ports accessible on subcloud (22, 443, 5000, 6443);
+#             firewall TCP/UDP ports accessible on the subcloud: mgmt-network
+#             ports (platform_firewall.SUBCLOUD + http service port) against
+#             the mgmt IP, oam-network ports (OAM_COMMON) against
+#             --subcloud-oam-ip when provided (falls back to GNP-derived
+#             ports when sysinv is unavailable); ports known not to apply are
+#             excluded (Docker registry/token, fixed HTTPS 8443, Ceph RGW
+#             unless confirmed via SSH, SM heartbeat);
 #             (if --subcloud-oam-ip) host availability + k8s node Ready state
 #   FAILED:   subcloud offline; gateway unreachable; GNP missing SC subnet;
-#             TCP port not accessible; k8s node NotReady
+#             TCP/UDP port timeout; k8s node NotReady
+#   WARN:     TCP port refused (service not running); UDP result inconclusive;
+#             OAM firewall check skipped when --subcloud-oam-ip not provided
 #
 # ts20_dc_subcloud   - Distributed Cloud: Subcloud
 #   Purpose:  From the subcloud, verify the connectivity path back to the
-#             system controller: routing, reachability, IPsec SA state, and
-#             DNS resolution.
+#             system controller: routing, reachability, IPsec SA state,
+#             DNS resolution, and firewall port reachability.
 #   Data:     system show (central_cloud_url), ip route show, ping,
-#             swanctl --list-sas, dig
+#             swanctl --list-sas, dig,
+#             sysinv.common.platform_firewall.SYSTEMCONTROLLER/OAM_COMMON/OAM_DC
 #   Check:    route to system controller management IP exists in kernel;
 #             system controller management IP reachable (ping + TCP 22/443);
 #             IPsec SA towards system controller in ESTABLISHED state;
 #             DNS resolves controller-0 on the subcloud;
-#             SC OAM floating IP reachable via TCP 8443 (if available)
+#             SC OAM floating IP reachable via TCP 8443 (if available);
+#             firewall TCP/UDP ports accessible on the SC: mgmt-network ports
+#             (SYSTEMCONTROLLER + http service port) against the SC mgmt IP,
+#             oam-network ports (OAM_COMMON + OAM_DC) against the SC OAM
+#             floating IP; SM heartbeat ports excluded (controller-to-
+#             controller only, never reachable from a subcloud)
 #   FAILED:   route missing; SC IP unreachable; IPsec SA not ESTABLISHED;
-#             DNS resolution fails
+#             DNS resolution fails; SC TCP/UDP port timeout
+#   WARN:     SC TCP port refused or UDP result inconclusive (service not
+#             applied, e.g. Analytics NodePorts)
 #
 # ---------------------------------------------------------------------------
 # Result verdicts
@@ -254,6 +283,26 @@
 #
 # The bundler concatenates modules in dependency order (state -> log -> run ->
 # ssh -> sysinv -> kube -> ts01 ... ts20 -> __main__) and strips all internal
-# imports.  This file (tests/__init__.py) is intentionally excluded from that
+# imports.  It also embeds the network_diagnostics script (from
+# scripts/network_diagnostics) as a self-contained fallback function, followed
+# by dispatcher.py which selects the appropriate tool at runtime.
+#
+# Runtime behaviour of the bundle
+# --------------------------------
+# When executed, dispatcher.dispatch() runs first and checks four conditions:
+#   1. /etc/platform/openrc exists on the local host.
+#   2. The hostname matches controller-0 or controller-1.
+#   3. Sourcing openrc and running `system show` succeeds (platform services up).
+#   4. sm-query reports controller-services as active.
+#
+# If all conditions pass  -> full network_platform_audit (all ts01-ts20 suites).
+# Otherwise               -> node-local network_diagnostics (no DB/CLI required).
+#
+# The fallback path is suitable for workers, storage nodes, standby controllers,
+# and any node where platform services are unavailable.  Arguments exclusive to
+# network_platform_audit (--verbose, --ssh-pass, --subcloud*) are silently
+# ignored when the fallback path is taken.
+#
+# This file (tests/__init__.py) is intentionally excluded from the bundling
 # process: it contains only documentation and is not referenced by any module
 # at runtime.

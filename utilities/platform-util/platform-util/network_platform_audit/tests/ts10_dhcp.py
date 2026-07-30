@@ -13,24 +13,13 @@ from network_platform_audit.run import run
 from network_platform_audit.run import run_checked
 from network_platform_audit.run import run_log_only
 from network_platform_audit.ssh import ssh_check_remote
+from network_platform_audit.sysinv import _detect_dnsmasq_file
+from network_platform_audit.sysinv import _parse_dhcp_leases
 from network_platform_audit.sysinv import _parse_generic_table
 from network_platform_audit.sysinv import _run_on_host
 from network_platform_audit.sysinv import _run_system_list
 from network_platform_audit.sysinv import get_host_names
 from network_platform_audit.sysinv import local_hostname
-
-
-def _detect_dnsmasq_file(filename):
-    base = "/opt/platform/config"
-    if not os.path.isdir(base):
-        return None
-    version_dirs = [d for d in os.listdir(base) if re.match(r"\d{2}\.\d{2}", d)]
-    version_dirs.sort(key=lambda v: [int(x) for x in v.split(".")], reverse=True)
-    for ver in version_dirs:
-        path = os.path.join(base, ver, filename)
-        if os.path.exists(path):
-            return path
-    return None
 
 
 def _get_pxeboot_iface():
@@ -79,7 +68,8 @@ def _check_dhclient_running(cat, dhcp_ifaces):
         log("[INFO] no DHCP-enabled interfaces found")
 
 
-def _check_addn_hosts(cat, addn_hosts_path):
+def _read_addn_hosts_entries(cat, addn_hosts_path):
+    entries = []
     if addn_hosts_path and os.path.exists(addn_hosts_path):
         log(f"  Analyzing file: {addn_hosts_path}")
         try:
@@ -91,22 +81,38 @@ def _check_addn_hosts(cat, addn_hosts_path):
                     parts = line.split()
                     if len(parts) < 2:
                         continue
-                    ip, entry_hostname = parts[0], parts[1]
-                    rc, out, _ = run_log_only(["getent", "hosts", entry_hostname])
-                    if rc == 0 and ip in out:
-                        log_result(f"dnsmasq host {entry_hostname} resolves to {ip}", "PASS")
-                    else:
-                        log_result(f"dnsmasq host {entry_hostname} resolves to {ip}", "FAILED")
-                        state.category_failures[cat].append(f"dnsmasq host {entry_hostname} does not resolve to {ip}")
-                    flag = "-6" if ":" in ip else ""
-                    rc2, _, _ = run_log_only(["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ip])
-                    if rc2 != 0:
-                        log(f"  [WARN] {entry_hostname} ({ip}) not reachable via ping")
-                        state.category_warnings[cat].append(f"dnsmasq host {entry_hostname} ({ip}) not reachable")
+                    entries.append((parts[0], parts[1]))
         except Exception as e:
             state.category_failures[cat].append(f"failed to read dnsmasq.addn_hosts: {e}")
     else:
         log("[INFO] dnsmasq.addn_hosts not found")
+    return entries
+
+
+def _check_addn_hosts_on_host(cat, hostname, entries):
+    log(f"  [HOST] {hostname}")
+    if hostname != local_hostname() and hostname in state.SSH_FAILED_HOSTS:
+        ssh_check_remote(cat, hostname, "dnsmasq.addn_hosts resolution")
+        return
+
+    failed = []
+    for ip, entry_hostname in entries:
+        entry_failed, stop = _check_host_entry_resolution(hostname, ip, entry_hostname)
+        failed.extend(entry_failed)
+        if stop:
+            break
+
+    if failed:
+        for msg in failed:
+            state.category_failures[cat].append(f"{hostname}: dnsmasq.addn_hosts resolution: {msg}")
+
+
+def _check_addn_hosts_all_hosts(cat, entries):
+    if entries:
+        log("")
+        log("[INFO] verifying dnsmasq.addn_hosts name resolution on all hosts...")
+        for hostname in get_host_names():
+            _check_addn_hosts_on_host(cat, hostname, entries)
 
 
 def _check_addn_conf(cat, addn_conf_path):
@@ -201,6 +207,9 @@ def _check_host_entry_resolution(hostname, ip, name):
         failed.append(f"{name}: expected {ip}, got {got}")
         return failed, False
 
+    if ip in ("127.0.0.1", "::1"):
+        return failed, False
+
     flag = "-6" if ":" in ip else ""
     if hostname == local_hostname():
         rc2, _, _ = run(["ping"] + ([flag] if flag else []) + ["-c", "2", "-W", "2", ip])
@@ -234,6 +243,78 @@ def _check_hosts_resolution_on_host(cat, hostname, hosts_entries):
             state.category_failures[cat].append(f"{hostname}: /etc/hosts resolution: {msg}")
 
 
+def _get_host_mac_to_iface(hostname):
+    """Return {mac: ifname} for a host's kernel interfaces via `ip -o link show`."""
+    mac_to_iface = {}
+    rc, out, _ = _run_on_host(hostname, "ip -o link show", silent=True)
+    if rc != 0 or not out:
+        return mac_to_iface
+    for line in out.splitlines():
+        m = re.match(r"\d+:\s+(\S+?)(?:@\S+)?:.*link/ether\s+([0-9a-fA-F:]+)", line)
+        if m:
+            mac_to_iface[m.group(2).lower()] = m.group(1)
+    return mac_to_iface
+
+
+def _get_host_kernel_ips(hostname):
+    """Return the set of IPs currently assigned in a host's kernel."""
+    ips = set()
+    rc, out, _ = _run_on_host(hostname, "ip -o addr show", silent=True)
+    if rc != 0 or not out:
+        return ips
+    for line in out.splitlines():
+        m = re.search(r"inet6?\s+([0-9a-fA-F:.]+)/", line)
+        if m:
+            ips.add(m.group(1))
+    return ips
+
+
+def _check_dhcp_leases_assigned(cat):
+    """Verify each active dnsmasq lease is actually assigned on the host owning
+    the leased MAC address (e.g. a pxeboot IP handed to compute-0 must show up
+    in compute-0's kernel, not just in the lease file).
+    """
+    leases = _parse_dhcp_leases()
+    if not leases:
+        log("[INFO] no dnsmasq.leases entries found")
+        return
+
+    log("")
+    log("[INFO] verifying dnsmasq leases are assigned to the correct host...")
+
+    host_macs = {}
+    host_ips = {}
+    for hostname in get_host_names():
+        if hostname != local_hostname() and hostname in state.SSH_FAILED_HOSTS:
+            log(f"  [INFO] {hostname}: SSH unavailable - skipping DHCP lease verification")
+            continue
+        host_macs[hostname] = _get_host_mac_to_iface(hostname)
+        host_ips[hostname] = _get_host_kernel_ips(hostname)
+
+    for lease in leases:
+        mac = lease["mac"]
+        ip = lease["ip"]
+        lease_name = lease["hostname"]
+
+        owner, iface = None, None
+        for hostname, macs in host_macs.items():
+            if mac in macs:
+                owner, iface = hostname, macs[mac]
+                break
+
+        if owner is None:
+            log(f"  [INFO] lease {ip} ({lease_name}, mac {mac}): "
+                f"no matching host interface found (stale lease?)")
+            continue
+
+        if ip in host_ips.get(owner, set()):
+            log_result(f"  DHCP lease {ip} ({lease_name}) assigned on {owner}/{iface}", "PASS")
+        else:
+            log_result(f"  DHCP lease {ip} ({lease_name}) assigned on {owner}/{iface}", "FAILED")
+            state.category_failures[cat].append(
+                f"DHCP lease {ip} (mac {mac}) matched to {owner} but not assigned in kernel")
+
+
 def _check_hosts_resolution_all_hosts(cat, hosts_entries):
     if hosts_entries:
         log("")
@@ -246,12 +327,13 @@ def test_dhcp_extended():
     cat = "TestSuite 10 - dnsmasq / DHCP"
     desc = [
         "1) Check DHCP client (dhclient) running for DHCP interfaces",
-        "2) Resolve hostnames from dnsmasq addn_hosts",
+        "2) Resolve hostnames from dnsmasq addn_hosts on all hosts (local + remote via SSH)",
         "3) Ping dnsmasq host-record IPs",
         "4) Verify dnsmasq DHCP socket on pxeboot (UDP 67)",
         "5) Verify TFTP port (UDP 69) in LISTEN",
         "6) Verify dnsmasq.leases file exists",
         "7) Verify /etc/hosts name resolution on all hosts (local + remote via SSH)",
+        "8) Verify dnsmasq leases are assigned to the correct host in kernel",
     ]
     print_category(cat, description=desc)
 
@@ -260,7 +342,8 @@ def test_dhcp_extended():
     _check_dhclient_running(cat, dhcp_ifaces)
 
     addn_hosts_path = _detect_dnsmasq_file("dnsmasq.addn_hosts")
-    _check_addn_hosts(cat, addn_hosts_path)
+    addn_hosts_entries = _read_addn_hosts_entries(cat, addn_hosts_path)
+    _check_addn_hosts_all_hosts(cat, addn_hosts_entries)
 
     addn_conf_path = _detect_dnsmasq_file("dnsmasq.addn_conf")
     _check_addn_conf(cat, addn_conf_path)
@@ -272,3 +355,5 @@ def test_dhcp_extended():
     hosts_entries = _read_hosts_entries(cat)
 
     _check_hosts_resolution_all_hosts(cat, hosts_entries)
+
+    _check_dhcp_leases_assigned(cat)

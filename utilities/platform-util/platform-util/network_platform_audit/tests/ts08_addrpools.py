@@ -78,6 +78,14 @@ def _build_pool_ranges(addrpools):
     return pool_ranges
 
 
+_OAM_NETWORK_TYPES = {"oam", "system-controller-oam"}
+
+
+def _is_oam_pool(pool_name, pool_net_type):
+    """Return True if the pool belongs to any OAM-family network type."""
+    return pool_net_type.get(pool_name) in _OAM_NETWORK_TYPES
+
+
 def _check_pool_overlaps(cat, pool_ranges, pool_net_type):
     overlap_found = False
     for i in range(len(pool_ranges)):
@@ -85,9 +93,14 @@ def _check_pool_overlaps(cat, pool_ranges, pool_net_type):
             n1, net1 = pool_ranges[i]
             n2, net2 = pool_ranges[j]
             if net1.overlaps(net2):
-                both_oam = (pool_net_type.get(n1) == "oam" and pool_net_type.get(n2) == "oam")
+                both_oam = _is_oam_pool(n1, pool_net_type) and _is_oam_pool(n2, pool_net_type)
                 if both_oam:
-                    log_result(f"pool overlap (ignored - both OAM): {n1} {net1} <-> {n2} {net2}", "PASS")
+                    log_result(
+                        f"pool overlap (ignored - OAM pools may share subnet): "
+                        f"{n1} ({pool_net_type.get(n1)}) {net1} <-> "
+                        f"{n2} ({pool_net_type.get(n2)}) {net2}",
+                        "PASS",
+                    )
                     continue
                 overlap_found = True
                 log_result(f"pool overlap: {n1} {net1} <-> {n2} {net2}", "FAILED")

@@ -430,7 +430,7 @@ def _check_iface_numvfs(cat, hostname, ifname, kernel_ifname, db_numvfs):
     )
     try:
         kernel_numvfs = int(sysfs_out.strip())
-    except ValueError:
+    except (ValueError, AttributeError):
         kernel_numvfs = -1
 
     log_result(
@@ -450,9 +450,11 @@ def _check_vf_driver_binding_count(cat, hostname, ifname, kernel_ifname, db_numv
         "vfio":      ("vfio-pci",),
     }
 
-    if not vf_driver:
-        log(f"  [INFO] {hostname}/{ifname}: no VF driver info in DB - skipping binding count")
-        return
+    # Normalize vf_driver: None/"None"/"" all mean the kernel default (netdevice)
+    if not vf_driver or str(vf_driver).strip().lower() in ("none", ""):
+        log(f"  [INFO] {hostname}/{ifname}: sriov_vf_driver is None/unset in DB"
+            f" - treating as 'netdevice' (kernel default)")
+        vf_driver = "netdevice"
 
     accepted = vf_driver_map.get(vf_driver.lower(), (vf_driver.lower(),))
     kernel_drv_str = "/".join(accepted)

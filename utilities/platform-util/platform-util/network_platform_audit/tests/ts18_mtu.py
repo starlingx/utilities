@@ -79,6 +79,52 @@ def _ping_remote_ips(cat, local_host, subnet, mtu, is_v6, payload, remote_ips):
                 )
 
 
+JUMBO_MTU = 9000
+
+
+def _ping_jumbo_once(ip, payload, is_v6):
+    """Run a single jumbo ping with fragmentation allowed.
+
+    IPv4: omitting "-M do" lets the local host fragment as usual.
+    IPv6: routers never fragment in-transit; "-M want" allows only the
+    source host to fragment.
+    """
+    if is_v6:
+        cmd = ["ping6", "-c", "1", "-W", "3", "-s", str(payload), "-M", "want", ip]
+    else:
+        cmd = ["ping", "-c", "1", "-W", "3", "-s", str(payload), ip]
+    return run_log_only(cmd)
+
+
+def _ping_jumbo_remote_ips(cat, local_host, subnet, mtu, is_v6, payload, remote_ips):
+    """Informational probe: can this path carry jumbo (9000) frames via
+    fragmentation, given the configured MTU is below that? Reported as WARN,
+    not FAILED, since a network not provisioned for jumbo is not required to
+    support it.
+
+    Only the fragmentation-allowed mode is tested: this probe only runs when
+    the local interface's own MTU is already below JUMBO_MTU, so a "-M do"
+    (no fragmentation) attempt would be rejected by the local kernel before
+    a single packet reaches the wire (EMSGSIZE) - it can never succeed here
+    and would just be a guaranteed-failing extra round trip.
+    """
+    for remote_host, r_ips in sorted(remote_ips.items()):
+        for r_ip in r_ips:
+            label_base = (f"  {local_host} -> {remote_host} ({r_ip}) subnet={subnet} "
+                          f"jumbo-test payload={payload} (configured mtu={mtu})")
+
+            rc, _, _ = _ping_jumbo_once(r_ip, payload, is_v6)
+            if rc == 0:
+                log_result(f"{label_base} [with fragmentation]", "PASS")
+            else:
+                log_result(f"{label_base} [with fragmentation]", "WARN")
+                state.category_warnings[cat].append(
+                    f"jumbo ({JUMBO_MTU}) not reachable even with fragmentation: "
+                    f"{local_host} -> {remote_host} ({r_ip}) on {subnet}, "
+                    f"configured mtu={mtu}"
+                )
+
+
 def _test_subnet_mtu(cat, local_host, subnet, hosts_map, subnet_mtu, ipv4_overhead, ipv6_overhead):
     local_ips = hosts_map.get(local_host, [])
     remote_ips = {h: ips for h, ips in hosts_map.items() if h != local_host}
@@ -100,6 +146,11 @@ def _test_subnet_mtu(cat, local_host, subnet, hosts_map, subnet_mtu, ipv4_overhe
 
     _ping_remote_ips(cat, local_host, subnet, mtu, is_v6, payload, remote_ips)
 
+    if mtu < JUMBO_MTU:
+        jumbo_payload = JUMBO_MTU - overhead
+        if jumbo_payload > 0:
+            _ping_jumbo_remote_ips(cat, local_host, subnet, mtu, is_v6, jumbo_payload, remote_ips)
+
     return True
 
 
@@ -112,6 +163,12 @@ def test_mtu_functional():
         "   using full-size packets (payload = MTU - IP/ICMP headers, DF bit set)",
         "4) Tests both IPv4 and IPv6 networks separately",
         "5) A failure means the path between controllers cannot carry MTU-sized frames",
+        "6) On networks configured below jumbo (9000), additionally probe a fixed "
+        "9000-byte payload as an informational check (WARN, not FAILED) of whether "
+        "the underlying switch/NIC path could carry jumbo frames",
+        "7) Jumbo probe allows fragmentation (the local interface MTU is already "
+        "below 9000, so a no-fragmentation attempt would always fail locally "
+        "before reaching the wire)",
     ]
     print_category(cat, description=desc)
 
