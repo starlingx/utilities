@@ -108,9 +108,12 @@ type mockConfigLoader struct {
 
 	// GetCurrentRootToken behavior
 	currentRootToken string
+
+	// GetCurrentKeySecret behavior
+	currentKeySecret string
 }
 
-func (m *mockConfigLoader) LoadGenerationSecret() (*baoConfig.GenerationSecret, error) {
+func (m *mockConfigLoader) LoadGenerationSecret(secretName string) (*baoConfig.GenerationSecret, error) {
 	return m.loadedSecret, m.loadErr
 }
 
@@ -127,6 +130,10 @@ func (m *mockConfigLoader) StoreGenerationSecret(genName string, secret *baoConf
 
 func (m *mockConfigLoader) GetCurrentRootToken() string {
 	return m.currentRootToken
+}
+
+func (m *mockConfigLoader) GetCurrentKeySecret() string {
+	return m.currentKeySecret
 }
 
 // --- Helper to create a standard test generation secret ---

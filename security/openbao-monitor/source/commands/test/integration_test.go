@@ -300,7 +300,7 @@ func TestIntegration_FreshInstall_StoreGen001Immutable(t *testing.T) {
 
 	// Phase 4: Verify unseal can load and use the stored keys
 	cfg.SetLoadedGenerationSecret(nil) // Reset cache
-	loadedSecret, err := cfg.LoadGenerationSecret()
+	loadedSecret, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("LoadGenerationSecret failed: %v", err)
 	}
@@ -442,8 +442,8 @@ type integrationConfigLoader struct {
 	clientset kubernetes.Interface
 }
 
-func (l *integrationConfigLoader) LoadGenerationSecret() (*baoConfig.GenerationSecret, error) {
-	return l.cfg.LoadGenerationSecret()
+func (l *integrationConfigLoader) LoadGenerationSecret(secretName string) (*baoConfig.GenerationSecret, error) {
+	return l.cfg.LoadGenerationSecret(l.cfg.CurrentKeySecret)
 }
 
 func (l *integrationConfigLoader) NextGenerationName() (string, error) {
@@ -456,6 +456,10 @@ func (l *integrationConfigLoader) StoreGenerationSecret(genName string, secret *
 
 func (l *integrationConfigLoader) GetCurrentRootToken() string {
 	return l.cfg.GetCurrentRootToken()
+}
+
+func (l *integrationConfigLoader) GetCurrentKeySecret() string {
+	return l.cfg.GetCurrentKeySecret()
 }
 
 func TestIntegration_Rekey_CreatesGen002_RetainsGen001(t *testing.T) {
@@ -562,7 +566,7 @@ func TestIntegration_Rekey_CreatesGen002_RetainsGen001(t *testing.T) {
 
 	// Verify unseal would use gen-002 keys
 	cfg.SetLoadedGenerationSecret(nil) // clear cache
-	loadedSecret, err := cfg.LoadGenerationSecret()
+	loadedSecret, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("LoadGenerationSecret after rekey failed: %v", err)
 	}
@@ -613,7 +617,7 @@ func TestIntegration_PodRestart_RecoverStateFromK8s(t *testing.T) {
 	}
 
 	// Verify we can load the secret and resume operations
-	loadedSecret, err := cfg.LoadGenerationSecret()
+	loadedSecret, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("LoadGenerationSecret failed after restart: %v", err)
 	}
@@ -1069,7 +1073,7 @@ func TestIntegration_FullLifecycle_EndToEnd(t *testing.T) {
 	}
 
 	// Load gen-001 for subsequent operations
-	gen001, err := cfg.LoadGenerationSecret()
+	gen001, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("LoadGenerationSecret after migration failed: %v", err)
 	}
@@ -1150,7 +1154,7 @@ func TestIntegration_FullLifecycle_EndToEnd(t *testing.T) {
 	}
 
 	// Verify we can load gen-002 and use it for unseal
-	gen002Data, err := cfg.LoadGenerationSecret()
+	gen002Data, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("LoadGenerationSecret after restart failed: %v", err)
 	}

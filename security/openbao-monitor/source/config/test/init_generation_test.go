@@ -114,7 +114,7 @@ func TestParseInitResponseToGeneration_RoundTrip(t *testing.T) {
 	}
 
 	// Step 3: Load the generation secret back
-	loaded, err := cfg.LoadGenerationSecret()
+	loaded, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("LoadGenerationSecret failed: %v", err)
 	}

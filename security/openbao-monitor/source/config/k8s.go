@@ -261,7 +261,7 @@ func (configInstance *MonitorConfig) StoreSecretConfig(config *rest.Config) erro
 // StoreGenerationSecret creates a new immutable Kubernetes secret for a key
 // generation event. The secret is stored with labels for discovery and its
 // data field contains the JSON-marshaled GenerationSecret. On success,
-// c.CurrentKeySecret is updated to genName.
+// CurrentKeySecret is updated to genName.
 //
 // If the secret already exists (AlreadyExists error), the function compares
 // the existing data with what we intended to store. If they are identical,
@@ -335,7 +335,7 @@ func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *Generation
 
 // LoadGenerationSecret reads the current generation secret from Kubernetes,
 // deserializes and validates it, then caches it in memory via SetLoadedGenerationSecret.
-// The secret to read is determined by c.CurrentKeySecret.
+// The secret to read is determined by secretName.
 //
 // Returns descriptive errors for:
 //   - CurrentKeySecret is empty
@@ -343,9 +343,9 @@ func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *Generation
 //   - No "data" field in the secret
 //   - Malformed JSON in the "data" field
 //   - Validation failure (wrong key count, empty root token)
-func (c *MonitorConfig) LoadGenerationSecret() (*GenerationSecret, error) {
-	if c.CurrentKeySecret == "" {
-		return nil, fmt.Errorf("currentKeySecret is empty: no generation secret name configured")
+func (c *MonitorConfig) LoadGenerationSecret(secretName string) (*GenerationSecret, error) {
+	if secretName == "" {
+		return nil, fmt.Errorf("generation secret name is empty")
 	}
 	if c.Clientset == nil {
 		return nil, fmt.Errorf("clientset is nil: K8s client not initialized")
@@ -356,39 +356,40 @@ func (c *MonitorConfig) LoadGenerationSecret() (*GenerationSecret, error) {
 		namespace = k8sNamespace
 	}
 
-	slog.Debug("Loading generation secret", "namespace", namespace, "name", c.CurrentKeySecret)
+	slog.Debug("Loading generation secret", "namespace", namespace, "name", secretName)
 
 	secretClient := c.Clientset.CoreV1().Secrets(namespace)
 	ctx := context.Background()
 
-	k8sSecret, err := secretClient.Get(ctx, c.CurrentKeySecret, metaV1.GetOptions{})
+	k8sSecret, err := secretClient.Get(ctx, secretName, metaV1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
-			return nil, fmt.Errorf("generation secret %q not found in namespace %q", c.CurrentKeySecret, namespace)
+			return nil, fmt.Errorf("generation secret %q not found in namespace %q", secretName, namespace)
 		}
-		return nil, fmt.Errorf("failed to read generation secret %q: %w", c.CurrentKeySecret, err)
+		return nil, fmt.Errorf("failed to read generation secret %q: %w", secretName, err)
 	}
 
 	// Extract the "data" field from the k8s secret
 	rawData, ok := k8sSecret.Data["data"]
 	if !ok {
-		return nil, fmt.Errorf("generation secret %q has no 'data' field", c.CurrentKeySecret)
+		return nil, fmt.Errorf("generation secret %q has no 'data' field", secretName)
 	}
 
 	// Deserialize JSON into GenerationSecret
 	var genSecret GenerationSecret
 	if err := json.Unmarshal(rawData, &genSecret); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal generation secret %q: %w", c.CurrentKeySecret, err)
+		return nil, fmt.Errorf("failed to unmarshal generation secret %q: %w", secretName, err)
 	}
 
 	// Validate the loaded secret
 	if err := ValidateGenerationSecret(&genSecret); err != nil {
-		return nil, fmt.Errorf("generation secret %q failed validation: %w", c.CurrentKeySecret, err)
+		return nil, fmt.Errorf("generation secret %q failed validation: %w", secretName, err)
 	}
 
 	// Cache the loaded secret in memory
 	c.SetLoadedGenerationSecret(&genSecret)
 
-	slog.Info("Generation secret loaded successfully", "name", c.CurrentKeySecret)
+	slog.Info("Generation secret loaded successfully", "name", secretName)
 	return &genSecret, nil
 }
+

@@ -75,7 +75,7 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 		}
 
 		// Load the current generation secret to ensure we have keys available
-		_, err = globalConfig.LoadGenerationSecret()
+		_, err = globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret)
 		if err != nil {
 			return fmt.Errorf("failed to load current generation secret: %w", err)
 		}
@@ -147,7 +147,7 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 		// Re-read stored secret from K8s and confirm it matches what we stored.
 		// This guards against silent storage corruption before proceeding to
 		// verification (which would commit the new keys as active).
-		stored, err := globalConfig.LoadGenerationSecret()
+		stored, err := globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret)
 		if err != nil {
 			return fmt.Errorf("failed to re-read generation secret after store: %w", err)
 		}

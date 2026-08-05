@@ -95,7 +95,7 @@ func runUnsealFromGeneration(dnshost string, client *clientapi.Client) (*clienta
 		return nil, fmt.Errorf("failed to get k8s config for generation load: %w", err)
 	}
 
-	genSecret, err := globalConfig.LoadGenerationSecret()
+	genSecret, err := globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load generation secret: %w", err)
 	}

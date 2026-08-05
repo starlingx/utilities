@@ -211,6 +211,11 @@ func (configInstance *MonitorConfig) GetCurrentRootToken() string {
 }
 
 // GetUnsealKeys returns the unseal key list from the active generation secret.
+// GetCurrentKeySecret returns the name of the currently active generation secret.
+func (configInstance *MonitorConfig) GetCurrentKeySecret() string {
+	return configInstance.CurrentKeySecret
+}
+
 // If a generation secret is loaded in memory, it returns those keys.
 // Otherwise it falls back to the legacy UnsealKeyShards map.
 func (configInstance *MonitorConfig) GetUnsealKeys() []string {

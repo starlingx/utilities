@@ -128,7 +128,7 @@ func RecoverInProgressRekey(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config
 	// Re-read stored secret from K8s and confirm it matches what we stored.
 	// This guards against silent storage corruption before proceeding to
 	// verification (which would commit the new keys as active).
-	stored, err := cfg.LoadGenerationSecret()
+	stored, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		return fmt.Errorf("failed to re-read generation secret after store: %w", err)
 	}

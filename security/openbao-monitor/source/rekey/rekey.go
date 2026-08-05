@@ -60,10 +60,11 @@ type SysAPI interface {
 // ConfigLoader abstracts the config operations needed by the rekey process.
 // This enables unit testing without real Kubernetes connections.
 type ConfigLoader interface {
-	LoadGenerationSecret() (*baoConfig.GenerationSecret, error)
+	LoadGenerationSecret(secretName string) (*baoConfig.GenerationSecret, error)
 	NextGenerationName() (string, error)
 	StoreGenerationSecret(genName string, secret *baoConfig.GenerationSecret) error
 	GetCurrentRootToken() string
+	GetCurrentKeySecret() string
 }
 
 // RekeyProcess manages the rekey lifecycle as a deterministic state machine.
@@ -121,7 +122,7 @@ func (r *RekeyProcess) SubmitShards(sys SysAPI) (*clientapi.RekeyUpdateResponse,
 	slog.Debug("Submitting shards for rekey", "threshold", r.Threshold)
 
 	// Load the current generation's keys
-	genSecret, err := r.Config.LoadGenerationSecret()
+	genSecret, err := r.Config.LoadGenerationSecret(r.Config.GetCurrentKeySecret())
 	if err != nil {
 		// Cancel rekey on error to avoid stuck state
 		cancelErr := sys.RekeyCancel()

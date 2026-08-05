@@ -67,7 +67,7 @@ func TestLoadGenerationSecret_NormalLoad(t *testing.T) {
 	secret := validTestSecret()
 	createK8sSecretFromGeneration(t, clientset, "openbao", "openbao-unseal-gen-001", secret)
 
-	loaded, err := cfg.LoadGenerationSecret()
+	loaded, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestLoadGenerationSecret_SecretNotFound(t *testing.T) {
 	}
 
 	// No secret created — should get a "not found" error
-	_, err := cfg.LoadGenerationSecret()
+	_, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err == nil {
 		t.Fatal("expected error for missing secret, got nil")
 	}
@@ -131,13 +131,13 @@ func TestLoadGenerationSecret_EmptyCurrentKeySecret(t *testing.T) {
 		CurrentKeySecret: "", // empty
 	}
 
-	_, err := cfg.LoadGenerationSecret()
+	_, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err == nil {
 		t.Fatal("expected error for empty CurrentKeySecret, got nil")
 	}
 
-	if !contains(err.Error(), "currentKeySecret is empty") {
-		t.Errorf("expected error to mention 'currentKeySecret is empty', got: %v", err)
+	if !contains(err.Error(), "generation secret name is empty") {
+		t.Errorf("expected error to mention 'generation secret name is empty', got: %v", err)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestLoadGenerationSecret_MalformedJSON(t *testing.T) {
 	// Create a secret with invalid JSON in the "data" field
 	createK8sSecretFromRawData(t, clientset, "openbao", "openbao-unseal-gen-001", []byte("{not valid json"))
 
-	_, err := cfg.LoadGenerationSecret()
+	_, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
 	}
@@ -180,7 +180,7 @@ func TestLoadGenerationSecret_WrongKeyCount(t *testing.T) {
 	}
 	createK8sSecretFromGeneration(t, clientset, "openbao", "openbao-unseal-gen-001", badSecret)
 
-	_, err := cfg.LoadGenerationSecret()
+	_, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err == nil {
 		t.Fatal("expected error for mismatched key lengths, got nil")
 	}
@@ -207,7 +207,7 @@ func TestLoadGenerationSecret_EmptyRootToken(t *testing.T) {
 	}
 	createK8sSecretFromGeneration(t, clientset, "openbao", "openbao-unseal-gen-001", badSecret)
 
-	_, err := cfg.LoadGenerationSecret()
+	_, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err == nil {
 		t.Fatal("expected error for empty root token, got nil")
 	}
@@ -245,7 +245,7 @@ func TestLoadGenerationSecret_NoDataField(t *testing.T) {
 		t.Fatalf("failed to create test secret: %v", err)
 	}
 
-	_, err = cfg.LoadGenerationSecret()
+	_, err = cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err == nil {
 		t.Fatal("expected error for missing 'data' field, got nil")
 	}
@@ -267,7 +267,7 @@ func TestLoadGenerationSecret_DefaultNamespace(t *testing.T) {
 	secret := validTestSecret()
 	createK8sSecretFromGeneration(t, clientset, "openbao", "openbao-unseal-gen-001", secret)
 
-	loaded, err := cfg.LoadGenerationSecret()
+	loaded, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
