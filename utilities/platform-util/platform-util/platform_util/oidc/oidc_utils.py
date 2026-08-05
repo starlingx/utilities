@@ -456,4 +456,14 @@ def get_keystone_roles_for_oidc_token(token, username_claim, group_claim,
                 roles.append(current_rolebinding_roles[-1])
             if user_or_group == username:
                 roles.append(current_rolebinding_roles[-1])
-    return list(set([s.strip() for s in roles]))
+    roles = list(set([s.strip().lower() for s in roles]))
+
+    # reader is implicitly added by keystone to admins. add the role here to
+    # match keystone behavior.
+    # operator and configurator don't get it implicitly, but adding it here
+    # ensures consistent read access for all privileged roles.
+    privileged_roles = {"admin", "configurator", "operator"}
+    if privileged_roles & set(roles) and "reader" not in roles:
+        roles.append("reader")
+
+    return roles
