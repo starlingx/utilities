@@ -5,9 +5,6 @@ tools/collector
 tools/engtools/hostdata-collectors
 tools/lpmp
 tools/accel-config
-tools/opae/opae-sdk
-tools/opae/python3-opae.admin
-tools/opae/python3-opae.pacsign
 tools/pcm
 utilities/build-info
 utilities/k8s-coredump
