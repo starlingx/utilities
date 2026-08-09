@@ -25,6 +25,29 @@ import (
 // waitInterval is the seconds between monitoring iterations.
 var waitInterval int
 
+// heartbeatPath is the file touched by the run loop to signal liveness to
+// the kubelet probe. The bash health_check function checks this file age.
+const heartbeatPath = "/workdir/health/heartbeat"
+
+// touchHeartbeat updates the heartbeat file modification time so the
+// liveness probe (bash health_check) sees the manager as alive.
+func touchHeartbeat() {
+	if err := os.MkdirAll("/workdir/health", 0755); err != nil {
+		slog.Debug("Failed to create health directory", "err", err)
+		return
+	}
+	now := time.Now()
+	if err := os.Chtimes(heartbeatPath, now, now); err != nil {
+		// File may not exist yet, create it
+		f, createErr := os.Create(heartbeatPath)
+		if createErr != nil {
+			slog.Debug("Failed to create heartbeat file", "err", createErr)
+			return
+		}
+		f.Close()
+	}
+}
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Full lifecycle management loop for OpenBao",
@@ -101,6 +124,7 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 			return err
 		}
 
+		touchHeartbeat()
 		slog.Debug("Iteration complete, sleeping", "seconds", waitInterval)
 		select {
 		case <-ctx.Done():
