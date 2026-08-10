@@ -1,16 +1,16 @@
 #!/bin/bash
 
-# Copyright (c) 2020 Wind River Systems, Inc.
+# Copyright (c) 2020,2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
 
-# This script is wrapper to containerized mariadb-server mysql client.
+# This script is a wrapper for the mariadb client in the mariadb-server pod.
 # This provides access to MariaDB databases.
 #
 # There are three modes of operation:
-# - no command specified gives an interactive mysql shell
-# - command specified executes a single mysql command
+# - no command specified gives an interactive mariadb shell
+# - command specified executes a single mariadb command
 # - dump option to dump database contents to sql text file
 #
 set -euo pipefail
@@ -78,12 +78,12 @@ if [ ${HELP} == 'true' ]; then
     echo " -h | --help  : this help"
     echo " --database <db>     : connect to database db"
     echo " --exclude <db1,...> : list of databases to exclude"
-    echo " --command <cmd>     : execute mysql command cmd"
+    echo " --command <cmd>     : execute mariadb command cmd"
     echo " --dump              : dump database(s) to sql file in current directory"
     echo
     echo "Command option examples:"
     echo
-    echo "Interactive mysql shell:"
+    echo "Interactive mariadb shell:"
     echo " mariadb-cli"
     echo " mariadb-cli --database nova"
     echo " mariadb-cli --command 'show_databases'"
@@ -184,16 +184,16 @@ if [ ${DUMP} == 'true' ]; then
         DATABASES+=( $DATABASE )
     else
         # Get list of databases
-        MYSQL_CMD="${EVAL}; mysql ${DBOPTS} -e 'show databases' -sN --disable-pager"
+        SQL_CMD="${EVAL}; mariadb ${DBOPTS} -e 'show databases' -sN --disable-pager"
         if [ ${DEBUG} == 'true' ]; then
-            LOG "MYSQL_CMD: ${MYSQL_CMD}"
+            LOG "SQL_CMD: ${SQL_CMD}"
         fi
 
-        # Suppress error: line from stdout, eg.,
-        # error: Found option without preceding group in config file: /etc/mysql/conf.d/20-override.cnf at line: 1
-        # Exclude databases: mysql, information_schema, performance_schema
-        # Remove linefeed control character. 
-        DATABASES=( $(kubectl exec -it -n openstack ${DBPOD} -c mariadb -- bash -c "${MYSQL_CMD}" | \
+        # Suppress error: lines from stdout, e.g.,
+        #   error: Found option without preceding group in config file
+        # Exclude system databases: mysql, information_schema, performance_schema
+        # Remove linefeed control character.
+        DATABASES=( $(kubectl exec -it -n openstack "${DBPOD}" -c mariadb -- bash -c "${SQL_CMD}" | \
                         grep -v -e error: -e mysql -e information_schema -e performance_schema | tr -d '\r') )
     fi
 
@@ -206,27 +206,27 @@ if [ ${DUMP} == 'true' ]; then
         fi
 
         # NOTE: --skip-opt will show an INSERT for each record
-        DUMP_CMD="${EVAL}; mysqldump ${DBOPTS} --skip-opt --skip-comments --skip-set-charset ${dbname}"
+        DUMP_CMD="${EVAL}; mariadb-dump ${DBOPTS} --skip-opt --skip-comments --skip-set-charset ${dbname}"
         dbfile=${dbname}.${DB_EXT}
         LOG "Dump database: $dbname to file: ${dbfile}"
         if [ ${DEBUG} == 'true' ]; then
             LOG "DUMP_CMD: ${DUMP_CMD}"
         fi
-        kubectl exec -it -n openstack ${DBPOD} -c mariadb -- bash -c "${DUMP_CMD}" > ${dbfile}
+        kubectl exec -it -n openstack "${DBPOD}" -c mariadb -- bash -c "${DUMP_CMD}" > "${dbfile}"
     done
 
 else
-    # Interactive mariadb mysql client
-    LOG "Interactive MariaDB mysql shell"
-    MYSQL_CMD="${EVAL}; mysql ${DBOPTS} ${DATABASE}"
+    # Interactive mariadb client
+    LOG "Interactive MariaDB shell"
+    SQL_CMD="${EVAL}; mariadb ${DBOPTS} ${DATABASE}"
     if [ ! -z "${COMMAND}" ]; then
-        MYSQL_CMD="${MYSQL_CMD} -e '${COMMAND}'"
+        SQL_CMD="${SQL_CMD} -e '${COMMAND}'"
     fi
 
     if [ ${DEBUG} == 'true' ]; then
-        LOG "MYSQL_CMD: ${MYSQL_CMD}"
+        LOG "SQL_CMD: ${SQL_CMD}"
     fi
-    kubectl exec -it -n openstack ${DBPOD} -c mariadb -- bash -c "${MYSQL_CMD}"
+    kubectl exec -it -n openstack "${DBPOD}" -c mariadb -- bash -c "${SQL_CMD}"
 fi
 
 exit 0
