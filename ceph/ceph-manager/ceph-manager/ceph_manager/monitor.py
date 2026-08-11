@@ -125,6 +125,7 @@ class Monitor(HandleUpgradesMixin):
         self.known_object_pool_name = None
         self.primary_tier_name = constants.SB_TIER_DEFAULT_NAMES[
             constants.SB_TIER_TYPE_CEPH] + constants.CEPH_CRUSH_TIER_SUFFIX
+        self._seeded = False
         super(Monitor, self).__init__(service, conf)
 
     def setup(self):
@@ -176,11 +177,44 @@ class Monitor(HandleUpgradesMixin):
             # Throws exception to get fsid again
             raise Exception("Could not get ceph fsid.")
 
+    def _seed_active_alarm(self):
+        """Best-effort seed from FM API on first poll to cover service restart.
+
+        After a restart current_ceph_health starts as empty. Seeding
+        from FM ensures the clear logic fires correctly when ceph is
+        already HEALTH_OK but a stale alarm exists in FM.
+        """
+        alarm_list = self.service.fm_api.get_faults_by_id(
+            fm_constants.FM_ALARM_ID_STORAGE_CEPH)
+        if not alarm_list:
+            LOG.info(_LI("No existing health alarm in FM, seeded as HEALTH_OK"))
+            return
+
+        for alarm in alarm_list:
+            eid = getattr(alarm, 'entity_instance_id', '')
+            severity = getattr(alarm, 'severity', '')
+            if eid == self.service.entity_instance_id:
+                if severity == fm_constants.FM_ALARM_SEVERITY_CRITICAL:
+                    self.current_ceph_health = constants.CEPH_HEALTH_DOWN
+                else:
+                    self.current_ceph_health = constants.CEPH_HEALTH_WARN
+                LOG.info(_LI(
+                    "Seeded health alarm state from FM: health=%s severity=%s")
+                    % (self.current_ceph_health, severity))
+                return
+
+        LOG.info(_LI("No existing health alarm in FM for this entity, "
+                     "seeded as HEALTH_OK"))
+
     def ceph_poll_status(self):
         # get previous data every time in case:
         # * daemon restarted
         # * alarm was cleared manually but stored as raised in daemon
         self._refresh_current_alarms()
+
+        if not self._seeded:
+            self._seed_active_alarm()
+            self._seeded = True
 
         health = self._get_health_detail()
 
