@@ -1,8 +1,6 @@
 usr/bin/*
 etc/init.d/*
 etc/goenabled.d/*
-lib/systemd/system/affine-platform.service
+lib/systemd/system/affine-platform.sh.service
 lib/systemd/system/affine-tasks.service
-lib/systemd/system/task_affinity_functions.service
-lib/systemd/system/cpumap_functions.service
 usr/share/worker-utils/config/worker_reserved.conf
