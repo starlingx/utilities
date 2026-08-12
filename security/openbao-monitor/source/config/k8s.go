@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/pingcap/failpoint"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -327,6 +328,13 @@ func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *Generation
 		}
 		return fmt.Errorf("failed to create generation secret %s: %w", genName, err)
 	}
+
+	// Failpoint 2: Rekey: After K8s Secret Created, Before Pointer Update
+	// Simulates: crash after creating immutable secret, before updating the pointer
+	failpoint.Inject("fp_rekey_after_store_before_pointer", func() {
+		slog.Warn("Failpoint triggered: fp_rekey_after_store_before_pointer")
+		failpoint.Return(fmt.Errorf("failpoint: rekey after shards before store"))
+	})
 
 	c.CurrentKeySecret = genName
 	slog.Info("Generation secret stored successfully", "name", genName)

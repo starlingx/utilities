@@ -11,6 +11,7 @@ import (
 	"log/slog"
 
 	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
+	"github.com/pingcap/failpoint"
 	"github.com/spf13/cobra"
 )
 
@@ -117,13 +118,28 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 			return fmt.Errorf("failed to submit shards during rekey: %w", err)
 		}
 
-		// Step 3: Store the result as a new generation secret with retry and
-		// read-back verification.
+		// Failpoint 1: Rekey: After Shards Submitted, Before K8s Store
+		// Simulates: crash after shards obtained from server, before K8s secret creation
+		failpoint.Inject("fp_rekey_after_shards_before_store", func() {
+			slog.Warn("Failpoint triggered: fp_rekey_after_shards_before_store")
+			failpoint.Return(fmt.Errorf("failpoint: rekey after shards before store"))
+		})
+
+		// Step 3: Store the result as a new generation secret — retry on transient
+		// failures. The keys exist only in the RekeyUpdateResponse; losing them
+		// means the rekey is unrecoverable.
 		slog.Info("Storing new generation secret")
 
 		if err := proc.StoreResultWithRetry(response, 3); err != nil {
 			return err
 		}
+
+		// Failpoint 3: After Pointer Updated, Before Verification
+		// Simulates: crash after all data persisted, pointer updated, before verification
+		failpoint.Inject("fp_rekey_after_pointer_before_verify", func() {
+			slog.Warn("Failpoint triggered: fp_rekey_after_pointer_before_verify")
+			failpoint.Return(fmt.Errorf("failpoint: rekey after pointer before verify"))
+		})
 
 		// Step 4: Verify the rekey (confirms we received correct keys)
 		if !response.VerificationRequired {

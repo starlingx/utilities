@@ -14,6 +14,7 @@ import (
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
+	"github.com/pingcap/failpoint"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,13 @@ func initializeServer(dnshost string, opts *clientapi.InitRequest) (*clientapi.I
 	if err != nil {
 		return nil, fmt.Errorf("call to init: %w", err)
 	}
+
+	// Failpoint 5: After Init Response, Before Generation Secret Creation
+	// Simulates: crash after server init returns keys, before K8s secret created
+	failpoint.Inject("fp_init_after_init_before_store", func() {
+		slog.Warn("Failpoint triggered: fp_init_after_init_before_store")
+		failpoint.Return(fmt.Errorf("failpoint: After Init Response, Before Generation Secret Creation"))
+	})
 
 	slog.Debug("/sys/init complete")
 

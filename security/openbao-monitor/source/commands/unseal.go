@@ -8,6 +8,7 @@ import (
 	"time"
 
 	clientapi "github.com/openbao/openbao/api/v2"
+	"github.com/pingcap/failpoint"
 	"github.com/spf13/cobra"
 )
 
@@ -99,6 +100,13 @@ func runUnsealFromGeneration(dnshost string, client *clientapi.Client) (*clienta
 	if err != nil {
 		return nil, fmt.Errorf("failed to load generation secret: %w", err)
 	}
+
+	// Failpoint 4: After Reading Generation Secret, Before Unseal Loop
+	// Simulates: crash after retrieving keys from K8s, before unsealing server
+	failpoint.Inject("fp_unseal_after_read_before_submit", func() {
+		slog.Warn("Failpoint triggered: fp_unseal_after_read_before_submit")
+		failpoint.Return(nil, fmt.Errorf("failpoint: After Reading Generation Secret, Before Unseal Loop"))
+	})
 
 	// Delegate to shared unseal implementation
 	if err := UnsealWithGenKeys(client, genSecret); err != nil {

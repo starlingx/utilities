@@ -3,8 +3,26 @@
 # Uncomment this to turn on verbose mode.
 export DH_VERBOSE = 1
 
+# Allow upstream source changes (for failpoint instrumentation)
+export DEB_BUILD_OPTIONS=nocheck
+
+# Explicitly control failpoint build (git may not be available in chroot)
+# Set to 1 for failpoint-instrumented build, 0 for production (no failpoints)
+export ENABLE_FAILPOINT ?= 0
+
 %:
 	dh $@
+
+override_dh_auto_build:
+ifeq ($(ENABLE_FAILPOINT),1)
+	$(MAKE) failpoint-ctl
+	$(MAKE) failpoint-enable
+	$(MAKE) clean
+	$(MAKE) FAILPOINT_BUILD=true build
+else
+	$(MAKE) clean
+	$(MAKE) FAILPOINT_BUILD=false build
+endif
 
 override_dh_dwz:
 	dh_dwz -X baomon
