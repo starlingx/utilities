@@ -1,27 +1,22 @@
-//
-// Copyright (c) 2025 Wind River Systems, Inc.
-//
-// SPDX-License-Identifier: Apache-2.0
-//
-
-module github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands
+module github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands/test
 
 go 1.24.0
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/config => ../config
+replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands => ../
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey => ../rekey
+replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/config => ../../config
+
+replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey => ../../rekey
 
 require (
+	github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands v0.0.0-00010101000000-000000000000
 	github.com/michel-thebeau-WR/openbao-manager-go/baomon/config v0.0.0-00010101000000-000000000000
 	github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey v0.0.0-00010101000000-000000000000
 	github.com/openbao/openbao/api/v2 v2.2.0
 	github.com/pingcap/failpoint v0.0.0-20260521055755-e7642935314f
-	github.com/spf13/cobra v1.9.1
 	k8s.io/api v0.33.0
 	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.33.0
-	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -54,8 +49,10 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pingcap/errors v0.11.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
+	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
@@ -75,4 +72,5 @@ require (
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
+	sigs.k8s.io/yaml v1.4.0 // indirect
 )

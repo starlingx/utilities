@@ -100,20 +100,11 @@ func runUnsealFromGeneration(dnshost string, client *clientapi.Client) (*clienta
 		return nil, fmt.Errorf("failed to load generation secret: %w", err)
 	}
 
-	for i, key := range genSecret.Keys {
-		slog.Debug("Unseal attempt", "attempt", i+1)
-		result, err := tryUnseal(key, client)
-		if err != nil {
-			return result, err
-		}
-		if !result.Sealed {
-			slog.Debug("Unseal complete.")
-			return result, nil
-		}
-		slog.Debug("Still sealed", "threshold", result.T, "progress", result.Progress)
+	// Delegate to shared unseal implementation
+	if err := UnsealWithGenKeys(client, genSecret); err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("exhausted all generation keys for %v", dnshost)
+	return &clientapi.SealStatusResponse{Sealed: false}, nil
 }
 
 var unsealCmd = &cobra.Command{

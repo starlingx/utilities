@@ -10,6 +10,7 @@ require (
 	github.com/michel-thebeau-WR/openbao-manager-go/baomon/config v0.0.0-00010101000000-000000000000
 	github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey v0.0.0-00010101000000-000000000000
 	github.com/openbao/openbao/api/v2 v2.2.0
+	github.com/pingcap/failpoint v0.0.0-20260521055755-e7642935314f
 )
 
 require (
@@ -41,6 +42,8 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pingcap/errors v0.11.4 // indirect
+	github.com/pingcap/failpoint v0.0.0-20260521055755-e7642935314f // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

@@ -392,4 +392,3 @@ func (c *MonitorConfig) LoadGenerationSecret(secretName string) (*GenerationSecr
 	slog.Info("Generation secret loaded successfully", "name", secretName)
 	return &genSecret, nil
 }
-

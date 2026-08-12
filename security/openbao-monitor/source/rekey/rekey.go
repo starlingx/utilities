@@ -9,6 +9,7 @@ package rekey
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
@@ -311,4 +312,60 @@ func (r *RekeyProcess) Cancel(sys SysAPI) error {
 	r.State = StateIdle
 	slog.Info("Rekey cancelled, state reset to Idle")
 	return nil
+}
+
+// StoreResultWithRetry persists the rekey result with up to maxAttempts retries
+// on transient failures. After successful store, it re-reads the secret from
+// Kubernetes and verifies key-by-key that the stored data matches the response.
+//
+// This guards against:
+//   - Transient K8s API failures (retry with exponential backoff)
+//   - Silent storage corruption (read-back comparison)
+func (r *RekeyProcess) StoreResultWithRetry(response *clientapi.RekeyUpdateResponse, maxAttempts int) error {
+	var storeErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		storeErr = r.StoreResult(response)
+		if storeErr == nil {
+			break
+		}
+		slog.Error("Failed to store rekey result, retrying",
+			"attempt", attempt, "err", storeErr)
+		if attempt < maxAttempts {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
+	}
+	if storeErr != nil {
+		return fmt.Errorf("failed to store rekey result after %d attempts (keys may be lost): %w",
+			maxAttempts, storeErr)
+	}
+
+	// Read-back verification: re-read stored secret from K8s and confirm it
+	// matches what we stored. This guards against silent storage corruption
+	// before proceeding to verification (which would commit the new keys as active).
+	stored, err := r.Config.LoadGenerationSecret(r.Config.GetCurrentKeySecret())
+	if err != nil {
+		return fmt.Errorf("failed to re-read generation secret after store: %w", err)
+	}
+	if len(stored.Keys) != len(response.Keys) {
+		return fmt.Errorf("stored secret key count (%d) does not match response (%d)",
+			len(stored.Keys), len(response.Keys))
+	}
+	for i, key := range response.Keys {
+		if stored.Keys[i] != key {
+			return fmt.Errorf("stored secret key[%d] does not match response", i)
+		}
+	}
+	slog.Debug("Re-read verification passed: stored secret matches in-memory response")
+
+	return nil
+}
+
+// VerifyWithServer completes the server-side rekey verification step if
+// verification was required. Returns nil without action if the response
+// does not require verification.
+func (r *RekeyProcess) VerifyWithServer(sys SysAPI, response *clientapi.RekeyUpdateResponse) error {
+	if !response.VerificationRequired {
+		return nil
+	}
+	return r.Verify(sys, response)
 }

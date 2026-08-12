@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"time"
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
@@ -22,18 +21,9 @@ import (
 const InitSecretShares = 5
 const InitSecretThreshold = 3
 
-// postIterationHook is called at the end of each run loop iteration.
-// Set below to enable rekey-in-progress detection.
-var postIterationHook func(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, genSecret *baoConfig.GenerationSecret) error
-
-func init() {
-	// Register rekey detection as the post-iteration hook for the run loop.
-	postIterationHook = handleRekeyIfNeeded
-}
-
-// handleRekeyIfNeeded checks if a rekey operation is in progress on any server
-// and drives it to completion if so.
-func handleRekeyIfNeeded(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, genSecret *baoConfig.GenerationSecret) error {
+// HandleRekeyIfNeeded checks if a rekey operation is in progress on any server
+// and drives it to completion if so. Called directly from runIteration.
+func HandleRekeyIfNeeded(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, genSecret *baoConfig.GenerationSecret) error {
 	if genSecret == nil {
 		// No generation secret loaded, can't participate in rekey
 		return nil
@@ -106,47 +96,14 @@ func RecoverInProgressRekey(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config
 		return fmt.Errorf("failed to submit shards during rekey: %w", err)
 	}
 
-	// Store result as new generation — retry with backoff on transient failures.
-	// The keys exist only in the RekeyUpdateResponse; if we fail to store them,
-	// they're lost and the rekey becomes unrecoverable (must cancel and re-initiate).
-	var storeErr error
-	for attempt := 1; attempt <= 3; attempt++ {
-		storeErr = proc.StoreResult(response)
-		if storeErr == nil {
-			break
-		}
-		slog.Error("Failed to store rekey result, retrying",
-			"attempt", attempt, "err", storeErr)
-		if attempt < 3 {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
-		}
-	}
-	if storeErr != nil {
-		return fmt.Errorf("failed to store rekey result after 3 attempts (keys may be lost): %w", storeErr)
+	// Store with retry + read-back verification
+	if err := proc.StoreResultWithRetry(response, 3); err != nil {
+		return err
 	}
 
-	// Re-read stored secret from K8s and confirm it matches what we stored.
-	// This guards against silent storage corruption before proceeding to
-	// verification (which would commit the new keys as active).
-	stored, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
-	if err != nil {
-		return fmt.Errorf("failed to re-read generation secret after store: %w", err)
-	}
-	if len(stored.Keys) != len(response.Keys) {
-		return fmt.Errorf("stored secret key count (%d) does not match response (%d)", len(stored.Keys), len(response.Keys))
-	}
-	for i, key := range response.Keys {
-		if stored.Keys[i] != key {
-			return fmt.Errorf("stored secret key[%d] does not match response", i)
-		}
-	}
-	slog.Debug("Re-read verification passed: stored secret matches in-memory response")
-
-	// Verify the rekey if verification was required
-	if response.VerificationRequired {
-		if err := proc.Verify(sys, response); err != nil {
-			return fmt.Errorf("rekey verification failed: %w", err)
-		}
+	// Server-side verification
+	if err := proc.VerifyWithServer(sys, response); err != nil {
+		return fmt.Errorf("rekey verification failed: %w", err)
 	}
 
 	slog.Info("Rekey driven to completion, new generation stored",

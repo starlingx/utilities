@@ -1,3 +1,6 @@
+// Copyright (c) 2025-2026 Wind River Systems, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
 package baoCommands
 
 import (
@@ -35,10 +38,10 @@ the command will not run.
 	PersistentPostRunE: cleanCmd,
 	SilenceUsage:       true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slog.Debug(fmt.Sprintf("Starting joinRaft for node %v", args[0]))
+		slog.Debug("Starting joinRaft", "node", args[0])
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
-			return fmt.Errorf("joinRaft failed with error: %v", err)
+			return fmt.Errorf("joinRaft failed with error: %w", err)
 		}
 		var RJReq clientapi.RaftJoinRequest
 		if customPayload != "" {
@@ -54,7 +57,7 @@ the command will not run.
 			RJReq.LeaderAPIAddr = raftAddress
 			cacertbuf, err := os.ReadFile(globalConfig.CACert)
 			if err != nil {
-				return fmt.Errorf("error with trying to read the CACert file in the configs: %v", err)
+				return fmt.Errorf("error with trying to read the CACert file in the configs: %w", err)
 			}
 			// Trim the trailing newline if it exists.
 			cacert := strings.TrimSuffix(string(cacertbuf), "\n")
@@ -65,10 +68,10 @@ the command will not run.
 		slog.Debug("Calling RaftJoin API command...")
 		RJRes, err := newClient.Sys().RaftJoin(&RJReq)
 		if err != nil {
-			return fmt.Errorf("joinRaft failed with error: %v", err)
+			return fmt.Errorf("joinRaft failed with error: %w", err)
 		}
 		if RJRes.Joined {
-			slog.Info(fmt.Sprintf("joinRaft successful for node %v.", args[0]))
+			slog.Info("joinRaft successful", "node", args[0])
 			return nil
 		} else {
 			return fmt.Errorf("joinRaft unable to join node %v with no errors from API", args[0])

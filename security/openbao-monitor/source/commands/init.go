@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2025 Wind River Systems, Inc.
+// Copyright (c) 2025-2026 Wind River Systems, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 
+	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 )
@@ -20,35 +21,37 @@ var optFileStr string
 var secretShares int
 var secretThreshold int
 
-func initializeServer(dnshost string, opts *clientapi.InitRequest) error {
-	slog.Debug(fmt.Sprintf("Attempting the initialize the server %v", dnshost))
+func initializeServer(dnshost string, opts *clientapi.InitRequest) (*clientapi.InitResponse, error) {
+	slog.Debug("Attempting to initialize server", "host", dnshost)
 	newClient, err := globalConfig.SetupClient(dnshost)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	slog.Debug("Checking current server status")
 	healthResult, err := checkHealth(dnshost, newClient)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if healthResult.Initialized {
-		return fmt.Errorf("the server on host %v is already initialized", dnshost)
+		return nil, fmt.Errorf("the server on host %v is already initialized", dnshost)
 	}
 
 	slog.Debug("Running /sys/init")
 	response, err := newClient.Sys().Init(opts)
 	if err != nil {
-		return fmt.Errorf("error during call to init: %v", err)
+		return nil, fmt.Errorf("call to init: %w", err)
 	}
 
 	slog.Debug("/sys/init complete")
+
+	// Legacy: parse into MonitorConfig for backward compatibility
 	err = globalConfig.ParseInitResponse(dnshost, response)
 	if err != nil {
-		return fmt.Errorf("error during parsing init response: %v", err)
+		return nil, fmt.Errorf("parsing init response: %w", err)
 	}
 
-	return nil
+	return response, nil
 }
 
 var initCmd = &cobra.Command{
@@ -56,11 +59,12 @@ var initCmd = &cobra.Command{
 	Short: "Initialize the server",
 	Long: `Initialize the server using the monitor configurations.
 The key shards returned from the initResponse will be stored in the monitor
-configurations.`,
+configurations. When --k8s is set, keys are stored as an immutable generation
+secret in Kubernetes.`,
 	Args:              cobra.ExactArgs(1),
 	PersistentPreRunE: setupCmd,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		slog.Debug(fmt.Sprintf("Action: init %v", args[0]))
+		slog.Debug("Action: init", "host", args[0])
 		fileGiven := cmd.Flags().Lookup("file").Changed
 		secretSharesFlag := cmd.Flags().Lookup("secret-shares").Changed
 		secretThresholdFlag := cmd.Flags().Lookup("secret-threshold").Changed
@@ -96,29 +100,29 @@ configurations.`,
 			opts.SecretShares = secretShares
 			opts.SecretThreshold = secretThreshold
 		}
-		slog.Debug(fmt.Sprintf("Parsing init option successful. Attempting to run init on host %v", args[0]))
+		slog.Debug("Parsing init options successful, running init", "host", args[0])
 		cmd.SilenceUsage = true
-		err := initializeServer(args[0], &opts)
+		response, err := initializeServer(args[0], &opts)
 		if err != nil {
 			return err
 		}
-		slog.Info(fmt.Sprintf("Init successful for host %v", args[0]))
-		return nil
-	},
-	PostRunE: func(cmd *cobra.Command, args []string) error {
+
+		// Store generation secret to Kubernetes (if --k8s is set)
 		if useK8sConfig {
-			// create client config
-			config, err := getK8sConfig()
+			genSecret, err := baoConfig.ParseInitResponseToGeneration(response)
+			if err != nil {
+				return fmt.Errorf("failed to parse init response: %w", err)
+			}
+
+			genName, err := globalConfig.StoreAndVerifyGeneration(genSecret, secretThreshold)
 			if err != nil {
 				return err
 			}
 
-			// Store only the token & key shard info gained from init
-			err = globalConfig.StoreSecretConfig(config)
-			if err != nil {
-				return err
-			}
+			slog.Info("Generation secret stored and verified", "name", genName)
 		}
+
+		slog.Info("Init successful", "host", args[0])
 		return nil
 	},
 	PersistentPostRunE: cleanCmd,

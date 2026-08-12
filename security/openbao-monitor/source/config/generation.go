@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -139,4 +140,46 @@ func (c *MonitorConfig) GetGenerationPrefix() string {
 		return DefaultGenerationPrefix
 	}
 	return c.GenerationPrefix
+}
+
+// StoreAndVerifyGeneration stores a generation secret with retry on transient
+// K8s failures and performs a read-back verification to confirm persistence.
+// Returns the generation name on success. This is the single implementation
+// used by both the init CLI command and the run-loop startup path.
+func (c *MonitorConfig) StoreAndVerifyGeneration(genSecret *GenerationSecret, threshold int) (string, error) {
+	genName, err := c.NextGenerationName()
+	if err != nil {
+		return "", fmt.Errorf("computing next generation name: %w", err)
+	}
+
+	var storeErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		storeErr = c.StoreGenerationSecret(genName, genSecret)
+		if storeErr == nil {
+			break
+		}
+		slog.Error("Failed to store generation secret, retrying",
+			"attempt", attempt, "err", storeErr)
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+		}
+	}
+	if storeErr != nil {
+		return "", fmt.Errorf("storing generation secret %s after 3 attempts: %w",
+			genName, storeErr)
+	}
+
+	c.CurrentKeySecret = genName
+
+	verifySecret, err := c.LoadGenerationSecret(genName)
+	if err != nil {
+		return "", fmt.Errorf("verification read for %s: stored but cannot retrieve: %w",
+			genName, err)
+	}
+	if len(verifySecret.Keys) < threshold {
+		return "", fmt.Errorf("verification mismatch for %s: expected %d+ keys, got %d",
+			genName, threshold, len(verifySecret.Keys))
+	}
+
+	return genName, nil
 }
