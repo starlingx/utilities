@@ -77,6 +77,12 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 		// Not fatal — init will create gen-001 if needed
 	}
 
+	// Phase 2: One-time startup phase (init uninitialized servers, join followers)
+	if err := startupPhase(cfg, k8sConfig); err != nil {
+		slog.Error("Startup phase failed", "err", err)
+		// Not fatal — servers may come up later, retryable in next iteration
+	}
+
 	slog.Info("Run loop starting",
 		"currentKeySecret", cfg.CurrentKeySecret,
 		"waitInterval", waitInterval)
@@ -103,6 +109,86 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 		case <-time.After(time.Duration(waitInterval) * time.Second):
 		}
 	}
+}
+
+// startupPhase performs one-time initialization before the main monitoring loop.
+// If any server is already initialized (regardless of seal status), we conclude
+// that initialization was previously completed and return immediately — unseal
+// and raft-join are handled by the main monitoring loop.
+// Only when NO server has ever been initialized do we run init on the first one.
+func startupPhase(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
+	slog.Info("Startup phase: checking cluster initialization state")
+
+	// Wait for pod addresses to be available from Kubernetes
+	if err := cfg.MigratePodConfig(k8sConfig); err != nil {
+		return fmt.Errorf("startup: failed to refresh pod config: %w", err)
+	}
+
+	// Check each server — if ANY is already initialized, init was already done.
+	// We deliberately ignore seal status: a sealed-but-initialized server still
+	// proves that initialization completed previously. The main loop will unseal it.
+	//
+	// Track whether we successfully reached at least one server: failing to
+	// connect (SetupClient) or failing a health check is NOT the same as a
+	// server being uninitialized. We must not fall through to init unless at
+	// least one server was actually queried successfully.
+	reachedAny := false
+	for host := range maps.Keys(cfg.ServerAddresses) {
+		client, err := cfg.SetupClient(host)
+		if err != nil {
+			slog.Error("Startup: failed to setup client", "host", host, "err", err)
+			continue
+		}
+		health, err := checkHealth(host, client)
+		if err != nil {
+			slog.Error("Startup: health check failed", "host", host, "err", err)
+			continue
+		}
+		reachedAny = true
+		if health.Initialized {
+			slog.Info("Startup: found initialized server, init previously completed",
+				"host", host, "sealed", health.Sealed)
+			return nil
+		}
+	}
+
+	// If we could not reach any server, we cannot determine initialization
+	// state — do not proceed to init. Return an error so the caller retries.
+	if !reachedAny {
+		return fmt.Errorf("startup: could not reach any server — cannot determine initialization state")
+	}
+
+	// No initialized server found — perform first-time initialization
+	firstHost := firstServerHost(cfg)
+	if firstHost == "" {
+		return fmt.Errorf("startup: no server addresses configured")
+	}
+	slog.Info("Startup: no initialized server found, initializing first server",
+		"host", firstHost)
+	client, err := cfg.SetupClient(firstHost)
+	if err != nil {
+		return fmt.Errorf("startup: failed to setup client for init: %w", err)
+	}
+	if err := runInitAndStore(cfg, client, firstHost); err != nil {
+		return fmt.Errorf("startup: init failed: %w", err)
+	}
+	// Reload generation after successful init
+	if err := DiscoverCurrentGeneration(cfg, k8sConfig); err != nil {
+		return fmt.Errorf("startup: discover generation after init: %w", err)
+	}
+
+	slog.Info("Startup phase complete")
+	return nil
+}
+
+// firstServerHost returns the first host from ServerAddresses deterministically.
+// For single-server AIO-SX this is the only host; for multi-server this picks
+// one to be initialized first (arbitrary but deterministic).
+func firstServerHost(cfg *baoConfig.MonitorConfig) string {
+	for host := range cfg.ServerAddresses {
+		return host
+	}
+	return ""
 }
 
 // discoverCurrentGeneration sets CurrentKeySecret from Kubernetes if it's empty.
