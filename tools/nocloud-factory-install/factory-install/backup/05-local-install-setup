@@ -109,73 +109,82 @@ INSTALL_KARGS="${INSTALL_KARGS} onsite_restore=1"
 INSTALL_KARGS="${INSTALL_KARGS} console=ttyS0,115200n8 console=tty0"
 [ -n "${MGMT_IP_PARAM}" ] && INSTALL_KARGS="${INSTALL_KARGS} ${MGMT_IP_PARAM}"
 
-# Stage installer kernel and initramfs under /boot/install/ (otaboot root),
-# where grub.cfg expects them. Copy signatures if present for secure boot.
-log_info "Staging installer kernel and initramfs at /boot/install/"
-mkdir -p /boot/install
-check_rc_die $? "Failed to create /boot/install"
-
-# In the factory install flow, the files under /boot/1/ should always exist
-if [ ! -f "/boot/1/vmlinuz" ] || [ ! -f "/boot/1/initramfs" ]; then
-    log_fatal "Installer kernel/initramfs not found at /boot/1/"
-fi
-
-cp /boot/1/vmlinuz   /boot/install/vmlinuz
-check_rc_die $? "Failed to copy vmlinuz"
-cp /boot/1/initramfs /boot/install/initramfs
-check_rc_die $? "Failed to copy initramfs"
-[ -f "/boot/1/vmlinuz.sig"   ] && cp /boot/1/vmlinuz.sig   /boot/install/vmlinuz.sig
-[ -f "/boot/1/initramfs.sig" ] && cp /boot/1/initramfs.sig /boot/install/initramfs.sig
-log_info "Staged installer kernel/initramfs at /boot/install/"
-
-# Delete any stale UEFI boot entry for the install label. A leftover entry
-# from a previous install may reference an old partition UUID
-OLD_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
-if [ -n "${OLD_BOOTNUM}" ]; then
-    log_info "Removing stale UEFI boot entry Boot${OLD_BOOTNUM} ('${EFI_LABEL}')"
-    efibootmgr -B -b "${OLD_BOOTNUM}" || log_warn "Failed to remove Boot${OLD_BOOTNUM}"
-fi
-
-# Create a fresh UEFI boot entry. -C keeps it out of BootOrder so normal
-# boots are unaffected.
-log_info "Creating UEFI boot entry '${EFI_LABEL}'"
-efibootmgr -C -w \
-    -p "${EFI_PART_NUM}" \
-    -L "${EFI_LABEL}" \
-    -d "${EFI_DISK}" \
-    -l '\EFI\BOOT\BOOTX64.EFI'
-check_rc_die $? "Failed to create UEFI boot entry"
-log_info "UEFI boot entry created"
-
-# efibootmgr prints boot numbers in hex, grubs get_efivar -f uint8 returns
-# BootCurrent in decimal, need to convert for the comparison in grub.cfg.
-EFI_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
-if [ -z "${EFI_BOOTNUM}" ]; then
-    log_fatal "Could not find boot number for '${EFI_LABEL}' after creation"
-fi
-EFI_BOOTNUM_DEC=$(printf '%d' "0x${EFI_BOOTNUM}")
-log_info "UEFI boot entry: Boot${EFI_BOOTNUM} (decimal: ${EFI_BOOTNUM_DEC})"
-
-# Write install_kargs and install_bootnum to boot.env
-if [ ! -f "${BOOT_ENV}" ]; then
-    log_fatal "boot.env not found at ${BOOT_ENV}"
-fi
-
-if grep -q "^install_kargs=" "${BOOT_ENV}"; then
-    sed -i "s|^install_kargs=.*|install_kargs=${INSTALL_KARGS}|" "${BOOT_ENV}"
+# Check whether EFI runtime services are available. Local factory restore
+# requires UEFI (the grub.cfg menu entry is gated behind legacy_bios != 1).
+# On BIOS/legacy systems, skip the UEFI boot entry, kernel staging, and
+# boot.env setup but continue with the rest of the backup
+# (backup_restore_values.yml, etc.).
+if [ ! -d /sys/firmware/efi ]; then
+    log_warn "EFI runtime not available (/sys/firmware/efi missing); " \
+             "skipping local factory restore setup (UEFI-only feature)"
 else
-    sed -i "1 a install_kargs=${INSTALL_KARGS}" "${BOOT_ENV}"
-fi
-check_rc_die $? "Failed to write install_kargs to ${BOOT_ENV}"
+    # Stage installer kernel and initramfs under /boot/install/ (otaboot root),
+    # where grub.cfg expects them. Copy signatures if present for secure boot.
+    log_info "Staging installer kernel and initramfs at /boot/install/"
+    mkdir -p /boot/install
+    check_rc_die $? "Failed to create /boot/install"
 
-# install_bootnum is used to automatically select the local install option
-if grep -q "^install_bootnum=" "${BOOT_ENV}"; then
-    sed -i "s/^install_bootnum=.*/install_bootnum=${EFI_BOOTNUM_DEC}/" "${BOOT_ENV}"
-else
-    sed -i "1 a install_bootnum=${EFI_BOOTNUM_DEC}" "${BOOT_ENV}"
+    # In the factory install flow, the files under /boot/1/ should always exist
+    if [ ! -f "/boot/1/vmlinuz" ] || [ ! -f "/boot/1/initramfs" ]; then
+        log_fatal "Installer kernel/initramfs not found at /boot/1/"
+    fi
+
+    cp /boot/1/vmlinuz   /boot/install/vmlinuz
+    check_rc_die $? "Failed to copy vmlinuz"
+    cp /boot/1/initramfs /boot/install/initramfs
+    check_rc_die $? "Failed to copy initramfs"
+    [ -f "/boot/1/vmlinuz.sig"   ] && cp /boot/1/vmlinuz.sig   /boot/install/vmlinuz.sig
+    [ -f "/boot/1/initramfs.sig" ] && cp /boot/1/initramfs.sig /boot/install/initramfs.sig
+    log_info "Staged installer kernel/initramfs at /boot/install/"
+
+    # Delete any stale UEFI boot entry for the install label. A leftover entry
+    # from a previous install may reference an old partition UUID
+    OLD_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
+    if [ -n "${OLD_BOOTNUM}" ]; then
+        log_info "Removing stale UEFI boot entry Boot${OLD_BOOTNUM} ('${EFI_LABEL}')"
+        efibootmgr -B -b "${OLD_BOOTNUM}" || log_warn "Failed to remove Boot${OLD_BOOTNUM}"
+    fi
+
+    # Create a fresh UEFI boot entry. -C keeps it out of BootOrder so normal
+    # boots are unaffected.
+    log_info "Creating UEFI boot entry '${EFI_LABEL}'"
+    efibootmgr -C -w \
+        -p "${EFI_PART_NUM}" \
+        -L "${EFI_LABEL}" \
+        -d "${EFI_DISK}" \
+        -l '\EFI\BOOT\BOOTX64.EFI'
+    check_rc_die $? "Failed to create UEFI boot entry"
+    log_info "UEFI boot entry created"
+
+    # efibootmgr prints boot numbers in hex, grubs get_efivar -f uint8 returns
+    # BootCurrent in decimal, need to convert for the comparison in grub.cfg.
+    EFI_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
+    if [ -z "${EFI_BOOTNUM}" ]; then
+        log_fatal "Could not find boot number for '${EFI_LABEL}' after creation"
+    fi
+    EFI_BOOTNUM_DEC=$(printf '%d' "0x${EFI_BOOTNUM}")
+    log_info "UEFI boot entry: Boot${EFI_BOOTNUM} (decimal: ${EFI_BOOTNUM_DEC})"
+
+    # Write install_kargs and install_bootnum to boot.env
+    if [ ! -f "${BOOT_ENV}" ]; then
+        log_fatal "boot.env not found at ${BOOT_ENV}"
+    fi
+
+    if grep -q "^install_kargs=" "${BOOT_ENV}"; then
+        sed -i "s|^install_kargs=.*|install_kargs=${INSTALL_KARGS}|" "${BOOT_ENV}"
+    else
+        sed -i "1 a install_kargs=${INSTALL_KARGS}" "${BOOT_ENV}"
+    fi
+    check_rc_die $? "Failed to write install_kargs to ${BOOT_ENV}"
+
+    if grep -q "^install_bootnum=" "${BOOT_ENV}"; then
+        sed -i "s/^install_bootnum=.*/install_bootnum=${EFI_BOOTNUM_DEC}/" "${BOOT_ENV}"
+    else
+        sed -i "1 a install_bootnum=${EFI_BOOTNUM_DEC}" "${BOOT_ENV}"
+    fi
+    check_rc_die $? "Failed to write install_bootnum to ${BOOT_ENV}"
+    log_info "Updated install_kargs and install_bootnum in ${BOOT_ENV}"
 fi
-check_rc_die $? "Failed to write install_bootnum to ${BOOT_ENV}"
-log_info "Updated install_kargs and install_bootnum in ${BOOT_ENV}"
 
 # Write backup_restore_values.yml consumed by dc-auto-restore.service on the
 # first boot after a local reinstall.
