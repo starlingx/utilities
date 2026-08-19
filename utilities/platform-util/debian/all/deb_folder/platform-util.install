@@ -2,6 +2,7 @@ usr/bin/verify-license
 scripts/tc_setup.sh usr/local/bin
 scripts/remotelogging_tc_setup.sh usr/local/bin
 scripts/log_functions.sh etc/init.d
+scripts/log_functions.service lib/systemd/system
 
 /usr/local/bin/set_keystone_user_option.sh
 /usr/local/bin/connectivity_test
