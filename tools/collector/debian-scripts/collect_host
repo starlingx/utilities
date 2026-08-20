@@ -253,6 +253,15 @@ function collect_extra()
     delimiter ${LOGFILE} "grep huge /proc/*/numa_maps"
     grep -e " huge " /proc/*/numa_maps >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 
+    LOGFILE="${EXTRA_DIR}/numa.info"
+    echo    "${hostname}: NUMA Info ..........: ${LOGFILE}"
+
+    run_command "numactl --hardware" "${LOGFILE}"
+    run_command "numastat -m" "${LOGFILE}"
+    run_command "lstopo" "${LOGFILE}"
+    eval "lstopo --of svg -f > ${EXTRA_DIR}/numa_topology.svg 2>>${COLLECT_ERROR_LOG}"
+
+    sleep ${COLLECT_RUNEXTRA_DELAY}
 
     LOGFILE="${EXTRA_DIR}/filesystem.info"
     echo    "${hostname}: Filesystem Info ...: ${LOGFILE}"
