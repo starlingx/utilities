@@ -220,19 +220,26 @@ function execute_with_retries {
 }
 
 function check_services_status {
-    log_info "Checking services status..."
-    max_retries=10
-    retries=0
+    log_info "Waiting for platform services to be ready..."
+    local sm_timeout=60   # 60 * 10s = 600s (10 minutes for SM services)
+    local max_retries=90  # 90 * 10s = 900s (15 minutes total safeguard)
+    local sleep_interval=10
+    local retries=0
+    local sm_active_since=-1
 
     while [ $retries -lt $max_retries ]; do
         local not_ready=""
-        sm_output=$(sm-dump)
 
-        sysinv_status=$(echo "$sm_output" | awk '/sysinv-inv/ {print $2}')
-        [ "$sysinv_status" != "enabled-active" ] && not_ready="${not_ready}sysinv-inv($sysinv_status) "
-
-        mtc_status=$(echo "$sm_output" | awk '/mtc-agent/ {print $2}')
-        [ "$mtc_status" != "enabled-active" ] && not_ready="${not_ready}mtc-agent($mtc_status) "
+        # Check ALL SM services are enabled-active.
+        # sm-dump output has a "-Services" header; after that, column 3
+        # is the service state. We count non-"enabled-active" entries —
+        # allowing 1 for the footer separator line.
+        local count
+        count=$(sm-dump 2>/dev/null | sed "1,/Services/d" | awk '{ print $3 }' \
+                | grep -vc "enabled-active" 2>/dev/null) || count=999
+        if [[ "$count" -gt 1 ]]; then
+            not_ready="sm-services(not all enabled-active) "
+        fi
 
         [ ! -f /var/run/.nfv-vim.dor_complete ] && not_ready="${not_ready}nfv-vim.dor_complete "
         [ ! -f /run/sysinv/.sysinv_reported ] && not_ready="${not_ready}sysinv_reported "
@@ -242,9 +249,22 @@ function check_services_status {
             return 0
         fi
 
+        # Check SM-specific timeout separately
+        if [[ "$not_ready" != *"sm-services"* ]]; then
+            if (( sm_active_since < 0 )); then
+                sm_active_since=$retries
+                log_info "All SM services enabled-active. Waiting for platform flags..."
+            fi
+        else
+            sm_active_since=-1
+            if (( retries >= sm_timeout )); then
+                log_fatal "Timed out after 600s waiting for SM services"
+            fi
+        fi
+
         log_warn "Not ready: ${not_ready}Retrying..."
         retries=$((retries + 1))
-        sleep 30
+        sleep $sleep_interval
     done
 
     log_fatal "Required services are not enabled-active or flags not created after $max_retries attempts."
@@ -871,6 +891,8 @@ if [ -n "$ENROLL_TIMESTAMP" ]; then
     update_time
 fi
 
+check_services_status
+
 check_manual_ca_certs
 
 if kubeadm_certs_expire_within_days "$CERT_CHECKEND_DAYS"; then
@@ -926,7 +948,6 @@ fi
 check_system_local_ca_cert
 
 load_credentials
-check_services_status
 
 # Creating non-persistent flag, which will not survive on reboot.
 # This flag will be used by apply_network_config.sh, to restate cloud-init configured route over
