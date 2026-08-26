@@ -4,8 +4,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+import logging
 import os
 import threading
+import time
 
 from kubernetes import client
 from kubernetes import config
@@ -17,6 +19,8 @@ from cephclient.exception import CephClientInvalidOsdIdValue
 from cephclient.exception import CephClientTypeError
 from cephclient.exception import RookCephClientException
 from cephclient.rook_client import RookCephClient
+
+LOG = logging.getLogger(__name__)
 
 
 class BareMetalCephWrapper(CephClient):
@@ -364,6 +368,12 @@ class CephWrapper(object):
 
     _lock = threading.Lock()
 
+    _DETECT_TTL = 300
+
+    # Platform flags written by sysinv when a storage backend is configured.
+    _ROOK_CONFIGURED_FLAG = "/etc/platform/.node_rook_configured"
+    _CEPH_CONFIGURED_FLAG = "/etc/platform/.node_ceph_configured"
+
     def __new__(cls, endpoint=''):
         with cls._lock:
             if cls._instance is None:
@@ -375,15 +385,42 @@ class CephWrapper(object):
             self._endpoint = endpoint
             self._backend = None
             self._backend_is_rook = self._is_rook()
+            self._detect_timestamp = time.monotonic()
             self._initialized = True
 
     def _get_backend(self):
+        now = time.monotonic()
+
+        if now - self._detect_timestamp >= self._DETECT_TTL:
+            is_rook = self._is_rook()
+            self._detect_timestamp = now
+
+            if is_rook != self._backend_is_rook:
+                # Backend type changed — recreate backend instance.
+                self._backend_is_rook = is_rook
+                self._backend = None
+
         if self._backend is None:
             if self._backend_is_rook:
                 self._backend = RookCephWrapper()
             else:
                 self._backend = BareMetalCephWrapper(endpoint=self._endpoint)
         return self._backend
+
+    def recheck_backend(self):
+        """Force an immediate re-detection of the Ceph backend type.
+
+        Call this after a storage backend is created or deleted so the
+        singleton picks up the change without waiting for TTL expiry.
+        """
+        is_rook = self._is_rook()
+        self._detect_timestamp = time.monotonic()
+
+        if is_rook != self._backend_is_rook:
+            self._backend_is_rook = is_rook
+            self._backend = None
+            LOG.info("recheck_backend: backend changed to %s",
+                     "Rook" if is_rook else "BareMetalCeph")
 
     def __getattr__(self, name):
         if name.startswith('_'):
@@ -413,6 +450,25 @@ class CephWrapper(object):
 
     @staticmethod
     def _is_rook():
+        """Detect whether the active Ceph backend is Rook.
+
+        Primary detection uses platform filesystem flags which are
+        always available and do not depend on Kubernetes.  If neither
+        flag is present (e.g. very early boot before configuration)
+        fall back to querying the Kubernetes API for a CephCluster CR.
+        """
+        if os.path.exists(CephWrapper._ROOK_CONFIGURED_FLAG):
+            LOG.info("_is_rook: resolved via filesystem flag %s -> True",
+                     CephWrapper._ROOK_CONFIGURED_FLAG)
+            return True
+        if os.path.exists(CephWrapper._CEPH_CONFIGURED_FLAG):
+            LOG.info("_is_rook: resolved via filesystem flag %s -> False",
+                     CephWrapper._CEPH_CONFIGURED_FLAG)
+            return False
+
+        # Fallback: neither flag exists yet — try Kubernetes.
+        LOG.info("_is_rook: no filesystem flags found, "
+                 "falling back to Kubernetes API query")
         try:
             try:
                 config.load_incluster_config()
@@ -426,6 +482,12 @@ class CephWrapper(object):
                 namespace='rook-ceph',
                 plural='cephclusters',
             )
-            return bool(result.get('items'))
-        except Exception:
+            is_rook = bool(result.get('items'))
+            LOG.info("_is_rook: resolved via Kubernetes API "
+                     "(CephCluster CR present=%s) -> %s",
+                     is_rook, is_rook)
+            return is_rook
+        except Exception as e:
+            LOG.warning("_is_rook: Kubernetes API query failed (%s), "
+                        "defaulting to bare-metal -> False", e)
             return False
