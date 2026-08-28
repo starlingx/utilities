@@ -91,6 +91,22 @@ def get_oidc_token(username):
     return None
 
 
+def _get_system_ca_file():
+    """Return path to system default CA file."""
+    # Duplicate of sysinv.common.utils.get_system_ca_file() to
+    # avoid creating a dependency on sysinv for a utilities library
+    # Standard CA file locations for Debian/Ubuntu, RedHat/Fedora,
+    # Suse, FreeBSD/OpenBSD
+    ca_path = ['/etc/ssl/certs/ca-certificates.crt',
+               '/etc/pki/tls/certs/ca-bundle.crt',
+               '/etc/ssl/ca-bundle.pem',
+               '/etc/ssl/cert.pem']
+    for ca in ca_path:
+        if os.path.exists(ca):
+            return ca
+    return None
+
+
 def _is_oidc_login_exec(exec_block):
     """Check if an exec block is an oidc-login get-token command."""
     args = exec_block.get('args', [])
@@ -250,12 +266,19 @@ def _get_keyjar(issuer_url, client_id, force_refresh=False):
         if cached['expires_at'] > current_time:
             return cached['keyjar']
 
+    # Use the system CA bundle to ensure we pick up any recently
+    # renewed platform certificates without requiring a service restart.
+    ca_file = _get_system_ca_file()
+    verify = ca_file if ca_file else True
+
     # Fetch new JWKS
     try:
-        client = Client(client_id=client_id)
+        # Pass verify_ssl at construction so it is used in the
+        # internal request_args for provider discovery calls.
+        client = Client(client_id=client_id, verify_ssl=verify)
         provider_info = client.provider_config(issuer_url)
         jwks_uri = provider_info["jwks_uri"]
-        keys = requests.get(jwks_uri).json()
+        keys = requests.get(jwks_uri, verify=verify).json()
 
         keyjar = KeyJar()
         keyjar.import_jwks(keys, issuer_url)
