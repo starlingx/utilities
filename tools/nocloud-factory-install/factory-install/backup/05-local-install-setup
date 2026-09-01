@@ -183,6 +183,17 @@ BACKUP_DIR="/opt/platform-backup/factory/${SW_VERSION}"
 mkdir -p "${BACKUP_DIR}"
 check_rc_die $? "Failed to create ${BACKUP_DIR}"
 
+# backup_restore_values.yml drives the optimized restore run by
+# dc-auto-restore.service on the first boot after reinstall.
+#
+# restore_extra_items restores the software release metadata from the factory
+# backup. The onsite restore reinstalls from the prestaged ostree_repo with no
+# ISO mounted, so the kickstart cannot seed the top-level product release
+# metadata (starlingx-<ver>-metadata.xml) it normally copies from the ISO
+# patches/ dir. Missing it, "software list" returns "No data" and enrollment
+# fails at patch-before-enroll. The paths below are present in the factory
+# backup and get appended to the restore extraction set.
+
 FACTORY_YML="${BACKUP_DIR}/backup_restore_values.yml"
 log_info "Writing backup_restore_values.yml to ${BACKUP_DIR}"
 cat > "${FACTORY_YML}" << EOF
@@ -194,6 +205,9 @@ skip_registry_login: true
 skip_patches_restore: true
 exclude_sw_deployments: true
 images_archive_dir: ${BACKUP_DIR}
+restore_extra_items:
+  - opt/software/releases/metadata
+  - opt/software/metadata
 EOF
 check_rc_die $? "Failed to write backup_restore_values.yml"
 
