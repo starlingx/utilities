@@ -12,6 +12,7 @@ from importlib.util import spec_from_file_location
 import os
 import unittest
 import unittest.mock
+from unittest.mock import MagicMock
 from unittest.mock import mock_open
 from unittest.mock import patch
 
@@ -23,6 +24,19 @@ SCRIPT_PATH = os.path.join(
 )
 TEST_CONFIG_DIR = "/home/sysadmin/enroll-config/20260507-120000"
 TEST_OLD_CONFIG_DIR = "/home/sysadmin/enroll-config/20260507-110000"
+
+
+def _session_cm(session):
+    """Wrap a mock session as a context manager.
+
+    new_verified_session() is used as 'with new_verified_session() as
+    session:', so the returned object must support the context manager
+    protocol and yield the mock session.
+    """
+    cm = MagicMock()
+    cm.__enter__.return_value = session
+    cm.__exit__.return_value = False
+    return cm
 
 
 class TestTriggerOnsiteRestore(unittest.TestCase):
@@ -58,7 +72,17 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         self.mock_print = patch("builtins.print").start()
         self.mock_exit = patch("sys.exit").start()
         self.mock_exists = patch("os.path.exists").start()
-        self.mock_requests_patch = patch("requests.patch").start()
+        # The script issues HTTP calls through new_verified_session(), which
+        # returns a requests.Session used as a context manager. Replace it
+        # with a mock session so assertions can target session.patch and no
+        # real network/SSL work happens.
+        self.mock_session = MagicMock()
+        self.mock_requests_patch = self.mock_session.patch
+        patch.object(
+            self.module,
+            "new_verified_session",
+            return_value=_session_cm(self.mock_session),
+        ).start()
         self.mock_isdir.return_value = True
         self.mock_exists.return_value = True
         self.mock_glob.return_value = [TEST_CONFIG_DIR]

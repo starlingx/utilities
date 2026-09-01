@@ -32,6 +32,7 @@ from nocloud_utils.utils import extract_yaml_value  # noqa: E402
 from nocloud_utils.utils import find_file  # noqa: E402
 from nocloud_utils.utils import log_error  # noqa: E402
 from nocloud_utils.utils import log_info  # noqa: E402
+from nocloud_utils.utils import new_verified_session  # noqa: E402
 
 # Suppress InsecureRequestWarning for unverified HTTPS requests
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -291,7 +292,12 @@ class CentralCloudAuth(BaseClass):
             < KEYSTONE_ENDPOINT_RETRY_TIMEOUT_SECONDS
         ):
             try:
-                response = requests.post(auth_url, json=auth_data, timeout=30)
+                with new_verified_session() as session:
+                    response = session.post(
+                        auth_url,
+                        json=auth_data,
+                        timeout=30,
+                    )
                 response.raise_for_status()
                 self.auth_token = response.headers.get("X-Subject-Token")
                 if not self.auth_token:
@@ -397,13 +403,14 @@ class OnsiteRestoreTrigger(BaseClass):
                 ),
             }
 
-            response = requests.patch(
-                url,
-                headers=headers,
-                files=files,
-                data=data,
-                timeout=RESTORE_API_TIMEOUT,
-            )
+            with new_verified_session() as session:
+                response = session.patch(
+                    url,
+                    headers=headers,
+                    files=files,
+                    data=data,
+                    timeout=RESTORE_API_TIMEOUT,
+                )
             response.raise_for_status()
             log_info(
                 f"On-site restore accepted for subcloud {self.subcloud_name}"

@@ -32,6 +32,7 @@ from nocloud_utils.utils import extract_yaml_value  # noqa: E402
 from nocloud_utils.utils import find_file  # noqa: E402
 from nocloud_utils.utils import log_error  # noqa: E402
 from nocloud_utils.utils import log_info  # noqa: E402
+from nocloud_utils.utils import new_verified_session  # noqa: E402
 
 # Suppress InsecureRequestWarning for unverified HTTPS requests
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -314,7 +315,12 @@ class CentralCloudAuth(BaseClass):
             < KEYSTONE_ENDPOINT_RETRY_TIMEOUT_SECONDS
         ):
             try:
-                response = requests.post(auth_url, json=auth_data, timeout=30)
+                with new_verified_session() as session:
+                    response = session.post(
+                        auth_url,
+                        json=auth_data,
+                        timeout=30,
+                    )
                 # Raise RequestException if response status_code between 400
                 # and 600: https://requests.readthedocs.io/en/latest/api/
                 response.raise_for_status()
@@ -371,9 +377,10 @@ class PreEnrollHandler(BaseClass):
         headers = {"X-Auth-Token": self.auth_token}
         log_info(f"Checking subcloud existence: GET {url}")
         try:
-            response = requests.get(
-                url, headers=headers, timeout=30
-            )
+            with new_verified_session() as session:
+                response = session.get(
+                    url, headers=headers, timeout=30
+                )
         except requests.exceptions.RequestException as e:
             # Network-level failures (ConnectionError, Timeout, etc.)
             # are fatal. Do not use raise_for_status() as HTTP 404 is
@@ -410,9 +417,10 @@ class PreEnrollHandler(BaseClass):
         headers = {"X-Auth-Token": self.auth_token}
         log_info(f"Deleting subcloud: DELETE {url}")
         try:
-            response = requests.delete(
-                url, headers=headers, timeout=30
-            )
+            with new_verified_session() as session:
+                response = session.delete(
+                    url, headers=headers, timeout=30
+                )
             # Raise RequestException if response status_code between 400
             # and 600: https://requests.readthedocs.io/en/latest/api/
             response.raise_for_status()
@@ -531,9 +539,14 @@ class SubcloudEnroll(BaseClass):
                     "text/plain",
                 )
 
-            response = requests.post(
-                rpc_url, headers=headers, files=files, data=data, timeout=30
-            )
+            with new_verified_session() as session:
+                response = session.post(
+                    rpc_url,
+                    headers=headers,
+                    files=files,
+                    data=data,
+                    timeout=30,
+                )
             # Raise RequestException if response status_code between 400
             # and 600: https://requests.readthedocs.io/en/latest/api/
             response.raise_for_status()

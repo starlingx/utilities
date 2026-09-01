@@ -28,6 +28,19 @@ TEST_CONFIG_DIR = "/home/sysadmin/enroll-config/20260115-120000"
 TEST_OLD_CONFIG_DIR = "/home/sysadmin/enroll-config/20260115-110000"
 
 
+def _session_cm(session):
+    """Wrap a mock session as a context manager.
+
+    new_verified_session() is used as 'with new_verified_session() as
+    session:', so the returned object must support the context manager
+    protocol and yield the mock session.
+    """
+    cm = MagicMock()
+    cm.__enter__.return_value = session
+    cm.__exit__.return_value = False
+    return cm
+
+
 class TestEnrollSubcloud(unittest.TestCase):
     """Test cases for the 90-enroll-subcloud script."""
 
@@ -62,8 +75,19 @@ class TestEnrollSubcloud(unittest.TestCase):
         self.mock_print = patch("builtins.print").start()
         self.mock_exit = patch("sys.exit").start()
         self.mock_exists = patch("os.path.exists").start()
+        # sync_time_from_remote() still calls requests.head directly (with
+        # verify=False before the CA is installed), so it stays patched here.
         self.mock_requests_head = patch("requests.head").start()
-        self.mock_requests_post = patch("requests.post").start()
+        # Verified calls (POST auth) go through new_verified_session(), which
+        # returns a Session used as a context manager. Mock it so session.post
+        # is assertable and no real network/SSL work happens.
+        self.mock_session = MagicMock()
+        self.mock_requests_post = self.mock_session.post
+        patch.object(
+            self.module,
+            "new_verified_session",
+            return_value=_session_cm(self.mock_session),
+        ).start()
         self.mock_subprocess = patch("subprocess.run").start()
         self.mock_isdir.return_value = True
         self.mock_exists.return_value = True
@@ -590,11 +614,16 @@ class TestPreEnrollHandler(unittest.TestCase):
         self.mock_exists = patch(
             "os.path.exists"
         ).start()
-        self.mock_requests_get = patch(
-            "requests.get"
-        ).start()
-        self.mock_requests_delete = patch(
-            "requests.delete"
+        # GET/DELETE go through new_verified_session(); mock the session so
+        # session.get / session.delete are assertable and no real network or
+        # SSL work happens.
+        self.mock_session = MagicMock()
+        self.mock_requests_get = self.mock_session.get
+        self.mock_requests_delete = self.mock_session.delete
+        patch.object(
+            self.module,
+            "new_verified_session",
+            return_value=_session_cm(self.mock_session),
         ).start()
         self.mock_isdir.return_value = True
         self.mock_exists.return_value = True
