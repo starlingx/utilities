@@ -19,6 +19,7 @@ Focus: Increase lpmptool coverage from 34% to 50%+
 Strategy: Test main() with various argument combinations, avoid interactive modes
 """
 
+from io import StringIO
 import os
 from pathlib import Path
 import sys
@@ -1527,6 +1528,157 @@ class TestEmptyOutputDirPruning(LPMPTestBase):
                 )
         # The user-supplied -o directory itself is never touched.
         self.assertTrue(os.path.isdir(self.output_dir))
+
+
+@unittest.skipUnless(YAML_AVAILABLE, "Enable with: pip3 install --user pyyaml")
+class TestGraphEmptyResultMessage(LPMPTestBase):
+    """Announcement lines fired when graphing was requested but no
+    matches were found.
+
+    Exercises both branches of the parent-side message:
+    single-host  : "No <graph> <what> found — no CSV or PNG produced"
+    bundle-mode  : "No <graph> <what> found for <host> — no CSV or PNG"
+    """
+
+    def setUp(self):
+        import shutil
+        self.temp_dir = tempfile.mkdtemp()
+        self.logs_dir = os.path.join(self.temp_dir, 'var', 'log')
+        os.makedirs(self.logs_dir, exist_ok=True)
+        self.output_dir = os.path.join(self.temp_dir, 'output')
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def tearDown(self):
+        import shutil
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _make_model(self, filename='usage.yaml', graph_style=None):
+        """Write a timeline model whose pattern never matches, so the
+        run yields zero rows without being an actual error.
+        """
+        model_data = {
+            'description': 'Empty-result timeline model for tests.',
+            'settings': {'graph': '{graph}'},
+            'blocks': [
+                {
+                    'label': '{graph}',
+                    'file': 'test.log',
+                    'timeline': ['UNMATCHABLE_TOKEN_ZZZZZZZ'],
+                },
+            ],
+        }
+        if graph_style:
+            model_data['settings']['graph_style'] = graph_style
+        path = os.path.join(self.temp_dir, filename)
+        with open(path, 'w') as f:
+            yaml.dump(model_data, f)
+        return path
+
+    def _make_log(self, filename='test.log',
+                  content='2026-01-01T00:00:00.000 unrelated line\n'):
+        path = os.path.join(self.logs_dir, filename)
+        with open(path, 'w') as f:
+            f.write(content)
+        return path
+
+    def _run_single_host(self, model_path, graph_value):
+        """Invoke lpmptool.main in-process and capture stdout."""
+        argv = [
+            'lpmptool',
+            '-m', model_path,
+            '-l', self.logs_dir,
+            '-o', self.output_dir,
+            '--var', f'graph={graph_value}',
+        ]
+        stdout_buf = StringIO()
+        stderr_buf = StringIO()
+        with patch('sys.argv', argv), \
+                patch('sys.stdout', stdout_buf), \
+                patch('sys.stderr', stderr_buf):
+            try:
+                lpmptool.main()
+                exit_code = 0
+            except SystemExit as e:
+                exit_code = 0 if e.code is None else e.code
+        return exit_code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+    def test_single_host_state_style_says_overages(self):
+        model = self._make_model(graph_style='state')
+        self._make_log()
+        code, out, _ = self._run_single_host(model, 'cpu')
+        # Timeline zero-match is not an error.
+        self.assertEqual(code, 0)
+        self.assertIn('No cpu overages found', out)
+        self.assertIn('no CSV or PNG produced', out)
+
+    def test_single_host_line_style_says_matches(self):
+        model = self._make_model(graph_style=None)
+        self._make_log()
+        code, out, _ = self._run_single_host(model, 'cpu')
+        self.assertEqual(code, 0)
+        self.assertIn('No cpu matches found', out)
+        self.assertIn('no CSV or PNG produced', out)
+        # State-style wording MUST NOT appear on a line-style model.
+        self.assertNotIn('overages found', out)
+
+    # -----------------------------------------------------------------
+    # Bundle-mode variants: message shape becomes
+    #   "No <graph> <what> found for <host> — no CSV or PNG produced"
+    # -----------------------------------------------------------------
+
+    def _make_bundle(self, hosts=('controller-0', 'controller-1'),
+                     log_content='2026-01-01T00:00:00.000 unrelated\n'):
+        """Build a mini bundle whose log lines never match the model
+        pattern, so every host yields zero rows.
+        """
+        bundle_dir = os.path.join(self.temp_dir, 'bundle')
+        for host in hosts:
+            host_dir = os.path.join(bundle_dir, f'{host}_20260101.120000')
+            logs_dir = os.path.join(host_dir, 'var', 'log')
+            os.makedirs(logs_dir, exist_ok=True)
+            with open(os.path.join(logs_dir, 'test.log'), 'w') as f:
+                f.write(log_content)
+        return bundle_dir
+
+    def _run_bundle(self, model_path, graph_value, bundle_dir):
+        """Invoke lpmptool.main in bundle mode, capture stdout."""
+        argv = [
+            'lpmptool',
+            '-m', model_path,
+            '-b', bundle_dir,
+            '-o', self.output_dir,
+            '--var', f'graph={graph_value}',
+        ]
+        stdout_buf = StringIO()
+        stderr_buf = StringIO()
+        with patch('sys.argv', argv), \
+                patch('sys.stdout', stdout_buf), \
+                patch('sys.stderr', stderr_buf):
+            try:
+                lpmptool.main()
+                exit_code = 0
+            except SystemExit as e:
+                exit_code = 0 if e.code is None else e.code
+        return exit_code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+    def test_bundle_mode_state_style_says_overages_per_host(self):
+        model = self._make_model(graph_style='state')
+        bundle = self._make_bundle(hosts=('controller-0', 'controller-1'))
+        code, out, _ = self._run_bundle(model, 'cpu', bundle)
+        self.assertEqual(code, 0)
+        # Message fires once per host.
+        self.assertIn('No cpu overages found for controller-0', out)
+        self.assertIn('No cpu overages found for controller-1', out)
+        self.assertIn('no CSV or PNG produced', out)
+
+    def test_bundle_mode_line_style_says_matches_per_host(self):
+        model = self._make_model(graph_style=None)
+        bundle = self._make_bundle(hosts=('controller-0',))
+        code, out, _ = self._run_bundle(model, 'cpu', bundle)
+        self.assertEqual(code, 0)
+        self.assertIn('No cpu matches found for controller-0', out)
+        self.assertNotIn('overages found', out)
 
 
 if __name__ == '__main__':

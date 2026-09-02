@@ -2,6 +2,10 @@
 
 A log search and analysis tool that searches log files for specific patterns and analyzes time differences between pattern matches to produce timing profiles. Designed for KPI performance analysis, timing validation, and system operation profiling across multiple domains' log files.
 
+## Experimental Status
+
+The Log Pattern Matcher is an experimental utility intended for log analysis only. The tool is under active development, and its functionality, interfaces, output formats, and pattern definitions may evolve based on usage and feedback. It does not modify or control the system being profiled.
+
 ## Git Repository
 
 The LPMP tool is stored in the StarlingX utilities repository:
@@ -31,6 +35,30 @@ build-pkgs -p lpmp
 
 This will create the lpmp Debian package that can be installed on StarlingX systems.
 
+A pre-compiled Debian package is also included directly in the clone, for
+convenience, at `tools/lpmp/files/dist/lpmp_<version>_amd64.deb` (with a
+matching `.md5` checksum alongside it).
+
+## Documentation
+
+All LPMP documentation lives alongside the tool source, under the following
+paths relative to the root of the cloned `utilities` repository:
+
+| Document | Description |
+|----------|--------------|
+| [`tools/lpmp/files/docs/README.md`](README.md) | This document — overview, installation, and quick start |
+| [`tools/lpmp/files/docs/ARCHITECTURE.md`](ARCHITECTURE.md) | Technical architecture and design |
+| [`tools/lpmp/files/docs/DEVELOPERS_GUIDE.md`](DEVELOPERS_GUIDE.md) | Model authoring, block types, and advanced usage |
+| [`tools/lpmp/files/docs/HISTORY.md`](HISTORY.md) | Chronological record of changes and fixes |
+| [`tools/lpmp/files/docs/TEST_COVERAGE.md`](TEST_COVERAGE.md) | Automated test suite inventory and coverage summary |
+| [`tools/lpmp/files/docs/batch_spec_example.json`](batch_spec_example.json) | Sample `--batch` mode specification |
+| [`tools/lpmp/files/docs/jobs_spec_example.json`](jobs_spec_example.json) | Sample `--jobs` mode specification |
+
+Interactive, built-in help is also available directly from the tool:
+run `lpmptool --help-model` for model file format and examples, or
+`lpmptool --help-jobs` / `lpmptool --help-graph` for the jobs and
+graphing help topics.
+
 ## Installation
 
 After building the package, install it using:
@@ -38,6 +66,13 @@ After building the package, install it using:
 ```bash
 # Install the lpmp package
 sudo dpkg -i lpmp_<version>.deb
+```
+
+Alternatively, install the pre-compiled package shipped in the repository
+directly, without a build step:
+
+```bash
+sudo dpkg -i tools/lpmp/files/dist/lpmp_<version>_amd64.deb
 ```
 
 The installation places:
@@ -84,6 +119,7 @@ optional arguments:
   --list-models [TYPE], -lm [TYPE]
                         List available model files, optionally filtered to a single type:
                         timeline, pattern, pair, or example
+  --list-scripts, -ls   List available scripts from the scripts search path
   --logs-dir LOGS_DIR, -l LOGS_DIR
                         Directory containing log files (default: var/log, relative to bundle)
   --loops LOOPS, -n LOOPS
@@ -225,9 +261,11 @@ lpmptool -m window_timeline -s 2025-12-15T14:40:00 -e 2025-12-15T14:50:00 -b /pa
 
 LPMP searches for model files in the following priority order:
 
-1. **Tool directory models**: `<tool_directory>/models/` (highest priority)
-2. **Local development models**: `./models/`
-3. **User/developer models**: `/etc/lpmp.d/` (writable in OSTree)
+1. **Current directory**: `./` (highest priority — lets a same-named file
+   override any built-in or packaged model, e.g. to work around a bug)
+2. **User/developer models**: `/etc/lpmp.d/` (writable in OSTree)
+3. **Tool directory models**: `<tool_directory>/models/` (built-in, skipped
+   when running from an installed package)
 4. **System-provided models**: `/var/lib/lpmp_models/` (read-only)
 5. **Explicit paths**: Absolute or relative paths with separators
 
@@ -368,6 +406,7 @@ For detailed information about:
 - **Development and advanced usage**: See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 - **Interactive model help**:         Run `lpmptool --help-model`
 - **Available models**:               Run `lpmptool --list-models` (or `-lm timeline|pattern|pair|example` to filter)
+- **Available scripts**:              Run `lpmptool --list-scripts` (or `-ls`)
 
 ## Version
 

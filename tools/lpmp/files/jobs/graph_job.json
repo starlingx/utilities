@@ -1,0 +1,21 @@
+{
+  "max_parallel": 3,
+  "jobs": [
+    {
+      "model": "collectd_cpu_usage.yaml",
+      "vars": {"graph": "cpu"}
+    },
+    {
+      "model": "collectd_mem_usage.yaml",
+      "vars": {"graph": "mem"}
+    },
+    {
+      "model": "collectd_overage.yaml",
+      "vars": {"graph": "cpu"}
+    },
+    {
+      "model": "collectd_overage.yaml",
+      "vars": {"graph": "mem"}
+    }
+  ]
+}

@@ -86,8 +86,9 @@ model format rules:
   summarises what the model does; used by tooling (`--list-models`)
   and ignored at run time.
 - Settings keys must be from: `max_time_delta`, `block_time_tolerance`,
-  `start_date`, `loops`, `max_log_length`,
-  `profile`, `optional`, `controller`, `graph`, `timeline_patterns`
+  `start_date`, `stop_date`, `loops`, `max_log_length`, `profile`,
+  `optional`, `controller`, `graph`, `graph_style`, `host`,
+  `timeline_patterns`, `script`
 - Block-level keys must be from: `label`, `file`, `patterns`, `start`,
   `stop`, `timeline`, `optional`, `present`, `profile`, `controller`,
   `override`, `max_time_delta`
@@ -110,6 +111,45 @@ lpmptool -m swact_soak_model -l /var/log
 
 The tool tries `.yaml` first, then `.yml`, then the bare name. This
 applies to both search-path and explicit-path modes.
+
+## Search Path Priority
+
+Models, jobs specs, and scripts can all be referenced by bare name
+(e.g. `-m ceph_health`, `-j mtce_job`, a model's `script:` entry) and
+are resolved through the same priority order, built from one shared
+helper (`_get_search_paths()` in `lpmp_utils.py`) so all three stay
+consistent:
+
+1. `./` — current directory. **Highest priority.** A same-named file
+   here overrides any built-in or packaged default, without editing
+   installed files.
+2. `/etc/lpmp.d/...` — writable override location (survives OSTree
+   image updates). `/etc/lpmp.d/` for models, `/etc/lpmp.d/jobs/` for
+   jobs specs, `/etc/lpmp.d/scripts/` for scripts.
+3. `<tool_directory>/<kind>/` — built-in, shipped with the tool
+   (`models/`, `jobs/`, `scripts/`). Skipped entirely when running
+   from an installed package (`dist-packages`/`site-packages`).
+4. `/var/lib/lpmp_<kind>/` — system-provided packaged defaults
+   (read-only).
+
+Current directory is favored over `/etc/lpmp.d/` so a quick
+one-off override — testing a fix, working around a bug — never
+requires touching `/etc/lpmp.d/` or the installed tool. `/etc/lpmp.d/`
+in turn is favored over the tool's own built-in copy, so a persistent
+override placed there always takes effect instead of being shadowed
+by the built-in file it's meant to replace.
+
+Models additionally search an `examples/` subdirectory right after
+each of the built-in and system-provided directories (reference-only,
+never selected for a real run — see the example-model guard in
+[Extensionless Model Names](#extensionless-model-names) above).
+
+Use `--list-models`, `--list-jobs` (`-lj`), or `--list-scripts`
+(`-ls`) to see every model, jobs spec, or script LPMP can currently
+discover, along with its resolved full path.
+
+`--batch` is the one exception: a batch spec is always given as a
+full or relative path and is not resolved through this search order.
 
 ## Block Types and Processing Modes
 
@@ -309,6 +349,47 @@ the peer's logs to find the completion event.
 The "Swact Query Failed" block uses `present: true` for failure path
 highlighting. It captures the failure event only if it occurred, silently skipping otherwise.
 
+**Example with Fail-Guard Field (`fail: true`):**
+```yaml
+blocks:
+  - label: "Unlock Action"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{hostname} Unlock Action"
+
+  - label: "No Kernel Panic"
+    file: "kern.log*"
+    patterns:
+      - ["Kernel panic", "BUG: unable to handle", "segfault"]  # OR list
+    fail: true              # Finding ANY of these FAILS the run
+    max_time_delta: 600
+
+  - label: "Unlock Complete"
+    file: "mtcAgent.log*"
+    patterns:
+      - "{hostname} is UNLOCKED"
+```
+
+`fail: true` reverses a pattern block's polarity: it is a **negative
+assertion**. If the pattern is found (within the block's `max_time_delta`
+window, searching from the previous block's timestamp), the whole run
+**fails** with a `❌ FAIL:` line. If the pattern is not found, the guard is a
+silent pass and processing continues. Use it to assert that something bad —
+a panic, a segfault, an error that must never occur between two events — did
+NOT happen.
+
+Rules and behavior:
+- **Pattern blocks only.** `fail: true` is rejected on pair, timeline, and
+  window blocks.
+- **Mutually exclusive** with `optional` and `present` (both are about
+  tolerating a missing pattern, which contradicts a fail-guard).
+- **Records nothing.** A fail-guard never emits a result row and never
+  advances the sequential cursor, whether it triggers or passes — it is a
+  gate, not a measured event. This means it does not affect the timing of
+  surrounding blocks.
+- **OR lists supported.** As with normal patterns, a list triggers if ANY
+  alternative matches.
+
 ### 2. Pair Blocks (Duration Measurement)
 
 Pair blocks measure the precise time between start and stop events, ideal for timing operations with clear beginning and end points.
@@ -339,6 +420,12 @@ blocks:
     max_time_delta: 30
     profile: true  # Generate detailed per-block statistics
 ```
+
+**Note on `--max-log-length`:** pair-block output lines are the
+tool-generated `Start -> Stop: ... duration` summary, not a raw log line, so
+`--max-log-length` does NOT truncate them — the duration and timestamps are
+always shown in full. Truncation still applies to pattern and timeline
+blocks, whose output is the raw matched log line.
 
 ### Quoting Convention for Pattern Strings
 
@@ -529,6 +616,8 @@ LPMP provides extensive configuration control through variables that can be set 
 | max_lines            | ✓    |      |      |         |      | ✓       | 20 (0=all)     |
 | **Bundle Host Filtering**                                                               |
 | host                 | ✓    | ✓    |      | ✓       | ✓    | ✓       | None           |
+| **Post-Analysis Automation**                                                             |
+| script               |      | ✓    |      |         |      |          | use --script option |
 | **Block Behavior**                                                                      |
 | optional             |       | ✓   | ✓    | ✓       | ✓    | ✓       | false          |
 | present              |       |      | ✓    | ✓      |       |         | false          |
@@ -747,6 +836,32 @@ Delta(HH:MM:SS)  Hostname      Block Label               Log File      Data
 00:00:03.247     controller-0  Database Initialization   postgres.log 10:15:21.635: Start -> Stop: 10:15:24.882: 3.247s
 ```
 
+### Error and Warning Messages for Not-Found Blocks
+
+When a required block fails (`❌ Error:`) or an optional block is not matched
+(`⚠️ Warn:`), the message is shaped to make debugging fast:
+
+- **Search-start position prefix.** The message begins with the timestamp the
+  block was searching from — the sequential cursor (the previous block's
+  match) or the run's start date, or `beginning of log` when neither applies:
+  ```
+  2026-08-13T21:31:06.912 ⚠️ Warn: block 'CSI Ready' start pattern
+  start='Started .*Kubelet' not found in '.../daemon.log*'
+  ```
+  This makes it obvious when a pattern that plainly exists in the log was
+  missed only because the cursor had already advanced past it.
+
+- **Only the pattern that failed is named.** For pair blocks, the message
+  reports just the `start` pattern (when the start was never found) or just
+  the `stop` pattern (when the stop was not found within `max_time_delta` of
+  a matched start) — not both. There is no "start matched but stop..."
+  preamble.
+
+- **Original model glob in the file name.** The reported file is the model's
+  original spec (e.g. `daemon.log*`), not a resolved concrete filename. For a
+  pair block whose `stop` failed, the file reported is the one the stop
+  pattern was searched in (the second entry when two files are listed).
+
 ### Bundle Mode Output Structure
 
 ```
@@ -774,9 +889,11 @@ Delta(HH:MM:SS)  Hostname      Block Label               Log File      Data
 
 4. **Memory Usage**: Large log files or high loop counts may consume significant memory, especially in bundle mode with multiple hosts.
 
-5. **Loop Time Advancement**: The tool advances search time by 500ms between iterations, which may skip patterns within the same 500ms window.
+5. **Loop Time Advancement**: The tool advances search time by `block_time_tolerance` + 1ms between iterations (default ~5.0s), which may skip patterns within that window. If a pass matches nothing at all, there's no match timestamp to anchor the next search from, so the tool instead jumps the start time forward by a fixed 20 minutes as a livelock guard, preventing an infinite `-n 0` loop from re-scanning the same empty window forever. This fallback is silent (no log line) and not configurable.
 
 6. **First-10-Lines Timestamp Detection**: `get_file_date_range` reads only the first 10 lines to find the first timestamp. Log files with extensive preamble (e.g., Python warnings) before the first timestamped line will appear to have no timestamps. Add such files to the ignore list in `file_ignore_list_and_format_handling.yaml`.
+
+7. **Permission Errors Are Non-Fatal**: A file or directory the invoking user cannot read no longer aborts the run. The offending path is excluded, processing continues, and all excluded paths are listed once at the end as a `Permission errors (N path(s) excluded)` summary. Note that a non-optional pattern/pair block whose only candidate files are all unreadable still fails as "not found" — exclusion is not the same as a match, so run with sufficient privileges (or add the paths to the ignore list) when the excluded files are needed.
 
 ### Performance Considerations
 
@@ -843,14 +960,18 @@ are recognized.
 ### Location
 
 The file is searched in the standard model search paths:
-1. `<tool_directory>/models/helpers/file_ignore_list_and_format_handling.yaml`
-2. `<tool_directory>/models/file_ignore_list_and_format_handling.yaml`
-3. `./models/helpers/file_ignore_list_and_format_handling.yaml`
-4. `./models/file_ignore_list_and_format_handling.yaml`
-5. `/etc/lpmp.d/helpers/file_ignore_list_and_format_handling.yaml`
-6. `/etc/lpmp.d/file_ignore_list_and_format_handling.yaml`
-7. `/var/lib/lpmp_models/helpers/file_ignore_list_and_format_handling.yaml`
-8. `/var/lib/lpmp_models/file_ignore_list_and_format_handling.yaml`
+1. `./helpers/file_ignore_list_and_format_handling.yaml`
+2. `./file_ignore_list_and_format_handling.yaml`
+3. `/etc/lpmp.d/helpers/file_ignore_list_and_format_handling.yaml`
+4. `/etc/lpmp.d/file_ignore_list_and_format_handling.yaml`
+5. `<tool_directory>/models/helpers/file_ignore_list_and_format_handling.yaml`
+6. `<tool_directory>/models/file_ignore_list_and_format_handling.yaml`
+7. `<tool_directory>/models/examples/helpers/file_ignore_list_and_format_handling.yaml`
+8. `<tool_directory>/models/examples/file_ignore_list_and_format_handling.yaml`
+9. `/var/lib/lpmp_models/helpers/file_ignore_list_and_format_handling.yaml`
+10. `/var/lib/lpmp_models/file_ignore_list_and_format_handling.yaml`
+11. `/var/lib/lpmp_models/examples/helpers/file_ignore_list_and_format_handling.yaml`
+12. `/var/lib/lpmp_models/examples/file_ignore_list_and_format_handling.yaml`
 
 The default location is `models/helpers/` alongside other helper files
 such as `wrcp_domains_patterns.yaml`.
@@ -1052,4 +1173,154 @@ Notes:
 
 A sample spec is available at `docs/batch_spec_example.json`.
 
-This comprehensive guide provides the foundation for effectively using LPMP in various scenarios, from simple single-host log analysis to complex multi-host collect bundle correlation and performance validation.
+### Jobs Mode
+
+Use `--jobs` to run a JSON-declared list of arbitrary lpmptool
+invocations under a bounded worker pool. Unlike batch mode (which is
+single-process and limited to timeline and window blocks), every job
+runs as a full mainline subprocess, so any model type is supported —
+timeline, window, pattern, pair, mixed — plus graphing side effects.
+
+```bash
+lpmptool --jobs jobs_spec.json --bundle /path/to/collect \
+    --max-parallel 4 --output /tmp/jobs_out
+```
+
+`-j` is a short alias for `--jobs`. The spec argument may be a full
+path or a bare name resolved through the jobs search path (see
+**Jobs search path** below), so `lpmptool -b <bundle> -j mtce_job`
+also works.
+
+The spec accepts the same two shapes as batch. Bare list of jobs:
+
+```json
+[
+  {"model": "ceph_health.yaml"},
+  {"model": "host_lifecycle.yaml"},
+  {"model": "collectd_cpu_usage.yaml",
+   "vars": {"graph": "Platform CPU"}}
+]
+```
+
+Dict form with top-level knobs:
+
+```json
+{
+  "max_parallel": 3,
+  "fail_fast": false,
+  "jobs": [
+    {"model": "ceph_health.yaml",
+     "start_date": "2026-02-25T13:35:00",
+     "stop_date":  "2026-02-25T13:41:00"},
+    {"model": "kpi_unlock_pairing_model.yaml",
+     "hostname": "controller-1"}
+  ]
+}
+```
+
+**Per-job keys** — all optional except `model`:
+
+| Key           | Effect                                              |
+|---------------|-----------------------------------------------------|
+| `model`       | Model file name or path (required)                  |
+| `start_date`  | `-s / --start-date` value for this job              |
+| `stop_date`   | `-e / --stop-date` value for this job               |
+| `hostname`    | `--hostname` for `{hostname}` substitution          |
+| `host`        | `--host` for `{host}` substitution                  |
+| `include`     | List of host names to include (bundle mode)         |
+| `exclude`     | List of host names to exclude (bundle mode)         |
+| `vars`        | `--var K=V` entries; dict, list of strings, or one  |
+| `output`      | `-o` root (overridden by parent-computed unique dir)|
+| `logs_dir`    | `-l` relative logs directory inside the bundle      |
+| `lab`         | `--lab` label for output naming                     |
+| `loops`       | `-n` loop count                                     |
+| `progress`    | `--progress` type                                   |
+| `force`       | `--force` boolean                                   |
+| `extra_args`  | Raw argv strings appended last (escape hatch)       |
+
+**Parallelism control**:
+- `max_parallel` — CLI `--max-parallel` wins, else spec value, else
+  the default of 3.
+- `fail_fast` — CLI `--fail-fast` wins, else spec value, else off.
+- `--force-parallel` bypasses the built-in safety cap of 32 (used to
+  catch typos like `--max-parallel 500`).
+
+**FD safety**: at startup the runner inspects `RLIMIT_NOFILE` and,
+if the soft limit is too small for `max_parallel` children, raises
+it up to the hard limit. If raising fails, it clamps `max_parallel`
+down with a warning rather than hitting "too many open files"
+mid-run.
+
+**Output layout**: each job writes into
+`<output>/lpmp_<lab>/<time>_<model>/` with the standard mainline
+directory shape. When two jobs share the same
+`(lab, model, time_str)` key the second and later get a `_run<N>`
+suffix, so parallel dispatches of the same model never collide.
+Every child's console (stdout+stderr) goes to
+`<output>/lpmp_<lab>/<batch_start>_jobs/<NN>_<model>.console.log`
+so a post-mortem finds them all in one place.
+
+**Signals**: Ctrl-C (or SIGTERM to the parent) forwards SIGTERM to
+every running child, waits 5 seconds, then escalates to SIGKILL for
+any survivor. Parent exit code is 130 for SIGINT, 143 for SIGTERM,
+otherwise the worst child exit code (0 on all-pass).
+
+**Jobs search path**: jobs specs are resolved the same way models
+are, so a packaged or user spec can be run by bare name — see
+[Search Path Priority](#search-path-priority) for the shared order.
+
+`find_jobs_file()` accepts a bare name (`mtce_job`), a name with a
+`.json` extension, or an explicit/absolute path. `--list-jobs`
+(`-lj`) prints the available specs across these paths with their
+resolved locations. `--help-jobs` (`-hj`) prints this jobs-mode
+help topic. Shipped specs install to `/var/lib/lpmp_jobs/`.
+
+**Graphing dependencies**: graph rendering runs `lpmp_graph.py`,
+which needs `pandas` and `matplotlib`. These are optional extras.
+`lpmptool` prechecks for them before dispatching the graph
+subprocess; when they are missing it prints a note that the
+timeline/CSV were produced but a graph cannot be rendered, instead
+of failing the run. `lpmp_graph.py` is resolved from the installed
+package directory (not the executable's directory), so graphing
+works even when `lpmptool` lives on `PATH` and the modules live
+under `dist-packages`.
+
+A sample spec is available at `docs/jobs_spec_example.json`.
+
+## Script Runner Feature
+
+Add post-analysis script execution via `settings.script` key:
+
+```yaml
+settings:
+  script: "pod_ready_times.py"                           # Script name only
+  script: ["pod_ready_times.py", "var/extra/data.info"]  # With argument
+```
+
+Scripts run **after** tool completion when `--script` flag is provided. Enable in CLI:
+
+```bash
+lpmptool -m model.yaml --script
+```
+
+Scripts are auto-discovered in priority order: current directory (`./`, highest
+priority) → `/etc/lpmp.d/scripts/` (writable override) → `<tool_directory>/scripts/`
+(dev, skipped on an installed package) → `/var/lib/lpmp_scripts/` (on-system,
+read-only). Use absolute paths for custom locations. Real-time output to console;
+exit codes reported but don't fail the tool.
+
+Use `--list-scripts` (or `-ls`) to see every script discoverable in the
+scripts search path along with its resolved full path:
+
+```bash
+$ lpmptool --list-scripts
+Available Scripts
+============================================================
+  pod_ready_times_describe.py  /var/lib/lpmp_scripts/pod_ready_times_describe.py
+
+Total: 1 script(s)
+```
+
+**Built-in Scripts**:
+- `pod_ready_times.py` — Pod startup timing from JSON/YAML Kubernetes data (10.9s)
+- `pod_ready_times_describe.py` — Pod startup timing from describe output (3.5s, recommended)

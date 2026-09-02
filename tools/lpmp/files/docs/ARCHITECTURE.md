@@ -118,6 +118,18 @@ LPMP operates through a structured pipeline that transforms patterns into host a
 - Wildcard expansion with date-proximity sorting
 - Cross-platform path handling
 
+#### Permission-Error Collector
+LPMP no longer aborts when it encounters an unreadable file or directory.
+Unreadable paths are collected, excluded from processing, and reported in a
+summary at the end of the run. This allows analysis to continue even when
+parts of the log tree are inaccessible (e.g., due to file permissions or SELinux
+contexts).
+
+- Non-optional blocks whose only candidate files are unreadable still fail as "not found"
+- Performance impact is zero — errors are collected only on actual failures, not via
+  pre-flight access checks
+- A fully readable log tree produces no extra output
+
 #### Timing Analysis Engine
 - Delta calculation with baseline establishment
 - Time tolerance reordering for adjacent blocks
@@ -226,6 +238,27 @@ This design enables flexible modeling approaches from simple event detection to 
   is intended for narrow time windows (minutes, not hours)
 - Ideal for creating unified system timelines across all log sources
 
+### Fail-Guard Modifier (Polarity Reversal)
+
+`fail: true` is a block-level modifier on a **pattern block** that reverses
+its success polarity: finding the pattern (within the block's
+`max_time_delta` window, searching from the sequential cursor) **fails the
+whole run**, while not finding it is a silent pass. It expresses a negative
+assertion — "this must NOT appear here" — such as a kernel panic, segfault,
+or an error that should never occur between two anchor events.
+
+Architectural properties:
+- **Pattern-block only** and **mutually exclusive** with `optional` and
+  `present`, and with `start`/`stop`, `timeline`, and `window`. These
+  constraints are enforced both at model-structure validation and at parse
+  time, so an invalid combination is rejected before any log is read.
+- **Non-recording**: a fail-guard never emits a result row and never
+  advances the end-of-pass cursor. Whether it triggers or passes, it leaves
+  the timing sequence untouched — it is a gate, not a measured event.
+- **On trigger**: results collected so far are flushed in chronological
+  order, a `❌ FAIL: ...` line is emitted, and the pass returns
+  `success=False`, mirroring the required-block failure path.
+
 ## File Handling System
 
 ### Multi-File Support
@@ -244,9 +277,9 @@ This design enables flexible modeling approaches from simple event detection to 
 
 ### Model File Search Path
 Model files are searched in priority order:
-1. `<tool_directory>/models/` (highest priority)
-2. `./models/` (local development)
-3. `/etc/lpmp.d/` (user/developer models)
+1. `./` (current directory, highest priority — overrides built-in/packaged models)
+2. `/etc/lpmp.d/` (user/developer models, writable in OSTree)
+3. `<tool_directory>/models/` (built-in, skipped when running from an installed package)
 4. `/var/lib/lpmp_models/` (system-provided)
 5. Explicit paths (absolute or relative with separators)
 
@@ -464,70 +497,26 @@ host-outer / file-inner loop nest:
   <path>` line naming the batch's tool-runtime directory
   (`_batch_runtime_root`).
 
-The detailed step breakdown:
-
-1. `load_batch_spec` parses and validates the JSON, rejects a spec
-   that lists the same model more than once, and converts date
-   strings to datetime.
-2. `_load_all_models` loads each referenced model file exactly once
-   even if several runs share it.
-3. For every host that survives include/exclude filtering:
-   - `_build_file_groups` walks each run's timeline and window blocks
-     (pair and pattern blocks emit a warning and are skipped),
-     applies hostname/label variable substitution, expands wildcards
-     (recursively into subdirectories for window blocks, respecting
-     the file ignore list and binary/non-log skip), applies
-     controller-only filtering, resolves named timeline pattern
-     references, and compiles a single combined-alternation regex per
-     timeline target. Window targets carry no regex (sentinel
-     `regex=None`), signalling "emit every line in the window". The
-     result is a map of `filepath -> [target, ...]` where each target
-     carries the run index, block label, start, stop, and compiled
-     regex (or None for window targets).
-   - `_single_pass_read` opens each grouped file once. It uses
-     `parse_timestamp(line, relpath)` so custom-format files continue
-     to work, uses the same bisect seek as the mainline engine for
-     large plain-text files, and breaks on the latest stop across all
-     targets. For each line: window targets emit unconditionally
-     (once the timestamp is confirmed to be inside the target's
-     window). Timeline targets emit at most one row per line —
-     first-match-wins is naturally satisfied because there is one
-     combined regex per timeline target.
-   - `_write_run_output` writes the standard per-host outputs
-     (`profile.timeline.log`, `.csv`, per-block profile files, and
-     per-block `.context` files where blocks request context) under
-     the batch-specific directory layout
-     `<output>/lpmp_batch_<lab>/<runtime>/[<start>_]<model>[_<stop>]/<host>/`.
-4. Once every host is processed, `merge_timeline_profiles` produces a
-   `lab_system_profile.timeline.log` per run.
+Each unique model is loaded once even if several runs share it. Per
+host, every run's timeline/window blocks are fanned out into a
+`filepath -> [target, ...]` map (pair/pattern blocks are warned about
+and skipped), each grouped file is opened exactly once, and every
+relevant target is matched against each line in that single pass —
+timeline targets via one combined-alternation regex (first-match-wins),
+window targets unconditionally within their time window. Once every
+host is processed, per-host results are merged into a system profile
+per run.
 
 ### Output Directory Layout
 
 Batch output gets one extra directory level compared to a mainline
-run: a tool-runtime directory shared by the whole batch invocation,
-under which each run gets its own subdirectory.
-
-- `<runtime>` (`_precompute_run_dirs` / `_runtime_dir`) is the batch's
-  wall-clock start time (`run_start_time`, captured once in
-  `run_batch`), formatted `YYYYMMDD_HHMMSS`. Every run in the batch
-  shares this one directory, so re-running the same spec never
-  clobbers a previous invocation's output — matching how mainline
-  `lpmptool -m` names its own top-level run directory.
-- Each run's own subdirectory (`_dir_name`) is built from its
-  resolved `_start` / `_stop` datetimes (after `_resolve_run_dates`
-  has applied the run → CLI → model-settings → unbounded precedence
-  chain) and its model's base filename:
-  `[<start_date_time>_]<model_base>[_<end_date_time>]`. `datetime.min`
-  / `datetime.max` sentinels (unbounded ends) are omitted from the
-  name rather than formatted.
-- `create_output_directory` (in `lpmp_utils.py`) gained an `extra_dir`
-  parameter (the runtime directory) and a `dir_name` override (the
-  run's own directory name) so both mainline and batch share the same
-  directory-building code path; mainline runs simply never pass
-  either.
-- Because `load_batch_spec` rejects a spec that lists the same model
-  more than once, every run's `_dir_name` is guaranteed unique within
-  a batch without needing a `_run<N>` disambiguating suffix.
+run: a tool-runtime directory shared by the whole batch invocation
+(named after the batch's wall-clock start time, `YYYYMMDD_HHMMSS`, so
+re-running the same spec never clobbers previous output), under which
+each run gets its own subdirectory named from its resolved start/stop
+dates and model name. A repeated model name in the spec is rejected
+at load time, which guarantees each run's directory name is unique
+without needing a disambiguating suffix.
 
 ### Constraints
 
@@ -543,6 +532,71 @@ under which each run gets its own subdirectory.
 - Batch mode does not currently drive per-run graph generation. Run
   `lpmp_graph` against the individual run directories to graph batch
   output.
+
+## Jobs Mode
+
+Jobs mode dispatches a JSON-declared list of arbitrary lpmptool
+invocations under a bounded worker pool. Unlike batch mode — which is
+single-process and timeline/window only — every job is a full mainline
+subprocess so any model type is supported: timeline, window, pattern,
+pair, mixed, plus graphing side effects. The parent runner never
+touches log files itself; it composes argv lists, launches children,
+and reaps their exit codes.
+
+### Loop structure
+
+Three stages, all in `lpmp_jobs.py`:
+
+1. **Setup**: load and validate the JSON spec, resolve the effective
+   `max_parallel` (CLI > spec > default 3) and `fail_fast`, apply the
+   `RLIMIT_NOFILE` pre-flight (raising the soft limit if needed, else
+   clamping `max_parallel`), pre-compute a unique output directory per
+   job, and build each child's argv list.
+
+2. **Dispatch loop**: `_WorkerPool.run()` alternates between two
+   invariant-preserving steps at a 100 ms cadence:
+
+   - **Dispatch step**: while the pending queue is non-empty and
+     `running < max_parallel` and no abort has been requested, start
+     the next job. Starting a job opens a per-job console log,
+     `Popen` runs the child with stdout/stderr redirected to that fd,
+     and the parent immediately closes its copy so the child owns
+     the descriptor for the rest of its life.
+
+   - **Reap step**: `poll()` each running child. Any child whose exit
+     code is available transitions to `passed` (rc == 0), `failed`
+     (rc != 0), or `killed` (during an abort). Emit a completion line
+     with elapsed time. When `fail_fast` is on and a `failed`
+     transition just happened, request pool shutdown.
+
+3. **Merge / summary**: after both the pending queue and the running
+   set are empty, print the pass/fail/total summary, list every
+   failed or killed job with its console log path, and exit with a
+   code derived from the worst child rc (or 130/143 for SIGINT /
+   SIGTERM aborts).
+
+### Design guarantees
+
+- **Concurrency invariant**: the number of running jobs never exceeds
+  `max_parallel`; a single-threaded poll loop dispatches and reaps, so
+  there's no lock discipline to reason about.
+- **FD safety**: each child owns its console-log file descriptor
+  (the parent closes its copy right after launch), no stdout/stderr
+  pipes are held open, `RLIMIT_NOFILE` is pre-flighted at startup and
+  raised or `max_parallel` clamped if it's too small, and an absolute
+  safety cap of 32 catches typo'd `--max-parallel` values.
+- **Collision-free output**: each job's output directory is
+  pre-computed before dispatch, with a `_run<N>` suffix when two jobs
+  share the same model and wall-clock second, so parallel dispatches
+  never stomp each other's files. Console logs for every child land
+  under one well-known root for easy post-mortem.
+- **Clean shutdown**: SIGINT/SIGTERM at the parent forwards to every
+  running child, waits 5s, then escalates to SIGKILL for survivors.
+  Exit code is 130 (SIGINT), 143 (SIGTERM), or the worst child rc.
+- **Composes with batch mode**: only one of `--batch`/`--jobs` can be
+  set per invocation, but a job can itself invoke `--batch` as one of
+  its subprocess commands for layered parallelism — no special code
+  path needed, since jobs mode is subprocess-based.
 
 ## Timing Constraints and Tolerances
 
@@ -592,9 +646,28 @@ under which each run gets its own subdirectory.
 
 ### Loop Processing
 - Multiple analysis passes with time advancement
-- 500ms minimum advancement between iterations
+- Advances by `block_time_tolerance` + 1ms between iterations (not a
+  fixed value; default ~5.0s), or 20 minutes if a pass found nothing
 - Timeline models ignore loop settings (single pass)
 - Automatic EOF detection for loop=0 mode
+
+#### End-of-Pass Cursor Semantics (Declaration Order)
+
+Each pass returns an end-of-pass cursor (`end_time`) that becomes the search
+start for the next pass. The cursor reflects the **last block matched in
+declared order** — for a pair block, its stop time; for a pattern block, its
+match time — set by unconditional overwrite as each block matches. It is
+**not** a running maximum across all blocks.
+
+This distinction matters because sequential search, `block_time_tolerance`,
+and long-running pair durations can all make a later-declared block resolve
+to an *earlier* timestamp than an earlier block. A running-maximum cursor
+would let that earlier block's later timestamp hijack the next pass start,
+pushing it past legitimate events and silently skipping an entire iteration.
+Anchoring the cursor to the last declared block keeps each pass starting
+exactly where the previous pass's final event landed. (This is the
+kpi-unlock-skipped-iteration fix; fail-guard blocks, being non-recording,
+never touch the cursor.)
 
 ### Profile Generation
 - Per-block timing files with statistical summaries
@@ -630,6 +703,9 @@ under which each run gets its own subdirectory.
 - Optional block support to prevent analysis failure
 - Regex fallback to literal string matching
 - Comprehensive validation with specific error reporting
+- Permission errors are collected and excluded rather than fatal (see the
+  Permission-Error Collector component), with an end-of-run summary of
+  excluded paths
 
 ## Testing Architecture
 
@@ -645,102 +721,14 @@ LPMP includes a comprehensive automated test suite with 265+ test cases across 2
 
 ### Stacked vs Chained Blocks
 
-LPMP supports two approaches for organizing multiple sequential patterns:
-
-#### Stacked Blocks (Multiple Patterns in One Block)
-```yaml
-blocks:
-  - label: "Service Initialization"
-    file: "service.log*"
-    patterns:
-      - "Service starting"
-      - "Loading configuration"
-      - "Connecting to database"
-      - "Service ready"
-```
-
-#### Chained Blocks (Separate Blocks)
-```yaml
-blocks:
-  - label: "Service Starting"
-    file: "service.log*"
-    patterns:
-      - "Service starting"
-
-  - label: "Loading Configuration"
-    file: "service.log*"
-    patterns:
-      - "Loading configuration"
-
-  - label: "Connecting to Database"
-    file: "service.log*"
-    patterns:
-      - "Connecting to database"
-
-  - label: "Service Ready"
-    file: "service.log*"
-    patterns:
-      - "Service ready"
-```
-
-#### Performance Implications
-
-**Stacked Blocks (Recommended for Sequential Patterns):**
-- **File I/O Efficiency**: Opens and reads each log file only once for all patterns
-- **Position Tracking**: Maintains file position across patterns, avoiding re-reading
-- **Performance Gain**: 42% runtime reduction (31s → 18s) measured for 5 patterns in 5 loops
-- **Best For**: Patterns in the same log file(s) occurring in chronological sequence
-
-**Chained Blocks (Better for Flexibility):**
-- **File I/O Overhead**: Opens and reads log files separately for each block
-- **Flexibility**: Each block can have different settings (optional, max_time_delta, etc.)
-- **Output Granularity**: Each pattern gets its own labeled output line
-- **Best For**: Patterns requiring different settings or from different log files
-
-#### block-time-tolerance Application
-
-**Important**: The `block-time-tolerance` setting applies to patterns within stacked blocks:
-- Allows patterns to be found slightly out of chronological order
-- Handles logging system timing variations and buffering delays
-- Smart date-range filtering uses block_time_tolerance to avoid skipping files
-- Default: 3.0 seconds (configurable at model level)
-
-**Example**:
-```yaml
-settings:
-  block_time_tolerance: 5.0  # Allow 5 seconds tolerance
-
-blocks:
-  - label: "Service Initialization"
-    file: "service.log*"
-    patterns:
-      - "Service starting"      # Found at 10:00:00
-      - "Loading configuration" # Found at 09:59:58 (2s before, within tolerance)
-      - "Service ready"         # Found at 10:00:05
-```
-
-#### Recommendations
-
-**Use Stacked Blocks When:**
-- Patterns are in the same log file(s)
-- Patterns occur in chronological sequence
-- All patterns share the same settings (file, optional, max_time_delta)
-- Performance is critical (high loop counts, large log files)
-- You want to minimize file I/O operations
-
-**Use Chained Blocks When:**
-- Patterns require different settings per block
-- Patterns are in different log files
-- You need individual control over optional/present behavior
-- Output granularity is more important than performance
-- Patterns may not be chronologically sequential
-
-**Performance Measurement**:
-- Real-world testing: 5 patterns, 5 loops, survivor_pattern_model.yaml
-- Chained blocks: 31 seconds
-- Stacked blocks: 18 seconds
-- Improvement: 42% reduction in runtime
-- Primary benefit: Reduced file I/O and smart filtering overhead
+Stacked blocks (multiple patterns in one block, see
+[Stacked Pattern Blocks](DEVELOPERS_GUIDE.md#stacked-pattern-blocks))
+open and read each log file once for all its patterns, so they're
+measurably faster than the equivalent chained (one-pattern-per-block)
+form when patterns share a file and settings — at the cost of losing
+per-pattern setting overrides. `block_time_tolerance` (default 5.0s)
+applies within a stacked block the same way it applies across blocks,
+letting patterns be found slightly out of chronological order.
 
 ### Memory Usage
 - Large log files may consume significant memory
@@ -756,103 +744,21 @@ blocks:
 
 ### File I/O Optimization
 
-LPMP implements several optimizations to minimize file I/O and maximize search performance:
+LPMP minimizes file I/O with a few complementary strategies:
 
-#### Date-Aware File Ordering
-- **With start_date**: Oldest files first (chronological) so the first block finds the
-  earliest match after start_date in rotated files instead of skipping them
-- **Without start_date**: Newest files first (reverse chronological) for faster searches
-  targeting recent logs
-- **Implementation**: `expand_and_sort_log_files()` sorts by mtime — ascending when
-  start_date is provided, descending otherwise
-
-#### Smart Date-Range Detection
-- **Efficient Sampling**: Reads only first 10 and last 50 lines of each file to extract date range
-- **File Skipping**: Files outside the target date range are skipped entirely during pattern search
-- **Timestamp Caching**: Date ranges determined during wildcard expansion, cached for search phase
-- **Dual Strategy**:
-  - Regular files: Seek to end and read backwards for last timestamp
-  - Gzipped files: Uses `zcat | tail` for fast last-timestamp detection
-
-#### Intelligent File Filtering
-- **Pre-Search Validation**: `find_pattern_in_files()` checks file date ranges before opening
-- **Skip Conditions**:
-  - File's last timestamp is before `after_timestamp` (search start time)
-  - File's first timestamp is after `after_timestamp + max_time_delta`
-- **Tolerance Handling**: Respects `max_time_delta` when determining file relevance
-- **Verbose Logging**: Level 3 verbosity shows which files are skipped and why
-
-#### Chronological Search Progression
-- **Forward Progression**: After first pattern found, subsequent searches progress chronologically
-- **Position Tracking**: Maintains file position for regular files to avoid re-reading
-- **Timestamp Filtering**: Uses `after_timestamp` to skip already-processed log entries
-- **Sequential Optimization**: Each block builds on previous block's timestamp
-
-#### Performance Benefits
-
-**Typical Use Case** (searching recent logs):
-- **Before Optimization**: Searches oldest rotated files first (e.g., daemon.log.10.gz → daemon.log.1.gz → daemon.log)
-- **After Optimization**: Searches newest file first (daemon.log), finds pattern immediately
-- **I/O Reduction**: 90%+ reduction in files opened/read for recent log searches
-- **Time Savings**: Proportional to number of rotated log files skipped
-
-**Large Rotation Scenario** (10+ rotated .gz files):
-- **Rotation-Aware Pruning**: Once a `.gz` rotation is before the time window, all higher-numbered
-  rotations of the same base log are skipped without decompression
-- **Fast `.gz` Timestamp Detection**: Uses `zcat | tail` instead of Python line-by-line decompression
-- **Binary Search Seek**: For plain-text files > 32 KB, binary search jumps near the start timestamp
-  instead of scanning from the beginning of the file
-- **Minimal Overhead**: Date-range sampling adds <100ms per file, saves seconds/minutes in search time
-- **Scalability**: Performance improvement increases with number of rotated files
-
-**Historical Search** (targeting old logs):
-- **Graceful Degradation**: Still searches all files, but in reverse order
-- **Date-Range Benefit**: Skips files newer than target date range
-- **No Performance Loss**: Optimization doesn't penalize historical searches
-
-#### Implementation Details
-
-**File Ordering Algorithm**:
-```python
-# Sort oldest first when start_date is provided (find earliest match),
-# newest first otherwise (find recent matches faster)
-file_info.sort(key=lambda x: x[1], reverse=(start_date is None))
-```
-
-**Date-Range Detection**:
-```python
-# Read first 10 lines for first timestamp
-for _ in range(10):
-    line = f.readline()
-    ts = parse_timestamp(line)
-    if ts:
-        first_ts = ts
-        break
-
-# Seek to end and read last ~4KB for last timestamp
-f.seek(0, 2)  # End of file
-seek_pos = max(0, file_size - 4096)
-f.seek(seek_pos)
-lines = f.readlines()
-for line in reversed(lines[-50:]):
-    ts = parse_timestamp(line)
-    if ts:
-        last_ts = ts
-        break
-```
-
-**Smart File Filtering**:
-```python
-# Skip file if after_timestamp is before file's date range
-if after_timestamp < first_ts:
-    vlog3(f"Skipping {filename}: before file range")
-    continue
-
-# Skip file if after_timestamp is after file's date range
-if after_timestamp > last_ts + tolerance:
-    vlog3(f"Skipping {filename}: after file range")
-    continue
-```
+- **Date-aware file ordering**: files are searched oldest-first when
+  `start_date` is given (so the earliest match after it isn't skipped
+  in rotated files), newest-first otherwise (faster for recent logs).
+- **Smart date-range detection**: each file's first/last timestamp is
+  sampled cheaply (a few lines at each end; `zcat | tail` for `.gz`)
+  during wildcard expansion and cached, so files entirely outside the
+  target window are skipped without a full read.
+- **Rotation-aware `.gz` pruning**: once one rotation is before the
+  window, all older rotations of the same base log are skipped
+  without decompression.
+- **Chronological progression**: after the first pattern match, file
+  position is tracked (regular files only) so later blocks never
+  re-read already-processed lines.
 
 ## Extensibility
 
@@ -872,3 +778,13 @@ if after_timestamp > last_ts + tolerance:
 - System summary generation for reporting
 
 This architecture provides a robust foundation for log analysis across diverse environments, from single-host on-system analysis (local host only, no SSH) to multi-host collect bundle correlation.
+
+
+## Script Runner Extension
+
+Optional post-analysis automation: a model's `settings.script` names a
+script to run after the analysis completes, gated behind the opt-in
+`--script` flag so a plain run never triggers a side-effecting
+subprocess unintentionally. See the Developer Guide's
+[Script Runner Feature](DEVELOPERS_GUIDE.md#script-runner-feature)
+for configuration, discovery paths, and usage.

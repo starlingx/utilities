@@ -276,7 +276,7 @@ def run_tests_with_coverage():
         # Extract individual file coverage and overall
         coverage_pct = "unknown"
         lpmp_engine_cov = lpmp_output_cov = lpmp_graph_cov = "N/A"
-        lpmp_batch_cov = lpmp_utils_cov = lpmptool_cov = "N/A"
+        lpmp_batch_cov = lpmp_jobs_cov = lpmp_utils_cov = lpmptool_cov = "N/A"
         lines = coverage_text.strip().split('\n')
         for line in lines:
             if 'lpmp_engine.py' in line:
@@ -302,6 +302,12 @@ def run_tests_with_coverage():
                 for part in parts:
                     if '%' in part:
                         lpmp_batch_cov = part
+                        break
+            elif 'lpmp_jobs.py' in line:
+                parts = line.split()
+                for part in parts:
+                    if '%' in part:
+                        lpmp_jobs_cov = part
                         break
             elif 'lpmp_utils.py' in line:
                 parts = line.split()
@@ -340,6 +346,7 @@ def run_tests_with_coverage():
         print(f"lpmp_output.py : {lpmp_output_cov} coverage")
         print(f"lpmp_graph.py  : {lpmp_graph_cov} coverage")
         print(f"lpmp_batch.py  : {lpmp_batch_cov} coverage")
+        print(f"lpmp_jobs.py   : {lpmp_jobs_cov} coverage")
         print(f"lpmp_utils.py  : {lpmp_utils_cov} coverage")
         print(f"lpmptool.py    : {lpmptool_cov} coverage")
         skip_info = f" ({skipped_count} skipped)" if skipped_count else ""

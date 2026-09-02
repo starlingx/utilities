@@ -8,20 +8,207 @@ The history is organized chronologically with the most recent changes at the top
 
 ---
 
-## Current Code Coverage Summary (2026-07-02):
+## Current Code Coverage Summary (2026-09-14):
   ```
+Code Coverage: from 82% to 84% with added functionality
 ============================================================
-lpmp_engine.py : 85% coverage
-lpmp_output.py : 83% coverage
-lpmp_graph.py  : 96% coverage
-lpmp_batch.py  : 93% coverage
-lpmp_utils.py  : 83% coverage
-lpmptool.py    : 70% coverage
-Overall        : 82% coverage with 671 of 671 tests passing
+lpmp_engine.py : 86% coverage  (was 85%)
+lpmp_output.py : 83% coverage  (was 83%)
+lpmp_graph.py  : 96% coverage  (was 96%)
+lpmp_batch.py  : 93% coverage  (was 93%)
+lpmp_jobs.py   : 96% coverage  (new)
+lpmp_utils.py  : 84% coverage  (was 83%)
+lpmptool.py    : 71% coverage  (was 70%)
+Overall        : 84% coverage with all 896 tests passing ✅
 ============================================================
+Added 215 new automated tests 681 to 896 increasing overall
+test coverage from 82% → 84% even with the added code
   ```
 
 ## Change History
+
+### 2026-09-14 - Search-Path Priority Reversal and Script Listing
+- **Current directory now highest priority for models, jobs, and scripts.**
+  Previously the tool-relative `models/`/`jobs/`/`scripts/` directory was
+  searched before the writable `/etc/lpmp.d/` override location, so a
+  same-named file in `/etc/lpmp.d/` could never take effect while the
+  tool's own built-in copy existed — defeating the purpose of an
+  OSTree-writable override location meant to survive image updates. The
+  new unified order is: `./` (current directory) → `/etc/lpmp.d/...`
+  (writable override) → `<tool_dir>/<kind>/` (built-in, skipped on an
+  installed package) → `/var/lib/lpmp_<kind>/` (system-provided,
+  read-only). This lets a user override any built-in or packaged file —
+  including working around a bug — by placing a same-named file in
+  their current working directory or in `/etc/lpmp.d/`, without editing
+  installed files.
+- **Shared search-path helper.** `get_models_search_paths()`,
+  `get_jobs_search_paths()`, and `get_scripts_search_paths()` now all
+  delegate to one `_get_search_paths()` helper in `lpmp_utils.py`,
+  closing prior drift where scripts checked its system directory before
+  its built-in directory (opposite of models/jobs) and had no writable
+  override directory at all.
+- **New `/etc/lpmp.d/scripts/` override directory.** Scripts gain the
+  same writable-override tier models and jobs already had.
+- **New `--list-scripts` (`-ls`).** Lists every script discoverable in
+  the scripts search path with its resolved full path, mirroring
+  `--list-jobs`. The current-directory entry is excluded from the
+  listing itself (though still searched at runtime) so the output shows
+  only the dedicated scripts directories, not incidental files in the
+  working directory.
+- **Unconditional resolved-path logging.** `Model: <path>`,
+  `Jobs spec: <path>`, and `Script: <path>` now print unconditionally
+  (not gated behind `--verbose`) as soon as each is resolved, so it's
+  always visible which file on disk a run actually used.
+- **Model not-found errors now generated from the real search path.**
+  The error message previously hardcoded a 4-line list that didn't match
+  `get_models_search_paths()`'s actual entries; it's now built by
+  iterating the live search-path list, so the reported search order is
+  always accurate.
+- **Help text corrected.** The `MODEL FILE SEARCH PATH` and
+  `JOBS SEARCH PATH` sections of `--help-model`/`--help-jobs`, the
+  include-directive note, and the `--list-jobs`/`--list-scripts`
+  none-found messages all now describe the current search order instead
+  of the pre-reversal one.
+
+### 2026-08-31 - Script Runner Feature and Pod Timing Analysis
+- **Post-analysis script execution.** LPMP now runs scripts after log analysis completes for
+  automation and data transformation. Add `script:` to model settings; execute with `--script`
+  flag (opt-in, disabled by default). Scripts are auto-discovered with priority: `/var/lib/lpmp_scripts/`
+  (on-system) → `{lpmp_install}/scripts/` (dev/bundle) → current directory. Supports variable
+  substitution ({hostname}) and bundle-mode glob expansion for data paths. Real-time output to console;
+  errors handled gracefully with warnings.
+- **Script runner functions.** New lpmp_utils.py additions: `run_jobs_spec()`, `_build_job_argv()`,
+  `_run_job_subprocess()`, `_collect_job_output()`, and `_validate_script_runner_paths()` for
+  subprocess orchestration, output aggregation, and path resolution.
+- **Pod startup timing analysis.** Two implementations provide pod stabilization timing for
+  soak testing: `pod_ready_times_describe.py` (3.5s, fastest, plain-text parsing from
+  `kubectl describe pods` output) and `pod_ready_times.py` (10.9s, full detail from JSON/YAML).
+  Both output restart counts and Duration/Start/Ready/Podname columns to `/tmp/pod_ready_times.json`.
+- **Automatic package installation.** Debian build rules auto-install scripts to
+  `/var/lib/lpmp_scripts/` without manual file listing (wildcard rules handle all `.py` files).
+- **Output directory naming.** Per-job and console directories use date-first format (`<timestamp>_<model>`,
+  `<timestamp>_jobs`) for chronological sorting.
+- **Test coverage.** 41 unit tests for script discovery, validation, substitution, and integration
+  in new `test_script_runner.py` file. Consolidated imports across test suite with one-per-line
+  format and alphabetical ordering per PEP8 I100 compliance.
+- **Code coverage improvements.** lpmp_utils.py 83% coverage; lpmp_engine.py 86% (was 85%);
+  lpmptool.py 72% (was 70%); lpmp_jobs.py 96% (new). Overall 84% with 879 tests passing (198 new tests added).
+- **Documentation.** CONTEXT.md updated with PEP8 compliance rules including max-line-length (120),
+  end-of-line whitespace cleanup, and import formatting. End-of-line whitespace removed from all
+  .md files. Architecture, developer guide, and test coverage updated with script runner details.
+
+### 2026-08-14 - Timing Accuracy, Fail-Guard, and Robustness Fixes
+- **Multi-pass timing no longer skips an iteration (KPI Unlock bugfix).** When a run makes
+  several passes over the same logs (loop iterations), each pass now resumes exactly where
+  the previous pass's last event landed. Previously a single out-of-cycle match — a pattern
+  or pair-block stop time from a later boot cycle that happened to fall within the block's
+  `max_time_delta` window — could push the next pass's start time forward and silently skip
+  an entire iteration's worth of legitimate events. Root cause was an unconditional running-max
+  accumulation of `end_time` during block processing; the fix replaces it with unconditional
+  overwrite so `end_time` reflects the last-declared-order block that matched, not the
+  chronologically-latest match. Confirmed on the reported KPI unlock pairing model with pass
+  3 no longer being skipped when a later boot cycle's "OS: NETWORK CONFIG PHASE" pattern
+  landed after the true end-of-pass "Platform Ready" marker. Preservation tests confirm
+  non-stray passes remain unaffected (last-write-wins and largest-value-wins are
+  mathematically identical for monotonic sequences).
+- **New `fail: true` guard modifier.** A pattern block can now assert that something
+  bad — a panic, a segfault, an error — does NOT appear between two events. Finding it
+  fails the run with a `❌ FAIL` message; not finding it passes quietly. Pattern blocks
+  only, and can't be combined with the `optional` or `present` modifiers, or with
+  `start`/`stop` (pair blocks), `timeline`, or `window`. The guard is non-recording — it
+  never advances the `end_time` cursor or emits a result row, acting as a pure gate.
+- **Clearer not-found messages with search boundaries.** Warnings and errors for pattern/pair
+  blocks now show the time the tool was searching from (the per-block anchor), making it
+  obvious when a pattern that exists in the logs was missed only because the search had
+  already moved past it. This is especially helpful when `block_time_tolerance` reordering
+  or long `max_time_delta` windows cause non-obvious search ranges.
+- **Pair-block messages name the correct pattern.** When a pair block fails to match, the
+  warning/error now identifies which half (start or stop) could not be found and shows
+  the correct log file from the model's original file pattern, instead of always reporting
+  the start pattern's file. Enabled by optional `failure_info` dict passed through
+  `process_pair_block` to distinguish start vs. stop failures.
+- **Full duration shown for pair blocks regardless of length.** The start/stop duration
+  summary (e.g., `18.234s / 18 min 50.123s`) is no longer trimmed by `--max-log-length`;
+  only raw log line excerpts are trimmed, allowing users to always see the measured duration
+  even when other output is truncated.
+- **Graceful permission handling.** A file or directory the user cannot read (permission denied)
+  is now skipped and listed at the end of the run with a summary message instead of aborting
+  the whole analysis. Errors are collected de-duplicated, order-preserving collector wired into
+  every filesystem-touching site (directory walk error handlers, `os.listdir` guards, file-read
+  exception handlers). Non-optional blocks whose only candidate files are all unreadable still
+  fail as "not found" — skipping a file and matching it are not the same thing.
+- **Model housekeeping.** The collectd CPU, memory, and overage timeline models were renamed
+  to drop the redundant `_timeline` suffix (e.g., `collectd_cpu_usage_timeline.yaml` →
+  `collectd_cpu_usage.yaml`) for cleaner model discovery and less visual clutter. Pattern
+  updates to AIO-SX unlock and KPI unlock pairing models to handle additional real-world
+  variations observed in bundles. Process-monitor model refined to improve container detection.
+
+### 2026-09-03 - Jobs Discovery, Graphing Deploy Fixes, Permission Reporting
+- **`-j` short alias for `--jobs`.**
+- **Jobs search path + `--list-jobs` (`-lj`).** Jobs specs resolve
+  the same way models do, so a packaged or user spec runs by bare
+  name (e.g. `-j mtce_job`). Search order: `<tool>/jobs/`, `./jobs/`,
+  `/etc/lpmp.d/jobs/`, `/var/lib/lpmp_jobs/`, `./`. `--list-jobs`
+  prints available specs with resolved paths. `--help-jobs` (`-hj`)
+  prints the jobs-mode help topic. Shipped specs now install to
+  `/var/lib/lpmp_jobs/`.
+- **Per-job / console dir naming is date-first**
+  (`<time>_<model>` and `<time>_jobs`) for consistent chronological
+  sorting.
+- **Graphing deploy fix.** `lpmp_graph.py` is now located from the
+  package directory rather than the executable's directory, so
+  graphing works on installed systems where `lpmptool` is on `PATH`
+  and modules live under `dist-packages` (previously exited status 2,
+  "file not found"). Child stderr is surfaced in the warning.
+- **Graphing dependency precheck.** Missing `pandas`/`matplotlib`
+  now yields a clear note that the timeline/CSV were produced but a
+  graph cannot be rendered, instead of a raw subprocess failure.
+- **Permission-error reporting extended.** Unreadable files hit on
+  the timeline/graph bundle read path, the smart date-range probe,
+  and the window binary-sniff/context paths are now recorded and
+  reported at end-of-run instead of being silently skipped.
+- **Packaging.** `lpmp_jobs.py` is now installed with the other
+  modules (previously omitted, breaking jobs mode on deployed
+  systems).
+
+### 2026-07-03 - Jobs Mode (Parallel Subprocess Dispatch)
+- **New `--jobs <spec>.json` mode.** Reads a JSON list of arbitrary
+  lpmptool invocations and runs them in parallel under a bounded
+  worker pool. Unlike batch mode, every job runs as its own mainline
+  subprocess so any model type is supported — timeline, window,
+  pattern, pair, mixed — plus graphing side effects.
+- **Bounded parallelism.** `--max-parallel N` (or `max_parallel` in
+  the spec) caps concurrent jobs. Precedence: CLI beats spec beats
+  default of 3. `--fail-fast` aborts remaining jobs after the first
+  failure. `--force-parallel` bypasses the built-in safety cap of 32,
+  which normally clamps runaway values from typos.
+- **File-descriptor safety.** The runner inspects `RLIMIT_NOFILE`
+  at startup and raises the soft limit if needed, or clamps
+  `max_parallel` down with a warning if raising fails. Per-child
+  stdout/stderr goes into a dedicated console log the child owns —
+  the parent closes its copy immediately after launch so it never
+  accumulates FDs from running children.
+- **Collision-free output.** Each job gets a unique output directory
+  pre-computed by the parent, so two jobs of the same model running
+  in the same wall-clock second never stomp each other. Console logs
+  collect under `<output>/lpmp_<lab>/<batch_start>_jobs/` for easy
+  post-mortem.
+- **Clean shutdown.** Ctrl-C forwards SIGTERM to every running child,
+  waits 5 seconds, then escalates to SIGKILL. Parent exits 130 for
+  SIGINT, 143 for SIGTERM, else the worst child exit code.
+- **Graphing enhancements.** Case-insensitive graph variable matching
+  (`--var graph=cpu` works with CPU, Cpu, mem, Memory, etc.). Substring
+  matching for resource filters improves flexibility. Clearer "no matches"
+  messaging when window/filter yields zero results. State-transition
+  filtering refactored with helper function for maintainability.
+- **Collectd model renames.** Removed redundant `_timeline` suffix from
+  model names: `collectd_cpu_usage_timeline.yaml` → `collectd_cpu_usage.yaml`,
+  `collectd_memory_usage_timeline.yaml` → `collectd_memory_usage.yaml`,
+  `collectd_overage_timeline.yaml` → `collectd_overage.yaml`.
+- **Docs and help.** New `docs/PLAN_jobs_mode.md` and
+  `docs/jobs_spec_example.json`. `--help-model` now includes topic
+  17 "Jobs Mode" and topic 18 "Graphing"; menu numbering shifted
+  (LIMITATIONS → 19, model listings → 20-22).
 
 ### 2026-07-02 - Model Discovery Improvements
 - **Mandatory `description:` top-level model key.** Every model must

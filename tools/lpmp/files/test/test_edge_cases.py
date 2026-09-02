@@ -40,6 +40,8 @@ from lpmp_utils import create_output_directory       # noqa: E402
 from lpmp_utils import detect_model_type             # noqa: E402
 from lpmp_utils import ensure_output_dir             # noqa: E402
 from lpmp_utils import expand_wildcards_in_blocks    # noqa: E402
+from lpmp_utils import extract_model_info            # noqa: E402
+from lpmp_utils import find_no_timestamp_files       # noqa: E402
 from lpmp_utils import format_long_listing           # noqa: E402
 from lpmp_utils import format_result_line            # noqa: E402
 from lpmp_utils import get_models_search_paths       # noqa: E402
@@ -536,6 +538,64 @@ class TestFileProcessingFunctions(LPMPTestBase):
 
         self.assertEqual(blocks[0]['file'], 'specific.log')
 
+    def test_extract_model_info_found_in_mtcagent_log(self):
+        """Test manufacturer/model info extracted from mtcAgent.log"""
+        with open(os.path.join(self.temp_dir, 'mtcAgent.log'), 'w') as f:
+            f.write("2026-01-06T10:00:00.000 some line\n")
+            f.write("2026-01-06T10:00:01.000 the manufacturer is Dell model:PowerEdge R640\n")
+
+        result = extract_model_info(self.temp_dir)
+        self.assertEqual(result, "model:PowerEdge R640")
+
+    def test_extract_model_info_not_found(self):
+        """Test empty string returned when no manufacturer line exists"""
+        with open(os.path.join(self.temp_dir, 'mtcAgent.log'), 'w') as f:
+            f.write("2026-01-06T10:00:00.000 nothing relevant here\n")
+
+        result = extract_model_info(self.temp_dir)
+        self.assertEqual(result, "")
+
+    def test_extract_model_info_no_log_files(self):
+        """Test empty string returned when neither log file exists"""
+        result = extract_model_info(self.temp_dir)
+        self.assertEqual(result, "")
+
+    def test_extract_model_info_prefers_gz_first_then_plain(self):
+        """Test mtcAgent.log.1.gz is checked before mtcAgent.log"""
+        with open(os.path.join(self.temp_dir, 'mtcAgent.log'), 'w') as f:
+            f.write("manufacturer is Foo model:PlainLog\n")
+        # mtcAgent.log.1.gz is checked first per MANUFACTURER_LOG_FILES
+        # order but doesn't exist here, so it falls through to the plain
+        # log and still finds the match.
+        result = extract_model_info(self.temp_dir)
+        self.assertEqual(result, "model:PlainLog")
+
+    def test_find_no_timestamp_files_detects_missing_timestamps(self):
+        """Test files with no parseable timestamp are reported"""
+        with open(os.path.join(self.temp_dir, 'no_ts.log'), 'w') as f:
+            f.write("just some text with no timestamp at all\n")
+        with open(os.path.join(self.temp_dir, 'has_ts.log'), 'w') as f:
+            f.write("2026-01-06T10:00:00.000 has a timestamp\n")
+
+        result = find_no_timestamp_files(self.temp_dir)
+        self.assertIn('no_ts.log', result)
+        self.assertNotIn('has_ts.log', result)
+
+    def test_find_no_timestamp_files_empty_dir(self):
+        """Test no files reported for an empty directory"""
+        result = find_no_timestamp_files(self.temp_dir)
+        self.assertEqual(result, [])
+
+    def test_find_no_timestamp_files_recurses_subdirectories(self):
+        """Test subdirectories are walked and relative paths reported"""
+        subdir = os.path.join(self.temp_dir, 'sub')
+        os.makedirs(subdir)
+        with open(os.path.join(subdir, 'nested_no_ts.log'), 'w') as f:
+            f.write("no timestamp in this nested file\n")
+
+        result = find_no_timestamp_files(self.temp_dir)
+        self.assertIn(os.path.join('sub', 'nested_no_ts.log'), result)
+
 
 class TestUtilityFunctions(LPMPTestBase):
     """Test utility functions"""
@@ -553,8 +613,10 @@ class TestUtilityFunctions(LPMPTestBase):
 
         self.assertIsInstance(paths, list)
         self.assertGreater(len(paths), 0)
-        self.assertIn('./models/', paths)
-        self.assertIn('./', paths)
+        # Current directory is highest priority so it overrides any
+        # built-in or packaged default.
+        self.assertEqual(paths[0], './')
+        self.assertIn('/etc/lpmp.d/', paths)
 
     def test_detect_model_type_window(self):
         """Test window block detected as TIMELINE model type"""

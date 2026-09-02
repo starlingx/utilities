@@ -2,5 +2,9 @@ usr/local/bin/lpmptool /usr/local/bin
 var/lib/lpmp_models /var/lib
 var/lib/lpmp_models/helpers /var/lib/lpmp_models
 var/lib/lpmp_models/examples /var/lib/lpmp_models
+var/lib/lpmp_jobs /var/lib
 etc/lpmp.d /etc
+etc/lpmp.d/jobs /etc/lpmp.d
+etc/lpmp.d/scripts /etc/lpmp.d
 usr/lib/python3/dist-packages/lpmp /usr/lib/python3/dist-packages
+var/lib/lpmp_scripts /var/lib

@@ -1,0 +1,30 @@
+{
+  "max_parallel": 3,
+  "fail_fast": false,
+  "jobs": [
+    {
+      "model": "host_lifecycle.yaml",
+      "start_date": "2026-02-25T13:35:00",
+      "stop_date":  "2026-02-25T13:41:00"
+    },
+    {
+      "model": "ceph_health.yaml",
+      "start_date": "2026-02-25T13:35:00",
+      "stop_date":  "2026-02-25T13:41:00"
+    },
+    {
+      "model": "sm_service_failover.yaml"
+    },
+    {
+      "model": "k8s_container_runtime.yaml",
+      "hostname": "controller-1"
+    },
+    {
+      "model": "collectd_cpu_usage.yaml",
+      "vars": {"graph": "Platform CPU"}
+    },
+    {
+      "model": "drbd_sync.yaml"
+    }
+  ]
+}

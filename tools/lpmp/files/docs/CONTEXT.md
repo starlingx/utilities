@@ -51,6 +51,35 @@
 - **Block Type Checking:** Use explicit block type variables (`block_type == 'pattern'`, `block_type == 'pair'`, `block_type == 'timeline'`) rather than fragile methods like tuple length checking or field presence detection
 - **Model Validation Tests:** Any changes to the model format — added or removed labels, keys, or variables — require corresponding updates to `test/test_validate_model.py` to keep validation tests in sync with the current model specification
 
+#### PEP8 Compliance Rules
+- **Max Line Length:** 120 characters (enforce with `pep8 file.py --max-line-length=120`)
+- **End-of-Line Whitespace:** Remove all trailing whitespace from lines (enforce with `grep ' $' file.py` - should return nothing)
+- **Import Format:** One import per line, each on its own line (never group imports with parentheses)
+- **Import Ordering:** Alphabetical order within each import source
+- **Import Ordering Priority:**
+  1. Standard library imports (alphabetical)
+  2. Third-party imports (alphabetical)
+  3. Local imports (alphabetical)
+- **Import Example — CORRECT:**
+  ```python
+  from lpmp_jobs import ABSOLUTE_MAX_PARALLEL  # noqa: E402
+  from lpmp_jobs import DEFAULT_MAX_PARALLEL  # noqa: E402
+  from lpmp_jobs import _preflight_fd_check  # noqa: E402
+  from lpmp_jobs import _resolve_fail_fast  # noqa: E402
+  from lpmp_jobs import _resolve_max_parallel  # noqa: E402
+  ```
+- **Import Example — WRONG (grouped/multi-line):**
+  ```python
+  from lpmp_jobs import (  # noqa: E402
+      ABSOLUTE_MAX_PARALLEL,
+      DEFAULT_MAX_PARALLEL,
+      _preflight_fd_check,
+      _resolve_fail_fast,
+      _resolve_max_parallel,
+  )
+  ```
+- **E402 Suppression:** Use `# noqa: E402` when sys.path manipulation is required before local imports (standard pattern for tools with custom import paths)
+
 ### Debugging and Problem-Solving Approach
 - **Root Cause Analysis**: Always identify the underlying cause before implementing fixes
 - **Systematic Investigation**: Use verbose logging and step-by-step debugging to understand issues
@@ -118,9 +147,6 @@
   6. Create diff files for all changes since last request
   7. Update CONTEXT.md and HISTORY.md if significant changes occurred
   8. Update TEST_COVERAGE.md if tests were added, removed, or renamed — verify test counts, cross-reference against actual test files, and update the "Last full review" date
-- **Static Analysis Tools:** Use `flake8`, `pylint`, or `pycodestyle` for Python code quality checks with --max-line-length=120
-- **Whitespace Cleanup:** Remove trailing whitespace and ensure consistent line endings
-- **Pre-Review Validation:** Ensure all tests pass and coverage meets minimum thresholds before declaring ready for review
 
 ### Large-Scale Change Process
 When a request involves 5 or more discrete items (test additions, refactors, feature sets, etc.):
@@ -317,6 +343,17 @@ The Log Pattern Matching Profiler (LPMP) is a sophisticated log analysis tool de
 - ✅ **Separate format functions**: Tool maintains distinct output file format functions for each model type (pattern, pair, timeline)
 - ✅ **Structured output**: Uses `PatternResult`, `PairResult`, and `TimelineResult` data structures for type-safe output generation
 - ⚠️ **Output Format Change Rule**: Always prompt user for confirmation whenever an output file format change is pending to ensure backward compatibility
+
+### Script Runner
+- ✅ Post-analysis script execution (`--script` flag, opt-in)
+- ✅ Script discovery from multiple search paths
+- ✅ Variable substitution in script arguments
+- ✅ Bundle mode glob expansion for data paths
+- ✅ Real-time script output to console
+- ✅ Graceful error handling with warnings
+- ✅ Automatic package installation via debian build rules
+- ✅ Pod stabilization analysis scripts (JSON/YAML parsing, plain-text parsing)
+- ✅ 3.5-second pod timing analysis from `kubectl describe pods` output
 
 **Test Cases Rules**
 - Do not create or run tests that use --help-model nor --hosts as command line options

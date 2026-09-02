@@ -76,32 +76,43 @@ class TestModelFileSearch(LPMPTestBase):
         self.assertIsNotNone(result)
         self.assertTrue(os.path.exists(result))
 
-    def test_find_model_in_models_dir(self):
-        """Test finding model in ./models/ directory (priority 1)"""
+    def test_find_model_in_models_subdir_not_searched(self):
+        """A './models/' subdirectory is no longer a distinct search tier.
+
+        Only flat current directory ('./') is searched at the highest
+        priority; a model placed under a 'models/' subdirectory of cwd
+        is not found by bare name (it's not the tool's own
+        <tool_directory>/models/, a different absolute location).
+        """
         os.makedirs('models', exist_ok=True)
         model_path = os.path.join('models', 'test_model.yaml')
         with open(model_path, 'w') as f:
             f.write('description: Test model.\nblocks: []\n')
 
         result = find_model_file('test_model.yaml')
-        self.assertEqual(result, model_path)
+        self.assertIsNone(result)
 
-    def test_find_model_precedence_models_over_current(self):
-        """Test that ./models/ takes precedence over current directory"""
-        os.makedirs('models', exist_ok=True)
+    def test_find_model_precedence_current_dir_wins(self):
+        """Current directory ('./') is searched before any other path.
 
-        # Create model in both locations
-        models_path = os.path.join('models', 'test_model.yaml')
-        with open(models_path, 'w') as f:
-            f.write('# models dir\n')
+        Uses a mocked search-path list (matching the mocking style in
+        test_jobs_search_paths.py) so the test targets find_model_file's
+        iteration order rather than re-encoding the exact production
+        search-path list.
+        """
+        other_dir = os.path.join(self.temp_dir, 'other')
+        os.makedirs(other_dir, exist_ok=True)
 
         current_path = 'test_model.yaml'
         with open(current_path, 'w') as f:
             f.write('# current dir\n')
+        with open(os.path.join(other_dir, 'test_model.yaml'), 'w') as f:
+            f.write('# other dir\n')
 
-        result = find_model_file('test_model.yaml')
-        # Should find models/ first (lower priority number = found first)
-        self.assertEqual(result, models_path)
+        with patch('lpmp_utils.get_models_search_paths',
+                   return_value=['./', other_dir]):
+            result = find_model_file('test_model.yaml')
+        self.assertEqual(result, current_path)
 
     def test_find_model_in_current_dir(self):
         """Test finding model in current directory when not in other locations"""
@@ -119,8 +130,7 @@ class TestModelFileSearch(LPMPTestBase):
 
     def test_find_model_without_extension(self):
         """Test finding model without .yaml extension"""
-        os.makedirs('models', exist_ok=True)
-        model_path = os.path.join('models', 'test_model.yaml')
+        model_path = 'test_model.yaml'
         with open(model_path, 'w') as f:
             f.write('description: Test model.\nblocks: []\n')
 
@@ -130,8 +140,7 @@ class TestModelFileSearch(LPMPTestBase):
 
     def test_find_model_without_extension_matches_with_extension(self):
         """Test extensionless and with-extension resolve to same file"""
-        os.makedirs('models', exist_ok=True)
-        model_path = os.path.join('models', 'test_model.yaml')
+        model_path = 'test_model.yaml'
         with open(model_path, 'w') as f:
             f.write('description: Test model.\nblocks: []\n')
 

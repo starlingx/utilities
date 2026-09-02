@@ -63,6 +63,15 @@ class ConsoleCapture:
         """Stop capturing and return to normal output."""
         sys.stdout = self.original_stdout
 
+    def is_capturing(self):
+        """Return True while capture is redirecting sys.stdout.
+
+        Safe to call from any callsite that only needs to know whether
+        a stop_capture() has already been issued. Compares against the
+        stored original stdout rather than relying on external state.
+        """
+        return sys.stdout is not self.original_stdout
+
     def get_captured_output(self):
         """Get the captured output as a string."""
         return self.capture_buffer.getvalue()
@@ -330,49 +339,151 @@ def stop_progress_indicator(progress_active):
         pass
 
 
-def get_models_search_paths(verbose=0):
-    """Get prioritized search paths for model files.
-
-    Args:
-        verbose: Verbosity level (default: 0)
+def _get_search_paths(kind, etc_dir, system_dir, examples=False,
+                      verbose=0, label=None):
+    """Build the prioritized search path list shared by models, jobs,
+    and scripts, so all three "resolve by bare name" features agree on
+    where an override lives relative to a built-in or packaged default.
 
     Search order (highest to lowest priority):
-    1. <tool_directory>/models/ (relative to where lpmptool resides) - HIGHEST PRIORITY
-    2. <tool_directory>/models/examples/ (example models)
-    3. ./models/ (relative to current directory) - Local development models
-    4. ./models/examples/ (local example models)
-    5. /etc/lpmp.d/ - User/developer models (writable in OSTree)
-    6. /var/lib/lpmp_models/ - System-provided models (read-only)
-    7. ./ (current directory)
+    1. ./                  - current directory. Always highest: lets a
+                             user override any built-in or packaged
+                             file just by placing a same-named file in
+                             wherever they're running the tool from
+                             (e.g. to work around a bug without editing
+                             the installed copy).
+    2. <etc_dir>            - writable user/developer override location
+                             (survives OSTree image updates).
+    3. <tool_dir>/<kind>/   - built-in, shipped with the tool. Skipped
+                             when running from an installed package
+                             (dist-packages/site-packages).
+    4. <system_dir>         - system-provided packaged defaults
+                             (read-only).
+
+    Args:
+        kind: subdirectory name under the tool directory, e.g. 'models'
+        etc_dir: writable override directory, e.g. '/etc/lpmp.d/jobs/'
+        system_dir: read-only system-provided directory
+        examples: when True, append an 'examples' subdirectory right
+            after both the built-in and system directories (models only)
+        verbose: verbosity level; >=1 prints the resolved paths
+        label: human-readable label for the verbose banner
 
     Returns list of search paths.
     """
-    # When installed as a package, __file__ resolves to a dist-packages
-    # or site-packages directory ; skip tool_dir model paths in that case.
     tool_dir = os.path.dirname(os.path.abspath(__file__))
     installed = 'dist-packages' in tool_dir or 'site-packages' in tool_dir
 
-    search_paths = []
+    search_paths = ['./', etc_dir]                                  # Priority 1, 2
     if not installed:
-        search_paths.append(os.path.join(tool_dir, 'models'))              # Priority 1
-        search_paths.append(os.path.join(tool_dir, 'models', 'examples'))  # Priority 2
-    search_paths += [
-        './models/',                                   # Priority 3
-        './models/examples/',                          # Priority 4
-        '/etc/lpmp.d/',                                # Priority 5
-        '/var/lib/lpmp_models/',                       # Priority 6
-        '/var/lib/lpmp_models/examples/',              # Priority 7
-        './'                                           # Priority 8
-    ]
+        builtin = os.path.join(tool_dir, kind)
+        search_paths.append(builtin)                                # Priority 3
+        if examples:
+            search_paths.append(os.path.join(builtin, 'examples'))
+    search_paths.append(system_dir)                                 # Priority 4
+    if examples:
+        search_paths.append(os.path.join(system_dir, 'examples'))
 
     if verbose >= 1:
         print(f"Tool: {os.path.abspath(sys.argv[0]) if sys.argv else 'N/A'}")
-        print("Model search paths (highest to lowest priority):")
+        print(f"{label or kind.capitalize()} search paths (highest to lowest priority):")
         for i, path in enumerate(search_paths, 1):
             exists = "✓" if os.path.exists(path) else "✗"
             print(f"  {i}. {exists} {path}")
 
     return search_paths
+
+
+def get_models_search_paths(verbose=0):
+    """Get prioritized search paths for model files.
+
+    See _get_search_paths() for the shared priority order. Models
+    additionally get an 'examples/' subdirectory appended after each
+    of the built-in and system-provided directories.
+
+    Returns list of search paths.
+    """
+    return _get_search_paths('models', etc_dir='/etc/lpmp.d/',
+                             system_dir='/var/lib/lpmp_models/',
+                             examples=True, verbose=verbose, label='Model')
+
+
+def get_jobs_search_paths(verbose=0):
+    """Get prioritized search paths for jobs spec files.
+
+    See _get_search_paths() for the shared priority order. Lets a
+    packaged jobs spec be referenced by bare name (e.g. --jobs
+    mtce_job) instead of a full path.
+
+    Returns list of search paths.
+    """
+    return _get_search_paths('jobs', etc_dir='/etc/lpmp.d/jobs/',
+                             system_dir='/var/lib/lpmp_jobs/',
+                             verbose=verbose, label='Jobs')
+
+
+def find_jobs_file(jobs_file):
+    """Find a jobs spec file using the prioritized jobs search path.
+
+    Accepts a name with or without a .json extension, an absolute path,
+    or a relative path. Returns the full path or None if not found.
+    Mirrors find_model_file().
+    """
+    if jobs_file.endswith('.json'):
+        candidates = [jobs_file]
+    else:
+        candidates = [jobs_file + '.json', jobs_file]
+
+    # Absolute path or explicit relative path: use as-is first.
+    if os.path.isabs(jobs_file) or os.sep in jobs_file or '/' in jobs_file:
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                vlog2(f"Found jobs spec (explicit path): {candidate}")
+                return candidate
+        if os.path.isabs(jobs_file):
+            return None
+
+    for path in get_jobs_search_paths(0):
+        for candidate in candidates:
+            full_path = os.path.join(path, candidate)
+            if os.path.exists(full_path):
+                normalized_path = os.path.normpath(full_path)
+                vlog2(f"Found jobs spec: {normalized_path}")
+                return normalized_path
+
+    return None
+
+
+def collect_jobs_files(search_paths=None):
+    """Collect available .json jobs specs across the jobs search paths.
+
+    Returns a de-duplicated list of (name, full_path) tuples sorted by
+    name. De-dup is by basename so a higher-priority path shadows a
+    lower-priority one, matching the resolution order of find_jobs_file().
+    Used by --list-jobs.
+    """
+    if search_paths is None:
+        search_paths = get_jobs_search_paths(0)
+
+    seen = set()
+    found = []
+    for path in search_paths:
+        try:
+            names = sorted(os.listdir(path))
+        except (OSError, IOError):
+            continue
+        for name in names:
+            if not name.endswith('.json'):
+                continue
+            if name in seen:
+                continue
+            full_path = os.path.join(path, name)
+            if os.path.isfile(full_path):
+                seen.add(name)
+                found.append((name, os.path.normpath(full_path)))
+
+    found.sort(key=lambda x: x[0].lower())
+    return found
 
 
 def detect_bundle_hosts(bundle_path):
@@ -747,6 +858,54 @@ def apply_settings_variable_substitution(settings, variables):
 _file_date_range_cache = {}
 
 
+# ---------------------------------------------------------------------------
+# Permission-error collector
+#
+# Filesystem traversal (window-model directory walks, per-file opens in
+# pattern/pair searches) can hit files or directories the invoking user
+# cannot read. Rather than aborting the whole run, the offending path is
+# recorded here, excluded from processing, and the full list is displayed
+# once at the end of the run. Order-preserving and de-duplicated.
+# ---------------------------------------------------------------------------
+_permission_errors = []       # list of paths (str) that raised permission errors
+_permission_errors_seen = set()  # de-dup guard
+
+
+def record_permission_error(path):
+    """Record a path that could not be accessed due to a permission error.
+
+    De-duplicated and order-preserving. Safe to call from any traversal
+    or file-open site; callers should exclude the path and continue.
+    """
+    if path in _permission_errors_seen:
+        return
+    _permission_errors_seen.add(path)
+    _permission_errors.append(path)
+
+
+def get_permission_errors():
+    """Return the list of paths recorded as permission errors (in order)."""
+    return list(_permission_errors)
+
+
+def clear_permission_errors():
+    """Reset the permission-error collector (call at the start of a run)."""
+    _permission_errors.clear()
+    _permission_errors_seen.clear()
+
+
+def _walk_permission_onerror(err):
+    """os.walk onerror callback: record permission errors, ignore others.
+
+    os.walk passes the OSError raised while scanning a directory. We record
+    permission errors (EACCES) so they surface in the end-of-run report;
+    other errors are left to os.walk's default (skip) behavior.
+    """
+    filename = getattr(err, 'filename', None)
+    if isinstance(err, PermissionError) and filename:
+        record_permission_error(filename)
+
+
 def get_file_date_range(filepath, relpath=None):
     """Get the date range (first and last timestamps) from a log file.
     Returns (first_timestamp, last_timestamp) or (None, None) if unable to parse.
@@ -825,6 +984,12 @@ def get_file_date_range(filepath, relpath=None):
                 except (subprocess.TimeoutExpired, OSError):
                     pass
 
+    except PermissionError:
+        # Unreadable file probed during smart date-range filtering. Record
+        # it so the same file that will be skipped at read time is surfaced
+        # in the end-of-run permission report, then fall through to caching
+        # (None, None) so it is treated as out-of-range and skipped.
+        record_permission_error(filepath)
     except (IOError, OSError):
         pass
 
@@ -875,22 +1040,26 @@ def expand_and_sort_log_files(log_dir,
                 file_info.append((relpath, mtime, first_ts, last_ts))
             else:
                 file_info.append((relpath, mtime, None, None))
+        except PermissionError:
+            # File matched the glob (directory was listable) but is itself
+            # unreadable. Record it so it is reported at end-of-run rather
+            # than silently dropped from the search list.
+            record_permission_error(filepath)
+            continue
         except OSError:
             continue
 
     if not file_info:
         return [file_pattern]
 
-    # Sort oldest first (chronological) when start_date is provided so
-    # the first block finds the earliest match after start_date rather
-    # than the first match in the newest file.  Without start_date,
-    # keep newest-first for faster searches targeting recent logs.
-    file_info.sort(key=lambda x: x[1], reverse=(start_date is None))
+    # Always sort oldest first (chronological) to ensure pattern matching
+    # finds the earliest match within the time window. This is critical for
+    # multi-pass analysis where subsequent blocks may match in older files.
+    file_info.sort(key=lambda x: x[1])
 
     sorted_files = [f[0] for f in file_info]
 
-    order = 'oldest first' if start_date else 'newest first'
-    vlog2(f"Expanded '{file_pattern}' to {len(sorted_files)} files ({order}): {sorted_files}")
+    vlog2(f"Expanded '{file_pattern}' to {len(sorted_files)} files (oldest first): {sorted_files}")
 
     # If start_date provided, log which files contain the target date range
     if start_date and get_verbose_level() >= 3:
@@ -962,12 +1131,13 @@ _VALID_TOP_KEYS = {'blocks', 'settings', 'include', 'description'}
 _VALID_BLOCK_KEYS = {
     'label', 'file', 'patterns', 'start', 'stop', 'timeline',
     'optional', 'present', 'profile', 'controller', 'override',
-    'max_time_delta', 'window', 'context'
+    'max_time_delta', 'window', 'context', 'fail'
 }
 _VALID_SETTINGS_KEYS = {
     'max_time_delta', 'block_time_tolerance',
     'start_date', 'stop_date', 'loops', 'max_log_length', 'profile',
-    'optional', 'controller', 'graph', 'graph_style', 'host', 'timeline_patterns'
+    'optional', 'controller', 'graph', 'graph_style', 'host', 'timeline_patterns',
+    'script'
 }
 
 
@@ -1058,6 +1228,24 @@ def validate_model_structure(data):
             errors.append(
                 f"{prefix} '{lbl}': needs 'patterns', 'start'/'stop', 'timeline', or 'window'"
             )
+
+        # fail-guard validation: 'fail' reverses a pattern block's polarity
+        # (matching the pattern fails the run). It is pattern-block only and
+        # mutually exclusive with the not-found modifiers.
+        if block.get('fail'):
+            lbl = block.get('label', '?')
+            if not has_patterns:
+                errors.append(
+                    f"{prefix} '{lbl}': 'fail: true' is only valid on a "
+                    f"'patterns' block")
+            if has_start or has_stop or has_timeline or has_window:
+                errors.append(
+                    f"{prefix} '{lbl}': 'fail: true' cannot be combined with "
+                    f"'start'/'stop', 'timeline', or 'window'")
+            if block.get('optional') or block.get('present'):
+                errors.append(
+                    f"{prefix} '{lbl}': 'fail: true' cannot be combined with "
+                    f"'optional' or 'present'")
 
     # Duplicate labels
     seen = {}
@@ -1330,6 +1518,24 @@ def load_model(model_file):
         # Get controller setting (block-level or from settings)
         controller_enabled = block_data.get('controller', settings.get('controller', False))
 
+        # Get fail-guard setting (block-level only). 'fail: true' reverses a
+        # pattern block's polarity: matching the pattern fails the run. It is
+        # pattern-block only and mutually exclusive with optional/present.
+        fail_enabled = block_data.get('fail', False)
+        if fail_enabled:
+            if 'patterns' not in block_data:
+                print(f"Error: Block #{idx} ('{block_data['label']}') 'fail: true' "
+                      f"is only valid on a 'patterns' block in '{model_file}'",
+                      file=sys.stderr)
+                print("Use --help-model for model file format information", file=sys.stderr)
+                sys.exit(1)
+            if block_data.get('optional') or block_data.get('present'):
+                print(f"Error: Block #{idx} ('{block_data['label']}') 'fail: true' "
+                      f"cannot be combined with 'optional' or 'present' in "
+                      f"'{model_file}'", file=sys.stderr)
+                print("Use --help-model for model file format information", file=sys.stderr)
+                sys.exit(1)
+
         # Parse context setting: int N -> (N, N), list [B, A] -> (B, A), absent -> None
         context_raw = block_data.get('context')
         context_before = None
@@ -1422,7 +1628,8 @@ def load_model(model_file):
                 'optional': optional_enabled,
                 'profile': profile_enabled,
                 'controller': controller_enabled,
-                'present': block_data.get('present', False)
+                'present': block_data.get('present', False),
+                'fail': fail_enabled
             }
             # Add max_time_delta only if explicitly set in YAML
             if 'max_time_delta' in block_data:
@@ -1804,6 +2011,15 @@ def expand_wildcards_in_blocks(blocks,
     for block in blocks:
         file_spec = block['file']
 
+        # Preserve the original model file spec (globs intact, e.g.
+        # 'daemon.log*') before it is overwritten with the expanded
+        # concrete file list. Used for not-found error/warning messages so
+        # they reference the model's pattern rather than a resolved name.
+        # Guard against re-entry so a second expansion pass can't overwrite
+        # the original with an already-expanded list.
+        if 'file_spec' not in block:
+            block['file_spec'] = file_spec
+
         # Window blocks: use recursive expansion into subdirectories
         if block.get('window'):
             patterns = file_spec if isinstance(file_spec, list) else [file_spec]
@@ -2086,6 +2302,12 @@ def _is_skippable_file(filepath):
             chunk = f.read(512)
         if b'\x00' in chunk:
             return True
+    except PermissionError:
+        # Unreadable file (window mode): record it for the end-of-run
+        # report before skipping, so it is surfaced rather than silently
+        # dropped as "looks binary".
+        record_permission_error(filepath)
+        return True
     except (IOError, OSError):
         return True
     return False
@@ -2108,8 +2330,10 @@ def _expand_window_globs(log_dir, file_patterns):
         if '*' in pattern:
             for f in glob.glob(os.path.join(log_dir, pattern)):
                 all_files.add(f)
-            # Walk subdirectories with the same pattern
-            for root, dirs, files in os.walk(log_dir):
+            # Walk subdirectories with the same pattern. os.walk swallows
+            # directory-access errors by default; the onerror callback lets
+            # us record unreadable directories instead of losing them.
+            for root, dirs, files in os.walk(log_dir, onerror=_walk_permission_onerror):
                 if root == log_dir:
                     continue
                 # Prune ignored directories
@@ -2208,7 +2432,15 @@ def discover_window_files(log_dir, file_patterns, start_date=None,
         relname = os.path.relpath(filepath, log_dir)
 
         if os.path.isdir(filepath):
-            if not os.listdir(filepath):
+            try:
+                dir_empty = not os.listdir(filepath)
+            except (PermissionError, OSError):
+                # Unreadable directory: record, exclude, and continue rather
+                # than aborting the whole run.
+                record_permission_error(filepath)
+                skipped.append((relname, 'permission denied'))
+                continue
+            if dir_empty:
                 skipped.append((relname, 'directory empty'))
             continue
 
@@ -2336,7 +2568,7 @@ def find_no_timestamp_files(log_dir):
     Respects the file ignore list for directory pruning.
     """
     no_ts = []
-    for root, dirs, files in os.walk(log_dir):
+    for root, dirs, files in os.walk(log_dir, onerror=_walk_permission_onerror):
         # Prune ignored directories
         relroot = os.path.relpath(root, log_dir)
         if relroot != '.' and is_ignored_path(relroot + '/'):
@@ -2353,3 +2585,303 @@ def find_no_timestamp_files(log_dir):
             if first_ts is None:
                 no_ts.append(relpath)
     return no_ts
+
+
+# Script runner support for post-analysis hooks
+def substitute_variables_in_path(path, variables):
+    """Substitute {hostname} and other variables in path string.
+
+    Args:
+        path: Path pattern with {hostname}, {peer_controller}, etc.
+        variables: Dict with variable values
+
+    Returns: Substituted path string
+    """
+    result = path
+    for key, value in variables.items():
+        result = result.replace(f"{{{key}}}", value)
+    return result
+
+
+def resolve_script_arg(bundle_path, arg_pattern, variables=None):
+    """Resolve variables and glob patterns in script arguments.
+
+    In bundle mode, automatically prepends {hostname}_????????.?????? to relative paths.
+
+    Args:
+        bundle_path: Base bundle directory
+        arg_pattern: Path like "var/extra/containerization_api.info"
+                     Will be expanded to "{hostname}_????????.??????/var/extra/containerization_api.info"
+        variables: Dict with {hostname}, {peer_controller}, etc.
+
+    Returns:
+        Tuple (resolved_path: str or None, error: str or None)
+    """
+    import glob
+
+    if variables is None:
+        variables = {}
+
+    # Step 1: Auto-prepend hostname pattern if arg doesn't start with /
+    if not arg_pattern.startswith('/'):
+        arg_pattern = f"{{hostname}}_????????.??????/{arg_pattern}"
+        vlog2(f"Auto-prepended hostname pattern: {arg_pattern}")
+
+    # Step 2: Substitute variables
+    substituted = substitute_variables_in_path(arg_pattern, variables)
+    vlog2(f"After variable substitution: {substituted}")
+
+    # Step 3: Search in bundle
+    search_pattern = os.path.join(bundle_path, substituted)
+    vlog2(f"Searching with glob: {search_pattern}")
+
+    matches = sorted(glob.glob(search_pattern))
+
+    if not matches:
+        return (None, f"No matches found for pattern: {substituted}")
+
+    # Return first match (most recent if date-based sorting)
+    resolved = matches[0]
+    vlog2(f"Resolved to: {resolved}")
+
+    return (resolved, None)
+
+
+def validate_script_format(script_config):
+    """Validate script configuration format.
+
+    Returns: (valid: bool, error_message: str or None)
+    """
+    if isinstance(script_config, str):
+        # Single script name - valid
+        return (True, None)
+
+    if not isinstance(script_config, list):
+        msg = "script must be a string or list [script_name, arg_pattern]"
+        return (False, msg)
+
+    if len(script_config) < 1 or len(script_config) > 2:
+        msg = "script list must have 1-2 elements [script_name] or [script_name, arg_pattern]"
+        return (False, msg)
+
+    if not isinstance(script_config[0], str):
+        return (False, "script name (first element) must be a string")
+
+    if len(script_config) == 2 and not isinstance(script_config[1], str):
+        return (False, "script argument (second element) must be a string")
+
+    return (True, None)
+
+
+def get_scripts_search_paths(verbose_level=0):
+    """Get list of directories to search for scripts.
+
+    See _get_search_paths() for the shared priority order across
+    models, jobs, and scripts. Adds '/etc/lpmp.d/scripts/' as the
+    writable override location, matching models and jobs.
+
+    Returns: List of directory paths (existence not pre-filtered;
+    callers use os.path.isfile()/os.listdir() and tolerate missing dirs).
+    """
+    return _get_search_paths('scripts', etc_dir='/etc/lpmp.d/scripts/',
+                             system_dir='/var/lib/lpmp_scripts/',
+                             verbose=verbose_level, label='Scripts')
+
+
+def find_script(script_name, search_paths=None):
+    """Find and return full path to script.
+
+    Search order:
+    1. Absolute path (if starts with /)
+    2. Script search paths: built-in, then current dir
+
+    Args:
+        script_name: Script name (e.g., "pod_ready_times.py")
+        search_paths: List of directories to search
+
+    Returns: Full path to script, or None if not found
+    """
+    # Absolute path
+    if script_name.startswith('/'):
+        if os.path.isfile(script_name):
+            vlog2(f"Found script at absolute path: {script_name}")
+            return script_name
+        else:
+            vlog1(f"Script not found at absolute path: {script_name}")
+            return None
+
+    # Search in script search paths
+    if search_paths:
+        vlog2(f"Searching for script '{script_name}' in paths: {search_paths}")
+        for search_dir in search_paths:
+            script_path = os.path.join(search_dir, script_name)
+            if os.path.isfile(script_path):
+                vlog2(f"Found script: {script_path}")
+                return script_path
+            else:
+                vlog2(f"Not found in {search_dir}: {script_path}")
+
+    # Script not found - print detailed warning
+    print(f"\n⚠️ Warning: Script '{script_name}' not found", file=sys.stderr)
+    if search_paths:
+        print("   Searched in:", file=sys.stderr)
+        for search_dir in search_paths:
+            exists = "exists" if os.path.isdir(search_dir) else "MISSING"
+            print(f"     • {search_dir} ({exists})", file=sys.stderr)
+    else:
+        print("   No search paths configured", file=sys.stderr)
+    print("   Script will not be executed", file=sys.stderr)
+
+    return None
+
+
+def collect_scripts_files(search_paths=None):
+    """Collect available scripts across the scripts search paths.
+
+    Returns a de-duplicated list of (name, full_path) tuples sorted by
+    name. De-dup is by basename so a higher-priority path shadows a
+    lower-priority one, matching the resolution order of find_script().
+    Only executable-style scripts (.py, .sh) are listed. Used by
+    --list-scripts.
+    """
+    if search_paths is None:
+        search_paths = get_scripts_search_paths(0)
+
+    # The current-directory entry ('./') is a runtime fallback for
+    # ad-hoc user scripts; exclude it from the listing so --list-scripts
+    # shows only the dedicated scripts directories rather than whatever
+    # files happen to live in the working directory (e.g. the tool's
+    # own modules when run from the source tree).
+    cwd = os.path.normpath(os.getcwd())
+    search_paths = [p for p in search_paths
+                    if os.path.normpath(p) not in ('.', cwd)]
+
+    seen = set()
+    found = []
+    for path in search_paths:
+        try:
+            names = sorted(os.listdir(path))
+        except (OSError, IOError):
+            continue
+        for name in names:
+            if not (name.endswith('.py') or name.endswith('.sh')):
+                continue
+            if name in seen:
+                continue
+            full_path = os.path.join(path, name)
+            if os.path.isfile(full_path):
+                seen.add(name)
+                found.append((name, os.path.normpath(full_path)))
+
+    found.sort(key=lambda x: x[0].lower())
+    return found
+
+
+def run_script_hook(script_config, args, variables=None, search_paths=None):
+    """Execute script hook at end of lpmptool run.
+
+    Args:
+        script_config: String or list [script_name, arg_pattern]
+        args: Parsed command-line arguments (bundle, hostname, etc.)
+        variables: Dict with variable substitutions {hostname}, {peer_controller}, etc.
+        search_paths: Script search paths from get_scripts_search_paths()
+    """
+    import subprocess
+
+    if not script_config:
+        return
+
+    if variables is None:
+        variables = {}
+
+    # Add standard variables if not provided
+    if 'hostname' not in variables and hasattr(args, 'hostname'):
+        variables['hostname'] = args.hostname
+    if 'peer_controller' not in variables:
+        hostname = variables.get('hostname',
+                                 args.hostname if hasattr(args, 'hostname')
+                                 else 'controller-0')
+        peer = 'controller-1' if hostname == 'controller-0' else 'controller-0'
+        variables['peer_controller'] = peer
+
+    # Validate format
+    valid, error_msg = validate_script_format(script_config)
+    if not valid:
+        msg = f"\n⚠️ Warning: Invalid script configuration: {error_msg}\n   Script will not be executed"
+        print(msg, file=sys.stderr)
+        return
+
+    # Parse script config
+    if isinstance(script_config, str):
+        script_name = script_config
+        script_arg = None
+    else:
+        script_name = script_config[0]
+        script_arg = script_config[1] if len(script_config) > 1 else None
+
+    # Find script
+    script_path = find_script(script_name, search_paths=search_paths)
+    if not script_path:
+        # Detailed warning already printed by find_script()
+        return
+
+    # Readable check up front: subprocess.run() would raise a
+    # PermissionError once launched, but checking here gives a clearer,
+    # earlier message naming the exact path. Execute ('x') permission
+    # is not required — the script is never exec'd directly, it's
+    # passed as an argument to the interpreter selected below, which
+    # only needs to read the file's contents.
+    if not os.access(script_path, os.R_OK):
+        print(f"\n⚠️ Warning: Script '{script_path}' is not readable",
+              file=sys.stderr)
+        print("   Script will not be executed", file=sys.stderr)
+        return
+
+    print(f"Script: {os.path.abspath(script_path)}")
+
+    # Build command: dispatch on extension so .sh scripts run under
+    # bash instead of being (incorrectly) handed to python3.
+    ext = os.path.splitext(script_path)[1].lower()
+    if ext == '.py':
+        cmd = ["python3", script_path]
+    elif ext == '.sh':
+        cmd = ["bash", script_path]
+    else:
+        print(f"\n⚠️ Warning: Unsupported script type '{ext}' for "
+              f"'{script_path}' (expected .py or .sh)", file=sys.stderr)
+        print("   Script will not be executed", file=sys.stderr)
+        return
+
+    # Print startup message BEFORE running the script
+    print(f"\n🔍 Running script: {script_name} - Please standby...\n")
+    sys.stdout.flush()  # Ensure it prints immediately
+
+    # Handle arguments
+    if script_arg:
+        if args.bundle != '/':  # Bundle mode
+            resolved_arg, error = resolve_script_arg(args.bundle,
+                                                     script_arg,
+                                                     variables)
+            if error:
+                msg = "\n⚠️ Warning: Script argument resolution failed"
+                print(msg, file=sys.stderr)
+                print(f"   Pattern: {script_arg}", file=sys.stderr)
+                print(f"   Error: {error}", file=sys.stderr)
+                print("   Script will not be executed", file=sys.stderr)
+                return
+            if resolved_arg:
+                cmd.append(resolved_arg)
+
+    # Execute with real-time output (don't capture)
+    try:
+        vlog1(f"Running post-analysis script: {' '.join(cmd)}")
+        result = subprocess.run(cmd, timeout=300)
+
+        if result.returncode != 0:
+            msg = f"\n⚠️ Warning: Script exited with code {result.returncode}"
+            print(msg, file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        msg = "\n⚠️ Warning: Script timed out after 300 seconds"
+        print(msg, file=sys.stderr)
+    except Exception as e:
+        print(f"\n⚠️ Warning: Failed to run script: {e}", file=sys.stderr)

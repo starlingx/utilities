@@ -37,6 +37,7 @@ from lpmp_utils import ModelType                             # noqa: E402
 from lpmp_utils import PairResult                            # noqa: E402
 from lpmp_utils import parse_timestamp                       # noqa: E402
 from lpmp_utils import PatternResult                         # noqa: E402
+from lpmp_utils import record_permission_error               # noqa: E402
 from lpmp_utils import resolve_timeline_patterns             # noqa: E402
 from lpmp_utils import substitute_variables                  # noqa: E402
 from lpmp_utils import TimelineResult                        # noqa: E402
@@ -243,6 +244,12 @@ def find_pattern_in_files(log_dir,
                         else:
                             # Pattern matched but no valid timestamp - skip this line
                             continue
+        except PermissionError as e:
+            # Unreadable file: record for the end-of-run report, skip, and
+            # continue searching the block's remaining files.
+            record_permission_error(filepath)
+            vlog3(f"DEBUG: Permission denied reading {filename}: {e}")
+            continue
         except (IOError, OSError, gzip.BadGzipFile) as e:
             vlog3(f"DEBUG: Error reading {filename}: {e}")
             continue
@@ -374,6 +381,15 @@ def find_pattern_in_files_all_matches(log_dir,
                         formatted_line = format_log_line_for_output(
                             line.strip(), filename)
                         matches.append((timestamp, formatted_line, filename))
+        except PermissionError as e:
+            # Unreadable file: record for the end-of-run report, skip, and continue
+            # collecting the remaining files. Mirrors find_pattern_in_files
+            # so timeline/graph (bundle) runs surface the same permission
+            # report as pattern/pair runs instead of silently producing
+            # "no matches".
+            record_permission_error(filepath)
+            vlog3(f"DEBUG: Permission denied reading {filename}: {e}")
+            continue
         except (IOError, OSError, gzip.BadGzipFile) as e:
             print(f"Error reading {filename}: {e}")
 
@@ -606,7 +622,73 @@ def process_pattern_block(args, block, start_date, max_time_delta=None):
     return [(timestamp, log_line, actual_filename, output_hostname)]
 
 
-def process_pair_block(args, block, after_timestamp, global_max_time_delta=45):
+def _pair_not_found_detail(block, pair_failure_info):
+    """Build the 'not found' phrasing for a failed pair block.
+
+    Uses pair_failure_info['reason'] ('start' or 'stop', set by
+    process_pair_block) to name only the pattern that actually could not
+    be found, instead of implying both start and stop are missing:
+      - reason 'start': the start pattern was never found.
+      - reason 'stop':  the stop pattern was not found (within
+                        max_time_delta of the matched start).
+    Only the pattern that actually failed is named. Falls back to naming
+    both patterns when the reason is unavailable.
+    """
+    start_pattern = block.get('start', 'unknown start pattern')
+    stop_pattern = block.get('stop', 'unknown stop pattern')
+    reason = pair_failure_info.get('reason')
+    if reason == 'start':
+        return f"start pattern start='{start_pattern}' not found"
+    if reason == 'stop':
+        return f"stop pattern stop='{stop_pattern}' not found"
+    return (f"start/stop patterns start='{start_pattern}', "
+            f"stop='{stop_pattern}' not found")
+
+
+def _format_search_start(prev_timestamp, start_date):
+    """Format the timestamp a failed block was searching from, for
+    not-found error/warning messages.
+
+    A block searches for its pattern(s) after this timestamp (the running
+    sequential cursor, or the run's start date for the first block).
+    Surfacing it makes it obvious when a pattern that plainly exists in the
+    log was missed only because the search cursor had already advanced past
+    it. Returns 'beginning of log' when no lower bound applies.
+    """
+    search_from = prev_timestamp if prev_timestamp else start_date
+    if search_from:
+        return search_from.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+    return "beginning of log"
+
+
+def _select_failed_pattern_file(block, block_type, pair_failure_info):
+    """Pick the log file to report in a block's not-found error/warning message.
+
+    Pair blocks list files positionally: file[0] is conventionally where the
+    'start' pattern is searched, file[1] where 'stop' is searched (matching
+    the model authoring convention of listing the start pattern's file
+    first). When a pair block fails, pair_failure_info['reason'] tells us
+    whether 'start' or 'stop' was the pattern that could not be found, so we
+    report the file that was actually being searched for that pattern,
+    instead of always defaulting to file[0].
+
+    Falls back to file[0] (or the bare string) for pattern/timeline blocks,
+    and for pair blocks when there's no second file entry to point to.
+
+    Prefers the original model file spec ('file_spec', e.g. 'daemon.log*')
+    captured before wildcard expansion, so the message shows the model's
+    glob pattern rather than a resolved concrete filename.
+    """
+    file_ref = block.get('file_spec', block['file'])
+    files = file_ref if isinstance(file_ref, list) else [file_ref]
+    if not files:
+        return block['file'][0] if isinstance(block['file'], list) else block['file']
+    if block_type == 'pair' and pair_failure_info.get('reason') == 'stop' and len(files) > 1:
+        return files[1]
+    return files[0]
+
+
+def process_pair_block(args, block, after_timestamp, global_max_time_delta=45, failure_info=None):
     """Process a single pair block (uses 'start:'/'stop:' fields).
 
     Override Feature: If block has 'override' field, searches start/stop patterns in the
@@ -617,6 +699,11 @@ def process_pair_block(args, block, after_timestamp, global_max_time_delta=45):
     Uses block-level max_time_delta if present, otherwise falls back to global_max_time_delta.
     The after_timestamp parameter ensures sequential processing by only searching after this time.
     For standalone testing, max_time_delta constraint is only applied between start and stop patterns.
+
+    failure_info: optional dict. When the block fails to match, this function sets
+    failure_info['reason'] to 'start' or 'stop' to indicate which pattern was not found,
+    so callers can report the correct log file in error/warning messages. Left untouched
+    on success. The return value contract (None on failure) is unchanged.
 
     Date Rollover Handling:
     - Timestamps include full date (YYYY-MM-DD HH:MM:SS.fff)
@@ -713,6 +800,8 @@ def process_pair_block(args, block, after_timestamp, global_max_time_delta=45):
     if start_result is None:
         if not block.get('optional', getattr(args, 'optional_setting', False)):
             vlog1(f"Start pattern not found in pair block '{block['label']}'")
+        if failure_info is not None:
+            failure_info['reason'] = 'start'
         return None
 
     start_timestamp, _, start_log_line, start_filename = start_result
@@ -726,6 +815,8 @@ def process_pair_block(args, block, after_timestamp, global_max_time_delta=45):
     if stop_result is None:
         if not block.get('optional', getattr(args, 'optional_setting', False)):
             vlog1(f"Stop pattern not found in pair block '{block['label']}'")
+        if failure_info is not None:
+            failure_info['reason'] = 'stop'
         return None
 
     stop_timestamp, _, stop_log_line, stop_filename = stop_result
@@ -909,6 +1000,7 @@ def process_blocks_auto_detect(args,
             continue
 
         result = None
+        pair_failure_info = {}  # Populated by process_pair_block on failure (which pattern: start/stop)
 
         # Auto-detect block type and process accordingly
         if 'timeline' in block:
@@ -951,7 +1043,8 @@ def process_blocks_auto_detect(args,
                 block,
                 prev_timestamp
                 if prev_timestamp
-                else start_date, block_max_time_delta)
+                else start_date, block_max_time_delta,
+                failure_info=pair_failure_info)
             block_type = 'pair'
         elif 'patterns' in block:
             # Pattern block - use block-level max_time_delta if present, otherwise global
@@ -968,6 +1061,37 @@ def process_blocks_auto_detect(args,
             )
             block_type = 'pattern'
 
+            # Fail-guard pattern block: 'fail: true' reverses polarity.
+            # Matching the pattern (within the block's max_time_delta window)
+            # fails the whole run; not matching is a silent pass. A fail-guard
+            # never records a result row and never advances the end-of-pass
+            # cursor.
+            if block.get('fail'):
+                if result is not None:
+                    first_pattern_found = True
+                    # Flush any results collected so far in chronological order
+                    # before emitting the failure, mirroring the required-block
+                    # failure path.
+                    if temp_results:
+                        reorder_and_output_results(
+                            temp_results, args,
+                            structured_results=structured_results)
+                        if start_time is None:
+                            start_time = temp_results[0]['timestamp']
+                        temp_results = []
+                    _fts, _fdata, _ffile, _foh = result[0]
+                    fpattern = block['patterns'][0] if block['patterns'] else 'unknown pattern'
+                    print(f"❌ FAIL: block '{block['label']}' fail pattern "
+                          f"'{fpattern}' matched: {_fdata}")
+                    final_end = end_time if end_time else prev_timestamp
+                    return (False, start_time, final_end, patterns_found,
+                            optional_warnings, structured_results)
+                # Not found → guard passed; continue without recording a row
+                # or advancing the cursor.
+                vlog2(f"Fail-guard block '{block['label']}' not triggered "
+                      f"(pattern not found)")
+                continue
+
             # Pattern blocks return a single result (one pattern per block after expansion)
             if result is not None:
                 # CRITICAL: Set first_pattern_found BEFORE continue to ensure subsequent blocks
@@ -975,8 +1099,7 @@ def process_blocks_auto_detect(args,
                 first_pattern_found = True  # Mark that we've found the first pattern
                 for timestamp, data, actual_filename, override_hostname in result:
                     patterns_found += 1
-                    if end_time is None or timestamp > end_time:
-                        end_time = timestamp
+                    end_time = timestamp
                     result_data = {
                         'timestamp': timestamp,
                         'block': block,
@@ -1008,15 +1131,18 @@ def process_blocks_auto_detect(args,
                 timestamp_tuple, data, actual_filename = result
                 start_ts, stop_ts = timestamp_tuple
                 timestamp = start_ts  # Use start time for sequencing
-                # Track the maximum stop time across all pair blocks
-                if end_time is None or stop_ts > end_time:
-                    end_time = stop_ts
+                # Overwrite end_time unconditionally so it reflects the last
+                # block matched in declared order, not a running max (see
+                # kpi-unlock-skipped-iteration design: Option 1).
+                end_time = stop_ts
                 has_pair_blocks = True  # redundant but kept for clarity
             else:
                 timestamp, data, actual_filename = result
-                # For non-pair blocks, update end_time if this is later
-                if end_time is None or timestamp > end_time:
-                    end_time = timestamp
+                # For non-pair blocks, overwrite end_time unconditionally so
+                # it reflects the last block matched in declared order, not
+                # a running max (see kpi-unlock-skipped-iteration design:
+                # Option 1).
+                end_time = timestamp
 
             patterns_found += 1
 
@@ -1060,7 +1186,7 @@ def process_blocks_auto_detect(args,
                 prev_timestamp = temp_results[-1]['timestamp'] if temp_results else prev_timestamp
                 temp_results = []  # Clear after output
 
-            attempted_file = block['file'][0] if isinstance(block['file'], list) else block['file']
+            attempted_file = _select_failed_pattern_file(block, block_type, pair_failure_info)
 
             # Determine which logs directory was used for search (for error reporting)
             override_logs_dir = None
@@ -1083,25 +1209,27 @@ def process_blocks_auto_detect(args,
 
             search_logs_dir = override_logs_dir if override_logs_dir else args.logs_dir
             full_file_path = os.path.join(search_logs_dir, attempted_file)
+            search_start = _format_search_start(prev_timestamp, start_date)
 
             if 'patterns' in block:
                 pattern = block['patterns'][0] if block['patterns'] else 'unknown pattern'
-                print(f"❌ Error: block '{block['label']}' pattern '{pattern}' not found in '{full_file_path}'")
+                print(f"{search_start} ❌ Error: block '{block['label']}' "
+                      f"pattern '{pattern}' not found in '{full_file_path}'")
             elif 'start' in block and 'stop' in block:
-                start_pattern = block.get('start', 'unknown start pattern')
-                stop_pattern = block.get('stop', 'unknown stop pattern')
-                print(f"❌ Error: block '{block['label']}' start/stop patterns "
-                      f"start='{start_pattern}', stop='{stop_pattern}' not found in '{full_file_path}'")
+                detail = _pair_not_found_detail(block, pair_failure_info)
+                print(f"{search_start} ❌ Error: block '{block['label']}' "
+                      f"{detail} in '{full_file_path}'")
             elif 'timeline' in block:
                 timeline_pattern = block.get('timeline', 'unknown timeline pattern')
-                print(f"❌ Error: block '{block['label']}' timeline pattern "
-                      f"'{timeline_pattern}' not found in '{full_file_path}'")
+                print(f"{search_start} ❌ Error: block '{block['label']}' "
+                      f"timeline pattern '{timeline_pattern}' not found in '{full_file_path}'")
             else:
-                print(f"❌ Error: block '{block['label']}' pattern not found in '{full_file_path}'")
+                print(f"{search_start} ❌ Error: block '{block['label']}' "
+                      f"pattern not found in '{full_file_path}'")
             return False, start_time, prev_timestamp, patterns_found, optional_warnings, structured_results
         else:
             # Optional block - skip silently or with message
-            attempted_file = block['file'][0] if isinstance(block['file'], list) else block['file']
+            attempted_file = _select_failed_pattern_file(block, block_type, pair_failure_info)
             # Get full file path for warning message — use the override
             # target host's logs dir when the block has an override so
             # the message reflects where the search actually ran.
@@ -1132,23 +1260,24 @@ def process_blocks_auto_detect(args,
                     except OSError:
                         pass
             full_file_path = os.path.join(warn_search_dir, attempted_file)
+            search_start = _format_search_start(prev_timestamp, start_date)
 
             if 'timeline' in block:
                 timeline_pattern = block.get('timeline', 'unknown timeline pattern')
-                truncated_data = (f"⚠️ Warn: block '{block['label']}' timeline pattern "
-                                  f"'{timeline_pattern}' not found in '{full_file_path}'")
+                truncated_data = (f"{search_start} ⚠️ Warn: block '{block['label']}' "
+                                  f"timeline pattern '{timeline_pattern}' not found in '{full_file_path}'")
             elif 'patterns' in block:
                 # Get the pattern for warning message
                 pattern = block['patterns'][0] if block['patterns'] else 'unknown pattern'
-                truncated_data = (f"⚠️ Warn: block '{block['label']}' pattern "
-                                  f"'{pattern}' not found in '{full_file_path}'")
+                truncated_data = (f"{search_start} ⚠️ Warn: block '{block['label']}' "
+                                  f"pattern '{pattern}' not found in '{full_file_path}'")
             elif 'start' in block and 'stop' in block:
-                start_pattern = block.get('start', 'unknown start pattern')
-                stop_pattern = block.get('stop', 'unknown stop pattern')
-                truncated_data = (f"⚠️ Warn: block '{block['label']}' start/stop patterns "
-                                  f"start='{start_pattern}', stop='{stop_pattern}' not found in '{full_file_path}'")
+                detail = _pair_not_found_detail(block, pair_failure_info)
+                truncated_data = (f"{search_start} ⚠️ Warn: block '{block['label']}' "
+                                  f"{detail} in '{full_file_path}'")
             else:
-                truncated_data = f"⚠️ Warn: block '{block['label']}' pattern not found in '{full_file_path}'"
+                truncated_data = (f"{search_start} ⚠️ Warn: block '{block['label']}' "
+                                  f"pattern not found in '{full_file_path}'")
             warning_msg = truncated_data
 
             # Store warning for summary
@@ -1292,7 +1421,16 @@ def _output_collected_results(temp_results, start_time_override, args,
         # Console output for all models (timeline models need this for .timeline.log file)
         filename_padded = f"{actual_filename:<10}"
         label_padded = f"{block['label']:<25}"
-        truncated_data = data[:args.max_log_length]
+        # Do not apply --max-log-length to pair blocks: their data is the
+        # tool-generated "Start -> Stop: ... duration" line (or a pair
+        # not-found warning), not a raw log line, so truncating it would
+        # cut off the duration/summary. Only raw log-line data (pattern and
+        # timeline matches) is subject to max_log_length.
+        is_pair = 'start' in block and 'stop' in block
+        if is_pair:
+            truncated_data = data
+        else:
+            truncated_data = data[:args.max_log_length]
         result_line = format_result_line(
             delta_formatted, label_padded, filename_padded, truncated_data, display_hostname
         )
@@ -1346,6 +1484,10 @@ def extract_context_lines(log_dir, filename, matched_line,
                         after.append(nxt.rstrip('\n\r'))
                     return before, after
                 ring.append(stripped)
+    except PermissionError:
+        # Unreadable file while gathering context lines: record for the
+        # end-of-run report and fall through to returning empty context.
+        record_permission_error(filepath)
     except (IOError, OSError, gzip.BadGzipFile):
         pass
 

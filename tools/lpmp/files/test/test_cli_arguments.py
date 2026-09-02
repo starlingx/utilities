@@ -963,5 +963,139 @@ class TestCommandLineArguments(unittest.TestCase):
             shutil.rmtree(temp_dir)
 
 
+# =========================================================================
+# Phase 6: CLI shape for the jobs mode + graph help additions.
+#
+# Covers:
+#   --help-graph / -hg   (prints GRAPHING section, exits 0)
+#   --jobs FILE          (dispatches to run_jobs and exits)
+#   --max-parallel N     (parsed as int)
+#   --fail-fast          (boolean)
+#   --force-parallel     (boolean)
+#   --batch + --jobs     (mutually exclusive, exits 1)
+# =========================================================================
+
+
+@unittest.skipUnless(YAML_AVAILABLE, "Enable with: pip3 install --user pyyaml")
+class TestJobsAndGraphCliArgs(unittest.TestCase):
+    """Argparse-level tests for the jobs-mode and graphing-help flags."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, payload):
+        """Write a minimal jobs spec JSON and return its path."""
+        import json
+        path = os.path.join(self.tmp, 'jobs.json')
+        with open(path, 'w') as f:
+            json.dump(payload, f)
+        return path
+
+    def test_help_graph_flag_exits_zero_and_prints_graphing_section(self):
+        """--help-graph prints the GRAPHING section content and exits 0."""
+        captured = []
+
+        def cap(*a, **_k):
+            captured.append(' '.join(str(x) for x in a))
+
+        with patch('sys.argv', ['lpmptool', '--help-graph']), \
+                patch('builtins.print', side_effect=cap):
+            with self.assertRaises(SystemExit) as cm:
+                lpmptool.main()
+            self.assertEqual(cm.exception.code, 0)
+        combined = '\n'.join(captured)
+        # The topic header lives in the shared docstring.
+        self.assertIn('GRAPHING', combined)
+
+    def test_help_graph_short_form(self):
+        """-hg short form works identically to --help-graph."""
+        captured = []
+
+        def cap(*a, **_k):
+            captured.append(' '.join(str(x) for x in a))
+
+        with patch('sys.argv', ['lpmptool', '-hg']), \
+                patch('builtins.print', side_effect=cap):
+            with self.assertRaises(SystemExit) as cm:
+                lpmptool.main()
+            self.assertEqual(cm.exception.code, 0)
+        combined = '\n'.join(captured)
+        self.assertIn('GRAPHING', combined)
+
+    def test_jobs_flag_dispatches_to_run_jobs_and_exits(self):
+        """--jobs FILE routes to lpmp_jobs.run_jobs and exits 0."""
+        spec = self._spec([{'model': 'a.yaml'}])
+        recorded = {}
+
+        def fake_run_jobs(args):
+            recorded['jobs'] = args.jobs
+            recorded['max_parallel'] = args.max_parallel
+            recorded['fail_fast'] = args.fail_fast
+            recorded['force_parallel'] = args.force_parallel
+
+        with patch('sys.argv', [
+            'lpmptool', '--jobs', spec,
+            '--max-parallel', '4',
+            '--fail-fast', '--force-parallel',
+        ]), patch('lpmp_jobs.run_jobs', side_effect=fake_run_jobs), \
+                patch('builtins.print'):
+            with self.assertRaises(SystemExit) as cm:
+                lpmptool.main()
+            self.assertEqual(cm.exception.code, 0)
+        # All four new flags reached the runner with the expected shapes.
+        self.assertEqual(recorded['jobs'], spec)
+        self.assertEqual(recorded['max_parallel'], 4)
+        self.assertTrue(recorded['fail_fast'])
+        self.assertTrue(recorded['force_parallel'])
+
+    def test_jobs_flag_defaults_when_no_optional_flags(self):
+        """Optional flags default sanely (None / False)."""
+        spec = self._spec([{'model': 'a.yaml'}])
+        recorded = {}
+
+        def fake_run_jobs(args):
+            recorded['max_parallel'] = args.max_parallel
+            recorded['fail_fast'] = args.fail_fast
+            recorded['force_parallel'] = args.force_parallel
+
+        with patch('sys.argv', ['lpmptool', '--jobs', spec]), \
+                patch('lpmp_jobs.run_jobs', side_effect=fake_run_jobs), \
+                patch('builtins.print'):
+            with self.assertRaises(SystemExit):
+                lpmptool.main()
+        self.assertIsNone(recorded['max_parallel'])
+        self.assertFalse(recorded['fail_fast'])
+        self.assertFalse(recorded['force_parallel'])
+
+    def test_max_parallel_rejects_non_integer(self):
+        """--max-parallel with a non-integer argument fails argparse (exit 2)."""
+        spec = self._spec([{'model': 'a.yaml'}])
+        with patch('sys.argv', [
+            'lpmptool', '--jobs', spec, '--max-parallel', 'many',
+        ]), patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as cm:
+                lpmptool.main()
+            # argparse exits 2 for invalid argument values.
+            self.assertEqual(cm.exception.code, 2)
+
+    def test_batch_and_jobs_mutually_exclusive(self):
+        """--batch and --jobs together exit 1 with a helpful message."""
+        spec = self._spec([{'model': 'a.yaml'}])
+        with patch('sys.argv', [
+            'lpmptool', '--batch', spec, '--jobs', spec,
+        ]), patch('sys.stderr') as mock_stderr:
+            with self.assertRaises(SystemExit) as cm:
+                lpmptool.main()
+            self.assertEqual(cm.exception.code, 1)
+            err = ''.join(
+                c.args[0] for c in mock_stderr.write.call_args_list
+                if c.args
+            )
+            self.assertIn('--batch and --jobs', err)
+
+
 if __name__ == '__main__':
     unittest.main()

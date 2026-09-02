@@ -278,6 +278,62 @@ class TestValidateModelStructure(unittest.TestCase):
         }]}
         self.assertEqual(validate_model_structure(data), [])
 
+    # --- fail-guard block (fail: true) validation ---
+
+    def test_valid_fail_guard_pattern_block(self):
+        """Pattern block with fail: true is valid"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'PANIC', 'file': 't.log', 'patterns': ['panic'],
+             'fail': True}]}
+        self.assertEqual(validate_model_structure(data), [])
+
+    def test_fail_guard_on_pair_block_rejected(self):
+        """fail: true on a pair block is rejected"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'BAD', 'file': 't.log', 'start': 's', 'stop': 'e',
+             'fail': True}]}
+        errors = validate_model_structure(data)
+        self.assertTrue(any('fail' in e and 'patterns' in e for e in errors))
+
+    def test_fail_guard_on_timeline_block_rejected(self):
+        """fail: true on a timeline block is rejected"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'BAD', 'file': 't.log', 'timeline': ['ev'],
+             'fail': True}]}
+        errors = validate_model_structure(data)
+        self.assertTrue(any('fail' in e for e in errors))
+
+    def test_fail_guard_on_window_block_rejected(self):
+        """fail: true on a window block is rejected"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'BAD', 'file': '*.log*', 'window': True,
+             'fail': True}]}
+        errors = validate_model_structure(data)
+        self.assertTrue(any('fail' in e for e in errors))
+
+    def test_fail_guard_with_optional_rejected(self):
+        """fail: true combined with optional: true is rejected"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'BAD', 'file': 't.log', 'patterns': ['p'],
+             'fail': True, 'optional': True}]}
+        errors = validate_model_structure(data)
+        self.assertTrue(any('optional' in e or 'present' in e for e in errors))
+
+    def test_fail_guard_with_present_rejected(self):
+        """fail: true combined with present: true is rejected"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'BAD', 'file': 't.log', 'patterns': ['p'],
+             'fail': True, 'present': True}]}
+        errors = validate_model_structure(data)
+        self.assertTrue(any('optional' in e or 'present' in e for e in errors))
+
+    def test_fail_key_is_valid_block_key(self):
+        """fail is an accepted block key (no unknown-key error)"""
+        data = {'description': 'Test model.', 'blocks': [
+            {'label': 'T', 'file': 't.log', 'patterns': ['p'],
+             'fail': False}]}
+        self.assertEqual(validate_model_structure(data), [])
+
     def test_valid_model_with_all_settings_keys(self):
         """Model with all valid settings keys has no errors"""
         data = {

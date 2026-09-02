@@ -28,8 +28,50 @@ except ImportError:
 sys.dont_write_bytecode = True  # _noqa: E402
 # cspell:ignore lpmp,lpmptool,sysinv
 
-# Allow the tool to find its support files
-sys.path.insert(0, '/usr/lib/python3/dist-packages/lpmp')
+# Allow the tool to find its support files.
+#
+# The support modules (lpmp_engine.py, lpmp_graph.py, ...) live in the
+# package directory, which is NOT necessarily the directory of this
+# executable: once packaged, `lpmptool` is installed on PATH (e.g.
+# /usr/bin) while the modules land under dist-packages. When running
+# straight from the source tree, everything sits next to this file.
+# Prefer the source-tree location (this file's own directory) if the
+# modules are there; otherwise fall back to the installed package dir.
+_INSTALLED_PACKAGE_DIR = '/usr/lib/python3/dist-packages/lpmp'
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if os.path.exists(os.path.join(_THIS_DIR, 'lpmp_graph.py')):
+    LPMP_PACKAGE_DIR = _THIS_DIR
+else:
+    LPMP_PACKAGE_DIR = _INSTALLED_PACKAGE_DIR
+sys.path.insert(0, LPMP_PACKAGE_DIR)
+
+
+def graphing_available():
+    """Return (ok, missing) for the optional graphing dependencies.
+
+    Graph rendering (lpmp_graph.py) needs pandas and matplotlib. These are
+    optional extras that may not be present on a minimal deployment, so
+    the tool checks for them up front rather than spawning lpmp_graph.py
+    only to have it exit non-zero. `missing` is the list of import names
+    that could not be found.
+    """
+    import importlib.util
+
+    def _present(name):
+        # Already imported (or stubbed by a test double) counts as present.
+        if name in sys.modules:
+            return True
+        try:
+            return importlib.util.find_spec(name) is not None
+        except (ImportError, ValueError):
+            # find_spec can raise ValueError (e.g. a module in sys.modules
+            # with no __spec__) or ImportError for a broken parent package;
+            # treat either as "not importable".
+            return False
+
+    missing = [name for name in ('pandas', 'matplotlib') if not _present(name)]
+    return (not missing, missing)
+
 
 from lpmp_engine import apply_variable_substitution          # noqa: E402
 from lpmp_engine import process_blocks_auto_detect           # noqa: E402
@@ -47,6 +89,9 @@ from lpmp_output import write_timeline_block_profile         # noqa: E402
 from lpmp_output import write_timeline_csv                   # noqa: E402
 from lpmp_utils import apply_settings_variable_substitution  # noqa: E402
 from lpmp_utils import auto_detect_time_range                # noqa: E402
+from lpmp_utils import clear_permission_errors               # noqa: E402
+from lpmp_utils import collect_jobs_files                    # noqa: E402
+from lpmp_utils import collect_scripts_files                 # noqa: E402
 from lpmp_utils import ConsoleCapture                        # noqa: E402
 from lpmp_utils import create_output_directory               # noqa: E402
 from lpmp_utils import detect_bundle_hosts                   # noqa: E402
@@ -56,10 +101,13 @@ from lpmp_utils import extract_model_info                    # noqa: E402
 from lpmp_utils import filter_hosts                          # noqa: E402
 from lpmp_utils import find_model_file                       # noqa: E402
 from lpmp_utils import find_no_timestamp_files               # noqa: E402
+from lpmp_utils import find_script                           # noqa: E402
 from lpmp_utils import format_duration                       # noqa: E402
 from lpmp_utils import get_help_section                      # noqa: E402
 from lpmp_utils import get_model_description                 # noqa: E402
 from lpmp_utils import get_models_search_paths               # noqa: E402
+from lpmp_utils import get_permission_errors                 # noqa: E402
+from lpmp_utils import get_scripts_search_paths              # noqa: E402
 from lpmp_utils import get_verbose_level                     # noqa: E402
 from lpmp_utils import interactive_host_selection            # noqa: E402
 from lpmp_utils import load_file_ignore_list                 # noqa: E402
@@ -70,6 +118,7 @@ from lpmp_utils import print_output_files                    # noqa: E402
 from lpmp_utils import print_window_summary                  # noqa: E402
 from lpmp_utils import ProgressType                          # noqa: E402
 from lpmp_utils import prune_empty_output_dirs               # noqa: E402
+from lpmp_utils import run_script_hook                       # noqa: E402
 from lpmp_utils import set_verbose_level                     # noqa: E402
 from lpmp_utils import start_progress_indicator              # noqa: E402
 from lpmp_utils import stop_progress_indicator               # noqa: E402
@@ -125,6 +174,13 @@ QUICK START EXAMPLE:
     Control the tool:  lpmptool -l /var/log -m boot_timing.yaml -o ./boot_results
 
 ========================================================================
+
+# HELP_SECTION: EXPERIMENTAL_STATUS
+The Log Pattern Matcher is an experimental utility intended for log analysis
+only. The tool is under active development, and its functionality, interfaces,
+output formats, and pattern definitions may evolve based on usage and
+feedback. It does not modify or control the system being profiled.
+# END_HELP_SECTION: EXPERIMENTAL_STATUS
 
 # HELP_SECTION: ARCHITECTURE
 ARCHITECTURE:
@@ -198,11 +254,14 @@ FILE HANDLING SYSTEM:
 
 MODEL FILE SEARCH PATH:
 Model files are searched in priority order for maximum flexibility:
-1. <tool_directory>/models/ - Highest priority (tool-relative)
-2. ./models/ - Local development models
-3. /etc/lpmp.d/ - User/developer models (writable in OSTree)
-4. /var/lib/lpmp_models/ - System-provided models (read-only)
-5. Explicit paths - Absolute or relative paths with separators
+1. ./ - Highest priority (current directory) - lets a same-named
+   file here override any built-in or packaged default
+2. /etc/lpmp.d/ - User/developer models (writable in OSTree)
+3. <tool_directory>/models/ - Built-in, shipped with the tool
+4. <tool_directory>/models/examples/ - Example models (reference only)
+5. /var/lib/lpmp_models/ - System-provided models (read-only)
+6. /var/lib/lpmp_models/examples/ - System example models
+7. Explicit paths - Absolute or relative paths with separators
 
 Note: The 'include' directive follows the same search path for modular model design.
 # END_HELP_SECTION: ARCHITECTURE
@@ -274,16 +333,16 @@ TIMING ANALYSIS:
 LOOP ITERATION TIME ADVANCEMENT:
 - When using multiple passes (loops > 1), the tool must advance the search start time
   after each pass to avoid finding the same patterns repeatedly.
-- The tool advances by 500 milliseconds between iterations.
+- The tool advances by block_time_tolerance + 1ms after a pass with a match
+  (default ~5.0s, model/CLI-configurable), or 20 minutes if a pass found nothing.
 - This can cause issues when:
-  - Log entries have timestamps with precision less than 500ms
-  - Multiple relevant events occur within the same 500ms window
+  - Multiple relevant events occur within the same advancement window
   - The tool may skip over valid patterns that fall within this advancement gap
 
 WORKAROUND:
-Use single-pass analysis (-n 1) when precise timing within 500ms windows is critical
+Use single-pass analysis (-n 1) when precise timing within the advancement window is critical
 Ensure log timestamps have sufficient precision (millisecond level recommended)
-Design models with patterns that naturally progress beyond 500ms intervals
+Design models with patterns that naturally progress beyond the advancement interval
 
 FILE HANDLING:
 - Supports regular and gzipped (.gz) log files
@@ -664,6 +723,210 @@ SAMPLE SPEC:
 A ready-to-adapt sample lives at 'docs/batch_spec_example.json'
 in the tool tree.
 # END_HELP_SECTION: BATCH_MODE
+
+# HELP_SECTION: JOBS_MODE
+JOBS MODE (Parallel subprocess dispatch of arbitrary runs):
+
+Jobs mode runs a JSON-declared list of arbitrary lpmptool
+invocations under a bounded worker pool. Each job is a full
+mainline subprocess so any model type is supported — timeline,
+window, pattern, pair, mixed — plus graphing side effects.
+
+Distinct from batch mode: batch is single-process and one-pass
+(timeline and window only); jobs is multi-process and generic,
+with a --max-parallel cap.
+
+INVOCATION:
+    lpmptool --jobs jobs_spec.json --bundle /path/to/collect \
+        [--max-parallel N] [--fail-fast] [--force-parallel] \
+        [--output DIR] [--verbose]
+
+    '-j' is a short alias for '--jobs'. The spec may be a full path
+    or a bare name resolved through the jobs search path, e.g.:
+        lpmptool -b /path/to/collect -j mtce_job
+
+JOBS SEARCH PATH:
+Bare spec names resolve like models do, highest priority first:
+    1. ./                    (current directory - overrides all others)
+    2. /etc/lpmp.d/jobs/     (writable user/developer override)
+    3. <tool_directory>/jobs/
+    4. /var/lib/lpmp_jobs/   (system-provided, read-only)
+A name may be given with or without the '.json' extension.
+Use '--list-jobs' ('-lj') to list available specs and their paths.
+
+JSON SPEC FORMAT:
+
+Bare-list form (defaults for parallelism apply):
+
+    [
+      {"model": "ceph_health.yaml"},
+      {"model": "host_lifecycle.yaml"},
+      {"model": "collectd_cpu_usage.yaml",
+       "vars": {"graph": "Platform CPU"}}
+    ]
+
+Dict form with top-level knobs:
+
+    {
+      "max_parallel": 3,
+      "fail_fast": false,
+      "jobs": [
+        {"model": "ceph_health.yaml",
+         "start_date": "2026-02-25T13:35:00",
+         "stop_date":  "2026-02-25T13:41:00"},
+        {"model": "kpi_unlock_pairing_model.yaml",
+         "hostname": "controller-1"}
+      ]
+    }
+
+PER-JOB KEYS (all optional except 'model'):
+- model         Model file name or path (required).
+- start_date    -s / --start-date value for this job.
+- stop_date     -e / --stop-date value for this job.
+- hostname      --hostname for {hostname} substitution.
+- host          --host for {host} substitution.
+- include       list of host names to include (bundle mode).
+- exclude       list of host names to exclude (bundle mode).
+- vars          --var K=V entries; accepts dict, list of
+                'K=V' strings, or a single 'K=V' string.
+- output        -o output root; overridden by the parent-computed
+                unique per-job directory (see OUTPUT LAYOUT).
+- logs_dir      -l relative logs directory inside the bundle.
+- lab           --lab label for output naming.
+- loops         -n loop count.
+- progress      --progress type ('none', 'dots', 'classic',
+                'circles', 'modern').
+- force         --force boolean.
+- extra_args    list of raw argv strings appended last (escape
+                hatch for flags not directly modelled above).
+
+PARALLELISM CONTROL:
+- max_parallel (CLI --max-parallel > spec > default of 3).
+- fail_fast (CLI --fail-fast wins; else spec value; default off).
+- --force-parallel bypasses the built-in safety cap of 32.
+
+FD BUDGET AND SAFETY:
+Jobs mode inspects RLIMIT_NOFILE at startup and, if the current
+soft limit is not large enough for max_parallel children, tries
+to raise it. If the raise fails, max_parallel is clamped down
+with a warning rather than risking 'too many open files' failures
+mid-run. Per-child stdout/stderr is redirected into a dedicated
+console log file that the child owns; the parent closes its copy
+immediately after Popen so it never accumulates FDs from running
+children.
+
+OUTPUT LAYOUT:
+- Each job writes into '<output>/lpmp_<lab>/<time>_<model>/'
+  under the standard mainline layout. When two jobs share the
+  same (lab, model, time_str) key the second and later get a
+  '_run<N>' suffix so parallel dispatches never collide.
+- Every child's console (stdout+stderr) goes to
+  '<output>/lpmp_<lab>/<batch_start>_jobs/<NN>_<model>.console.log'
+  regardless of where the child's model outputs land.
+
+SHUTDOWN AND SIGNALS:
+Ctrl-C (or a SIGTERM to the parent) forwards SIGTERM to every
+running child, waits 5 seconds, then escalates to SIGKILL for any
+survivors. Parent exit code is 130 for SIGINT, 143 for SIGTERM,
+otherwise the worst child exit code (0 on all-pass).
+
+PROGRESS FEEDBACK:
+- Default: one line per job as it starts (verbose) or completes
+  (always), plus a summary block at the end.
+- --verbose (-v): prints '[NN/T] <model> start (running=X/Y)'
+  as each job launches in addition to the completion line.
+
+SAMPLE SPEC:
+A ready-to-adapt sample lives at 'docs/jobs_spec_example.json'
+in the tool tree.
+# END_HELP_SECTION: JOBS_MODE
+
+# HELP_SECTION: GRAPHING
+GRAPHING (Usage line graphs and Overage state graphs):
+
+Graph production is triggered automatically whenever a run supplies
+'--var graph=<name>' AND the model declares a 'graph:' setting.
+Two styles are supported by 'lpmp_graph.py':
+  line   — continuous numeric plot (default). Used for CPU / memory
+           usage percentages.
+  state  — three-level step plot (okay / warning / failure). Used for
+           collectd overage alarm transitions.
+
+MODELS AND EXPECTED --var VALUES:
+
+Two shipped models cover every combination — one for usage plots
+and one for overage plots. Each accepts 'cpu' or 'mem' via
+'--var graph=' to pick the resource:
+
+  collectd_usage    --var graph=cpu     line-style CPU usage
+  collectd_usage    --var graph=mem     line-style memory usage
+  collectd_overage  --var graph=cpu     state-style CPU overages
+  collectd_overage  --var graph=mem     state-style memory overages
+
+The graph value is matched case-insensitively (via '(?i:{graph})'
+in each model's timeline pattern). Longer legacy forms like
+'Platform CPU', 'Platform Mem', 'Memory' etc. also work; the
+graph tool looks for the resource keyword as a substring when
+extracting numeric values.
+
+For both models the graph value drives the pattern's resource
+discriminator, so the profile.timeline.log is scoped to the
+requested resource from the start. For the overage model, only
+committed transitions (trailing 'True' in the new-format collectd
+lines) are kept — 'False' rows and mid-debounce noise are dropped.
+
+SINGLE-MODEL INVOCATIONS:
+
+    lpmptool -m collectd_usage   -b <bundle> --var graph=cpu
+    lpmptool -m collectd_usage   -b <bundle> --var graph=mem
+    lpmptool -m collectd_overage -b <bundle> --var graph=cpu
+    lpmptool -m collectd_overage -b <bundle> --var graph=mem
+
+Time bounds via '-s / -e' apply to both extraction and rendering.
+'--include <host>' scopes the scan to a single host.
+
+RUNNING ALL FOUR IN PARALLEL:
+
+Use jobs mode with a spec file to run every graph in one command:
+
+    lpmptool -b <bundle> --jobs graph_job.json
+
+A ready-to-adapt sample lives at 'graph_job.json' in the tool
+root and covers all four graphing invocations.
+
+OUTPUT LAYOUT (per host):
+  <output>/lpmp_<lab>/<time>_<model>/<host>/
+    lab_<host>_profile.timeline.log     # per-host timeline logs
+    lab_<host>_profile.timeline.log.csv # graph-tool-fed CSV
+    lab_<host>_profile.timeline.log.png # per-host graph
+
+Multi-host bundle runs also produce a combined system PNG that
+overlays every host on the same axes with a hostname-to-color
+legend (line-style only; state-style renders per-host graphs).
+
+WHEN NOTHING MATCHES:
+
+The overage model prints a clear message when no matching
+transitions are found for the requested resource, e.g.:
+
+    No cpu overages found — nothing to plot, no CSV or PNG produced
+
+This is the expected outcome when the time window or resource
+selection legitimately has no confirmed alarms.
+
+RELATED FLAGS:
+  --var graph=<val>   required trigger; sets the graph title AND
+                      (for the overage model) the resource filter.
+  -s / -e             start/stop bounds forwarded to graphing.
+  --include / --exclude    scope the scan to specific hosts.
+  --verbose (-v)      also prints graph-tool progress lines.
+
+DEPENDENCIES:
+Graph rendering needs the 'pandas' and 'matplotlib' Python modules.
+These are optional; when they are not installed, the run still
+produces the timeline log and CSV and prints a note that a graph
+cannot be rendered, rather than failing.
+# END_HELP_SECTION: GRAPHING
 
 # HELP_SECTION: MIXED_MODELS
 MIXED MODELS (Combining Block Types):
@@ -1360,9 +1623,11 @@ The Log Pattern Matching Profiler has the following known limitations:
    - Add blocks with longer time intervals to ensure timestamp progression
 
    TECHNICAL DETAILS:
-   - The tool advances search time by 1 millisecond after each loop
-   - If log timestamps only have millisecond precision and multiple patterns
-     exist within the same millisecond, the search may not advance properly
+   - The tool advances search time by block_time_tolerance + 1ms after each
+     loop that found a match (default ~5.0s; see LOOP ITERATION TIME
+     ADVANCEMENT above)
+   - If multiple patterns exist within that advancement window, the search
+     may not advance past all of them in one step
    - This limitation affects pattern and pair blocks; timeline blocks are unaffected
 
 2. COMPRESSED FILE POSITION TRACKING:
@@ -1390,7 +1655,7 @@ contact the development team.
     - included files contribute only 'settings' (especially timeline_patterns)
     - include files follow the same search path as model files:
       * Explicit paths (absolute or relative with separator) have highest priority
-      * Then searches: ./models/, /etc/lpmp.d/, /var/lib/lpmp_models/, ./
+      * Then searches: ./, /etc/lpmp.d/, <tool_dir>/models/, /var/lib/lpmp_models/
     - model-local settings override included settings by key
 
 KEY FEATURES:
@@ -1791,7 +2056,12 @@ in the test directory. See docs/ARCHITECTURE.md
 
 
 # Version information
-__version__ = "1.3"
+__version__ = "2.0"
+__version_attributes__ = "with batch, job and scripts support"
+__version_banner__ = (
+    f"Log Pattern Matching Profiler - {__version__} "
+    f"{__version_attributes__} (experimental)"
+)
 
 # Default timing constraints
 DEFAULT_MAX_TIME_DELTA = 45   # Default max seconds for pair blocks
@@ -1880,19 +2150,39 @@ class MemoryMonitor:
         self.stats_printed = True  # Mark as printed
 
 
+def _report_permission_errors():
+    """Print an end-of-run list of paths excluded due to permission errors.
+
+    No-op when nothing was recorded, so normal runs on fully-readable log
+    trees produce no extra output.
+    """
+    perm_errors = get_permission_errors()
+    if not perm_errors:
+        return
+    print(f"\nPermission errors ({len(perm_errors)} path(s) excluded):")
+    for path in perm_errors:
+        print(f"  - {path}")
+
+
 def main():
     """Main execution function that orchestrates the log pattern matching and timing analysis."""
+    # Reset the permission-error collector for this run.
+    clear_permission_errors()
+
     # Initialize memory monitor if stats requested
     memory_monitor = None
 
-    # Print banner
-    print(f"Log Pattern Matching Profiler (ver {__version__})")
-    # print()
+    # Print banner. Suppressed for -h/--help/--version, which have their
+    # own argparse-driven output and would otherwise print the banner
+    # followed immediately by that output, showing the version twice.
+    if not any(arg in ('-h', '--help', '--version') for arg in sys.argv[1:]):
+        print(__version_banner__)
     # Set up command line argument parsing
     parser = argparse.ArgumentParser(
-        description='Log Pattern Matching Profiler - Requires YAML model file',
+        description=__version_banner__,
         epilog='Use --help-model for detailed model file format and examples '
-               'with help creating a sample model file.',
+               'with help creating a sample model file.\n\n'
+               + get_help_section('EXPERIMENTAL_STATUS'),
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--batch', default=None,
@@ -1903,12 +2193,20 @@ def main():
                         help='Full path to collect bundle directory (default: / for system)')
     parser.add_argument('--exclude', nargs='+', metavar='HOST',
                         help='Exclude specified hosts (space-separated, only with --bundle)')
+    parser.add_argument('--fail-fast', action='store_true',
+                        help='Jobs mode: abort remaining jobs on the first failure')
     parser.add_argument('--file-position-tracking', '-fpt', action='store_true',
                         help='[EXPERIMENTAL] Enable file position caching for better performance with expanded stacked patterns')  # noqa E501
     parser.add_argument('--force', '-f', action='store_true',
                         help='Force past block failures after the first block by treating them as warnings')
+    parser.add_argument('--force-parallel', action='store_true',
+                        help='Jobs mode: bypass the 32-way max-parallel safety cap')
+    parser.add_argument('--help-graph', '-hg', action='store_true',
+                        help='Show graphing usage: usage-style and overage-style graph models and invocations')
+    parser.add_argument('--help-jobs', '-hj', action='store_true',
+                        help='Show jobs mode usage: JSON spec format, parallelism, and job search path')
     parser.add_argument('--help-model', '-hm', nargs='?', const=True, default=None,
-                        help='Show detailed model file format and examples (optional: topic number 1-15)')
+                        help='Show detailed model file format and examples (optional: topic number 1-19)')
     parser.add_argument('--hostname', default='controller-0',
                         help='Hostname for {hostname} variable substitution (default: controller-0)')
     parser.add_argument('--host', default=None,
@@ -1917,18 +2215,26 @@ def main():
                         help='Interactive host selection for bundle mode (only with --bundle)')
     parser.add_argument('--include', nargs='+', metavar='HOST',
                         help='Include only specified hosts (space-separated, only with --bundle)')
+    parser.add_argument('--jobs', '-j', default=None,
+                        help='Jobs spec JSON file for parallel subprocess dispatch of arbitrary lpmptool runs')
     parser.add_argument('--lab', default='lab',
                         help='Lab name for identification (default: lab)')
+    parser.add_argument('--list-jobs', '-lj', action='store_true',
+                        help='List available jobs spec files from the jobs search path')
     parser.add_argument('--list-models', '-lm', nargs='?', const='__all__', default=None,
                         metavar='TYPE',
                         help='List available model files, optionally filtered to a single type: '
                              'timeline, pattern, pair, example, or desc (flat name:description list)')
+    parser.add_argument('--list-scripts', '-ls', action='store_true',
+                        help='List available scripts from the scripts search path')
     parser.add_argument('--logs-dir', '-l', default='var/log',
                         help='Directory containing log files (default: var/log, relative to bundle)')
     parser.add_argument('--no-ts-files', action='store_true',
                         help='List log files with no parseable timestamps and exit')
     parser.add_argument('--loops', '-n', type=int, default=1,
                         help='Number of times to run through the model (default: 1)')
+    parser.add_argument('--max-parallel', type=int, default=None,
+                        help='Jobs mode: maximum number of jobs to run in parallel (default: from spec or 3)')
     parser.add_argument('--max-lines', type=int, default=20,
                         help='Maximum lines to display timeline output to console (default: 20, 0=show all)')
     parser.add_argument('--max-log-length', '-x', type=int, default=180,
@@ -1947,6 +2253,8 @@ def main():
                         help='Start date for first search (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)')
     parser.add_argument('--sort', action='store_true',
                         help='Sort --list-models output alphabetically by name')
+    parser.add_argument('--script', action='store_true',
+                        help='Enable post-analysis script execution if script: label exists in model settings')
     parser.add_argument('--stats', action='store_true',
                         help='Enable memory and performance statistics monitoring')
     parser.add_argument('--stop-date', '-e',
@@ -1955,7 +2263,9 @@ def main():
                         help='Additional variable substitution in KEY=VALUE format (can be used multiple times)')
     parser.add_argument('--verbose', '-v', action='count', default=0,
                         help='Increase verbosity level (use -v, -vv, -vvv, -vvvv, or -vvvvv)')
-    parser.add_argument('--version', action='version', version=f'LPMP {__version__}')
+    parser.add_argument('--version', action='version',
+                        version=f"{__version_banner__}\n\n"
+                                f"{get_help_section('EXPERIMENTAL_STATUS')}")
     args = parser.parse_args()
 
     # Initialize memory monitor if stats requested
@@ -1980,6 +2290,15 @@ def main():
         print("Error: --max-lines must be 0 or greater", file=sys.stderr)
         sys.exit(1)
 
+    # Validate max_parallel value (jobs mode). Unset (None) is valid and
+    # resolved later via CLI > spec > default of 3; a value of 0 or less
+    # would otherwise flow into the worker pool and busy-poll forever
+    # with nothing dispatched and no output.
+    if args.max_parallel is not None and args.max_parallel < 1:
+        print(f"Error: --max-parallel must be a positive integer "
+              f"(got {args.max_parallel})", file=sys.stderr)
+        sys.exit(1)
+
     # Initialize file position cache if enabled
     if args.file_position_tracking:
         args._file_position_cache = {}
@@ -1988,8 +2307,18 @@ def main():
     # Initialize models search paths and show verbosity info if requested
     search_paths = get_models_search_paths(get_verbose_level())
 
+    # Initialize script search paths
+    scripts_search_paths = get_scripts_search_paths(get_verbose_level())
+
     # Auto-load file ignore list from model search paths
     load_file_ignore_list(search_paths)
+
+    # --batch and --jobs are mutually exclusive: batch runs a single
+    # in-process multi-model pass, jobs spawns independent subprocesses.
+    if args.batch and args.jobs:
+        print("Error: --batch and --jobs cannot be combined; pick one.",
+              file=sys.stderr)
+        sys.exit(1)
 
     # Batch mode: dispatch to lpmp_batch and exit. Runs a JSON-declared
     # set of model+window combinations with a single read pass per
@@ -2007,6 +2336,18 @@ def main():
         # distinct on disk.
         args._dir_prefix = f"lpmp_batch_{args.lab_name}"
         run_batch(args)
+        sys.exit(0)
+
+    # Jobs mode: dispatch to lpmp_jobs and exit. Runs a JSON-declared
+    # list of arbitrary lpmptool invocations under a bounded worker
+    # pool. Each job is a full mainline subprocess; any model type is
+    # supported. Distinct from --batch (which is single-process and
+    # timeline/window only).
+    if args.jobs:
+        from lpmp_jobs import run_jobs
+        args.bundle_name = args.bundle
+        args.lab_name = args.lab
+        run_jobs(args)
         sys.exit(0)
 
     def collect_model_files(search_paths):
@@ -2089,6 +2430,20 @@ def main():
     def print_separator_nocr(width=SEP_LEN):
         print("=" * width)
 
+    # Handle --help-graph: print the shared GRAPHING doc section and exit.
+    # Uses the same source docstring as --help-model topic 18, so both
+    # surfaces stay in sync from a single edit point.
+    if getattr(args, 'help_graph', False):
+        print(get_help_section('GRAPHING'))
+        sys.exit(0)
+
+    # Handle --help-jobs: print the shared JOBS_MODE doc section and exit.
+    # Uses the same source docstring as --help-model topic 17, so both
+    # surfaces stay in sync from a single edit point.
+    if getattr(args, 'help_jobs', False):
+        print(get_help_section('JOBS_MODE'))
+        sys.exit(0)
+
     # Handle --help-model after argument parsing
     if args.help_model:
         HELP_MENU_PROMPT = "\nPress Enter for main menu or 'q' to quit: "
@@ -2109,7 +2464,9 @@ def main():
             '14': 'PRECEDENCE_RULES',
             '15': 'WINDOW_BLOCKS',
             '16': 'BATCH_MODE',
-            '17': 'LIMITATIONS',
+            '17': 'JOBS_MODE',
+            '18': 'GRAPHING',
+            '19': 'LIMITATIONS',
         }
 
         # Direct topic selection: print content without paging and exit
@@ -2124,7 +2481,7 @@ def main():
                 print(content)
                 sys.exit(0)
             else:
-                print(f"Error: Unknown help topic '{topic}'. Use 1-17.", file=sys.stderr)
+                print(f"Error: Unknown help topic '{topic}'. Use 1-19.", file=sys.stderr)
                 sys.exit(1)
 
         def show_paged_help(section_key):
@@ -2177,16 +2534,18 @@ def main():
                 print("14. Setting Precedence Rules")
                 print("15. Window Blocks (Time-Range Log Extraction)")
                 print("16. Batch Mode (JSON-driven multi-model execution)")
-                print("17. Known Limitations")
+                print("17. Jobs Mode (Parallel subprocess dispatch)")
+                print("18. Graphing (Usage line and Overage state graphs)")
+                print("19. Known Limitations")
                 print()
-                print("18. Show Existing Models")
-                print("19. Show Example Models")
-                print("20. Show Helper Files")
+                print("20. Show Existing Models")
+                print("21. Show Example Models")
+                print("22. Show Helper Files")
                 print("Q. Quit (or press Enter)")
                 print()
 
                 try:
-                    choice = input("Enter selection (1-20 or Q): ").strip().upper()
+                    choice = input("Enter selection (1-22 or Q): ").strip().upper()
 
                     if choice == 'Q' or choice == '':
                         break
@@ -2197,7 +2556,7 @@ def main():
                             break
                     elif choice == '2':
                         show_paged_help('MAIN_LOOP')
-                    elif choice == '18':
+                    elif choice == '20':
                         # Show Existing Models (exclude examples)
                         def show_existing_models():
                             while True:
@@ -2251,7 +2610,7 @@ def main():
                                     return
 
                         show_existing_models()
-                    elif choice == '19':
+                    elif choice == '21':
                         # Show Example Models
                         def show_example_models():
                             while True:
@@ -2305,7 +2664,7 @@ def main():
                                     return
 
                         show_example_models()
-                    elif choice == '20':
+                    elif choice == '22':
                         # Show Helper Files
                         def show_helper_files():
                             while True:
@@ -2368,6 +2727,41 @@ def main():
                     break
 
         show_interactive_menu()
+        sys.exit(0)
+
+    # Handle --list-jobs after argument parsing
+    if args.list_jobs:
+        jobs_specs = collect_jobs_files()
+        if not jobs_specs:
+            print("No jobs spec files found in the jobs search path.")
+            print("Searched: ./, /etc/lpmp.d/jobs/, <tool_dir>/jobs/, "
+                  "/var/lib/lpmp_jobs/")
+            sys.exit(0)
+        print("Available Jobs Specs")
+        print("=" * 60)
+        name_width = max(len(os.path.splitext(n)[0]) for n, _ in jobs_specs)
+        for name, full_path in jobs_specs:
+            display_name = os.path.splitext(name)[0]
+            print(f"  {display_name:<{name_width}}  {full_path}")
+        print(f"\nTotal: {len(jobs_specs)} job spec(s)")
+        print("Run one with: lpmptool -b <bundle> --jobs <name>")
+        sys.exit(0)
+
+    # Handle --list-scripts after argument parsing
+    if args.list_scripts:
+        scripts = collect_scripts_files()
+        if not scripts:
+            print("No scripts found in the scripts search path.")
+            print("Searched: ./, /etc/lpmp.d/scripts/, <tool_dir>/scripts/, "
+                  "/var/lib/lpmp_scripts/")
+            sys.exit(0)
+        print("Available Scripts")
+        print("=" * 60)
+        name_width = max(len(n) for n, _ in scripts)
+        for name, full_path in scripts:
+            print(f"  {name:<{name_width}}  {full_path}")
+        print(f"\nTotal: {len(scripts)} script(s)")
+        print("Referenced by a model's 'script:' field; run with --script")
         sys.exit(0)
 
     # Handle --list-models after argument parsing
@@ -2754,15 +3148,14 @@ def main():
     resolved_model_file = find_model_file(args.model_file)
     if resolved_model_file is None:
         print(f"Error: Model file '{args.model_file}' not found in search paths:", file=sys.stderr)
-        print(f"  1. ./models/{args.model_file}", file=sys.stderr)
-        print(f"  2. /etc/lpmp.d/{args.model_file}", file=sys.stderr)
-        print(f"  3. /var/lib/lpmp_models/{args.model_file}", file=sys.stderr)
-        print(f"  4. {args.model_file} (relative/absolute path)", file=sys.stderr)
+        for i, path in enumerate(get_models_search_paths(0), 1):
+            print(f"  {i}. {os.path.join(path, args.model_file)}", file=sys.stderr)
         print("Use --help-model for model file format information", file=sys.stderr)
         sys.exit(1)
 
     # Use resolved path for all subsequent operations
     args.model_file = resolved_model_file
+    print(f"Model: {os.path.abspath(resolved_model_file)}")
 
     # Guard: example models are for syntax reference only, not for running
     resolved_real = os.path.realpath(resolved_model_file)
@@ -2780,6 +3173,8 @@ def main():
         print("  lpmptool -lm pair                  # list only pair models")
         print("  lpmptool -lm example               # list only example models")
         print("  lpmptool -lm desc                  # flat name:description list (greppable)")
+        print("  lpmptool --list-jobs               # list available jobs specs")
+        print("  lpmptool -b <bundle> -j mtce_job   # run a jobs spec by name")
         sys.exit(0)
 
     # Load search configuration from model file
@@ -3331,6 +3726,17 @@ def main():
             else:
                 vlog1(f"  - results written to {output_dir}/")
 
+            # When graphing was requested but this host yielded zero
+            # matches, announce it explicitly. Otherwise the run
+            # completes silently and the user can't tell whether the
+            # profile is missing on purpose or the model misfired.
+            if 'graph' in variables and not all_structured_results:
+                what = 'overages' if settings.get('graph_style') == 'state' else 'matches'
+                msg = (f"  No {variables['graph']} {what} found for "
+                       f"{hostname} — no CSV or PNG produced")
+                print(msg)
+                vlog1(msg)
+
         # After processing all hosts, merge the profile.timing files
         if bundle_host_list:
             # Get the parent directory path - use -o path if specified, otherwise bundle path
@@ -3386,9 +3792,18 @@ def main():
                             bundle_base_dir, hosts_with_data, args.lab_name, system_summary_path)
 
             # Run graph processing after all model search phases are complete
-            if 'graph' in variables and hasattr(args, 'graph_files'):
+            _bundle_graph_ok, _bundle_graph_missing = graphing_available()
+            if ('graph' in variables and hasattr(args, 'graph_files')
+                    and not _bundle_graph_ok):
+                print(f"Note: graph output skipped — the '{variables['graph']}' "
+                      f"per-host timelines and CSVs were produced, but rendering "
+                      f"graphs requires the {', '.join(_bundle_graph_missing)} "
+                      f"module(s), which are not installed on this system.",
+                      file=sys.stderr)
+            if ('graph' in variables and hasattr(args, 'graph_files')
+                    and _bundle_graph_ok):
                 import subprocess
-                graph_tool_path = os.path.join(os.path.dirname(__file__), 'lpmp_graph.py')
+                graph_tool_path = os.path.join(LPMP_PACKAGE_DIR, 'lpmp_graph.py')
                 graph_filename_part = variables['graph'].replace(' ', '_')
 
                 # Collect (hostname, csv_path) pairs for the combined system graph.
@@ -3420,7 +3835,8 @@ def main():
 
                         vlog1(f"Running graph processing: {' '.join(cmd)}")
 
-                        subprocess.run(cmd, cwd=profile_dir, check=True)
+                        subprocess.run(cmd, cwd=profile_dir, check=True,
+                                       capture_output=True, text=True)
                         vlog1(f"Graph processing completed for {hostname}")
 
                         # Record the per-host CSV path that lpmp_graph.py just
@@ -3433,6 +3849,8 @@ def main():
                             host_csv_entries.append((hostname, host_csv))
                     except subprocess.CalledProcessError as e:
                         print(f"Warning: Graph processing failed for {hostname}: {e}", file=sys.stderr)
+                        if e.stderr:
+                            print(e.stderr.rstrip(), file=sys.stderr)
 
                 # Multi-host: produce a single combined PNG with one line per host.
                 # State-style graphs (e.g. overage timeline) are not yet
@@ -3463,11 +3881,14 @@ def main():
                             cmd.append('--verbose')
 
                         vlog1(f"Running combined graph processing: {' '.join(cmd)}")
-                        subprocess.run(cmd, cwd=bundle_base_dir, check=True)
+                        subprocess.run(cmd, cwd=bundle_base_dir, check=True,
+                                       capture_output=True, text=True)
                         vlog1(f"Combined system graph completed: {system_png}")
                     except subprocess.CalledProcessError as e:
                         print(f"Warning: Combined graph processing failed: {e}",
                               file=sys.stderr)
+                        if e.stderr:
+                            print(e.stderr.rstrip(), file=sys.stderr)
 
             # Verify timeline bounds for timeline models
             if args.model_type == ModelType.TIMELINE:
@@ -3699,12 +4120,37 @@ def main():
             elif args.model_type == ModelType.TIMELINE:
                 write_timeline_csv(csv_filename, all_structured_results, csv_pass_summaries)
 
+        # Zero-match case: no profile was written, so the graph tool
+        # never gets a chance to announce its own "nothing to plot"
+        # message. Announce it from the parent so single-host runs
+        # match the bundle-mode behaviour. Stop the console capture
+        # first (the has-results branch already did) so the message
+        # reaches the real terminal rather than the discarded buffer.
+        if 'graph' in variables and not profile_file:
+            if console_capture.is_capturing():
+                console_capture.stop_capture()
+            what = 'overages' if settings.get('graph_style') == 'state' else 'matches'
+            msg = (f"No {variables['graph']} {what} found — "
+                   f"no CSV or PNG produced")
+            print(msg)
+            vlog1(msg)
+
         # Run lpmp_graph.py tool if graph variable is defined and profile file was created
-        if 'graph' in variables and profile_file and os.path.exists(profile_file):
+        graph_ok, graph_missing = graphing_available()
+        if ('graph' in variables and profile_file and os.path.exists(profile_file)
+                and not graph_ok):
+            print(f"Note: graph output skipped — the '{variables['graph']}' "
+                  f"timeline and CSV were produced, but rendering a graph "
+                  f"requires the {', '.join(graph_missing)} module(s), "
+                  f"which are not installed on this system.",
+                  file=sys.stderr)
+        if ('graph' in variables and profile_file and os.path.exists(profile_file)
+                and graph_ok):
             import subprocess
             try:
+                graph_tool_path = os.path.join(LPMP_PACKAGE_DIR, 'lpmp_graph.py')
                 cmd = [
-                    'python3', 'lpmp_graph.py',
+                    'python3', graph_tool_path,
                     '--input', profile_file,
                     '--name', variables['graph']
                 ]
@@ -3724,10 +4170,20 @@ def main():
 
                 vlog1(f"Running graph processing: {' '.join(cmd)}")
 
-                subprocess.run(cmd, cwd=os.path.dirname(__file__), check=True)
+                # Run in the profile file's directory so any relative
+                # output lands beside it. lpmp_graph.py is addressed by
+                # absolute path (graph_tool_path) so it no longer depends
+                # on cwd containing the script — the previous bare
+                # 'lpmp_graph.py' + cwd=dirname(__file__) form failed when
+                # the executable and the modules are installed in
+                # different directories (exit status 2, file not found).
+                subprocess.run(cmd, cwd=os.path.dirname(profile_file),
+                               check=True, capture_output=True, text=True)
                 vlog1("Graph processing completed")
             except subprocess.CalledProcessError as e:
                 print(f"Warning: Graph processing failed: {e}", file=sys.stderr)
+                if e.stderr:
+                    print(e.stderr.rstrip(), file=sys.stderr)
 
         # Write individual profile files for blocks with profile: true
         if args.model_type == ModelType.PATTERN:
@@ -3785,6 +4241,21 @@ def main():
     else:
         _prune_root = os.path.join(os.getcwd(), prefix)
     prune_empty_output_dirs(_prune_root)
+
+    # Report any files/directories that were excluded due to permission
+    # errors during scanning/searching. These were skipped gracefully so
+    # the run could continue; list them once here at the end.
+    _report_permission_errors()
+
+    # Run post-analysis script hook if configured and enabled
+    script_config = settings.get('script')
+    if script_config and args.script:
+        run_script_hook(
+            script_config,
+            args,
+            variables=getattr(args, 'variables_dict', {}),
+            search_paths=scripts_search_paths
+        )
 
     # Exit with non-zero code if any required block failed
     if any_host_failed:

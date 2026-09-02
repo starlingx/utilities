@@ -46,11 +46,24 @@ blocks:
     patterns:
       - '{hostname} Unlock Action'
 
-  - label: "Pod Drain Start"
-    file: "mtcAgent.log*"
-    optional: True
+  - label: "Force Pod Delete Start"
+    file: "daemon.log*"
+    optional: true
     patterns:
-    - 'force pod drain script launched'
+      - 'Phase 1: Cordoning node {hostname}'
+
+  - label: "Force Pod Delete Complete"
+    file: "daemon.log*"
+    optional: true
+    patterns:
+      # - 'Pod drain and RBD cleanup complete — safe for SM shutdown'
+      - 'mtcAgent-force_pod_drain.service: Deactivated successfully'
+
+  #- label: "Pod Drain Start"
+  #  file: "mtcAgent.log*"
+  #  optional: True
+  #  patterns:
+  #    - 'force pod drain script launched'
 
   - label: "Pod Drain Complete"
     file: "mtcAgent.log*"
@@ -58,7 +71,7 @@ blocks:
     profile: true
     max_time_delta: 200
     patterns:
-    - [ 'pods drained', 'pod drain timeout']
+      - [ 'pods drained', 'pod drain timeout']
 
   - label: "SM Service Shutdown"
     file: "sm.log*"
@@ -69,7 +82,7 @@ blocks:
   - label: "Lazy Reboot Start"
     file: "mtcClient.log*"
     patterns:
-    - 'lazy reboot command received'
+      - 'lazy reboot command received'
 
 #  - label: "mtcAgent Shutdown"
 #    file: "mtcAgent.log*"
@@ -81,24 +94,24 @@ blocks:
     file: "mtcClient.log*"
     optional: true
     patterns:
-    - 'failsafe reboot script launched'
+      - 'failsafe reboot script launched'
 
   - label: "Stopped Graphical"
     file: "daemon.log*"
-    optional: true
+    # optional: true
     patterns:
-      - 'Stopped target Graphical Interface'
+      - 'Stopped target .*Graphical Interface'
 
   - label: "Stopped Kubelet Server"
     file: "daemon.log*"
-    optional: true
+    # optional: true
     patterns:
-      - 'Stopped Kubernetes Kubelet Server'
+      - 'Stopped .*Kubernetes Kubelet Server'
 
   - label: "containerd Stop Started"
     file: "daemon.log*"
     patterns:
-      - 'Stopping containerd container'
+      - 'Stopping .*containerd container'
 
   - label: "mtcClient Shutdown"
     file: "mtcClient.log*"
@@ -110,7 +123,7 @@ blocks:
     file: "daemon.log*"
     optional: true
     patterns:
-      - 'Stopped StarlingX Maintenance Command Handler Client'
+      - 'Stopped .*StarlingX Maintenance Command Handler Client'
 
   - label: "Stopped Containers Completed"
     file: "daemon.log*"
@@ -133,13 +146,13 @@ blocks:
     optional: true
     max_time_delta: 60.0
     patterns:
-      - 'Stopped StarlingX System Inventory Agent'
+      - 'Stopped .*StarlingX System Inventory Agent'
 
   - label: "Last Daemon Log"
     file: "daemon.log*"
     present: true
     patterns:
-      - 'Stopped target Network is Online'
+      - 'Stopped .*target Network is Online'
 
   - label: "Blackout"
     file: "kern.log*"
@@ -147,12 +160,6 @@ blocks:
     profile: true
     patterns:
       - 'Kernel command line:'
-
-  - label: "Systemd Startup"
-    file: "daemon.log*"
-    present: true
-    patterns:
-      - 'Starting Create System Users'
 
   - label: "mtcClient Start-Up"
     file: "mtcClient.log*"
@@ -164,7 +171,7 @@ blocks:
     file: "daemon.log*"
     max_time_delta: 200
     patterns:
-      - 'Started Kubernetes Isolated CPU Plugin Daemon'
+      - 'Started .* Kubernetes Isolated CPU Plugin Daemon'
 
   - label: "mtcAgent Start-Up"
     file: "mtcAgent.log*"
@@ -206,12 +213,14 @@ blocks:
   - label: "K8s Pod Recovery Done"
     file: "daemon.log*"
     profile: true
-    max_time_delta: 300   # Pod recovery can be long
+    optional: true
+    max_time_delta: 480   # Pod recovery can be long 8 minutes
     patterns:
-      - 'k8s-pod-recovery.service: Succeeded'
+      - ['info k8s-pod-recovery.service: .*successfully', 'info k8s-pod-recovery.service: Succeeded.']
 
 # Optional global settings
 settings:
   block_time_tolerance: 6
   max_log_length: 180
   max_time_delta: 1000
+  script: ["pod_ready_times_describe.py", "var/extra/containerization_pods.info"]

@@ -19,3 +19,5 @@ blocks:
       - 'Could not connect to hostwd'
       - 'connected to host watchdog'
       - 'manage_process_failure'
+      - 'Respawn Monitor Failed'
+      - "process '[^']+' request"

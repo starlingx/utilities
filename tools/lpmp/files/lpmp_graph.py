@@ -193,9 +193,10 @@ def extract_usage_data(input_file, usage_type,
 
             # Format 3: platform memory usage lines with "Usage: XX.X%"
             # Matches both legacy "platform memory usage: Usage" and current
-            # "platform memory dispatch Usage" wording. Case-insensitive on the
-            # usage_type gate so callers can pass "Platform Mem" / "Platform MEM".
-            if 'platform mem' in usage_type.lower():
+            # "platform memory dispatch Usage" wording. Case-insensitive
+            # substring gate on 'mem' so callers can pass any of 'mem',
+            # 'Mem', 'Memory', 'Platform Mem', 'Platform Memory' etc.
+            if 'mem' in usage_type.lower():
                 memory_match = re.search(
                     r'platform memory (?:usage:|dispatch) Usage: (\d+\.?\d*)%',
                     log_data,
@@ -208,9 +209,10 @@ def extract_usage_data(input_file, usage_type,
 
             # Format 4: platform cpu usage plugin lines with "Usage: XX.X%"
             # Matches both legacy "platform cpu usage plugin Usage" and current
-            # "platform cpu dispatch Usage" wording. Case-insensitive on the
-            # usage_type gate so callers can pass "Platform CPU" / "Platform Cpu".
-            if 'platform cpu' in usage_type.lower():
+            # "platform cpu dispatch Usage" wording. Case-insensitive
+            # substring gate on 'cpu' so callers can pass any of 'cpu',
+            # 'CPU', 'Cpu', 'Platform CPU' etc.
+            if 'cpu' in usage_type.lower():
                 cpu_match = re.search(
                     r'platform cpu (?:usage plugin|dispatch) Usage: (\d+\.?\d*)%',
                     log_data,
@@ -293,28 +295,66 @@ STATE_LABELS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# State-mode filter: two qualifiers a row must pass to make the plot.
+#
+# 1) STATE→STATE  — the log line carries a `debounce '<from> -> <to>' (val)`
+#                   clause with recognised okay/warning/failure severities.
+# 2) COMMITTED    — the trailing `(n:m) True` marker is present. False /
+#                   in-progress debounce rows are ignored.
+#
+# Resource filtering (cpu vs memory) is performed upstream by the overage
+# model's YAML pattern using `{graph}` as a case-insensitive discriminator,
+# so by the time rows arrive here they are already scoped to the requested
+# resource.
+# ---------------------------------------------------------------------------
+
+# Matches "debounce 'A -> B' (value) (n:m) True/False".
+_STATE_RE = re.compile(
+    r"debounce\s+'(?P<from>okay|warning|failure)\s*->\s*"
+    r"(?P<to>okay|warning|failure)'\s*"
+    r"\([^)]*\)\s*\([^)]*\)\s*(?P<committed>True|False)"
+)
+
+
+def _match_state_transition(log_data):
+    """Apply the two state-mode qualifiers to a single log line.
+
+    Returns a (from_level, to_level) pair when the line passes both
+    qualifiers, else None.
+    """
+    m = _STATE_RE.search(log_data)
+    if not m:
+        return None
+    if m.group('committed') != 'True':
+        return None
+
+    from_level = STATE_LEVEL.get(m.group('from'))
+    to_level = STATE_LEVEL.get(m.group('to'))
+    if to_level is None:
+        return None
+    return (from_level if from_level is not None else 0, to_level)
+
+
 def extract_state_data(input_file, usage_type, start_date=None, stop_date=None):
     """Extract committed alarm state transitions from a timeline profile.
 
-    Looks for collectd alarm-notifier debounce lines of the form:
-
-        ... debounce 'okay -> failure' (95.94) (1:1) True
-
-    Only rows whose committed flag is True are returned, since those are the
-    transitions where collectd actually moved between okay/warning/failure.
-    Rows whose committed flag is False are ignored to keep the rendered step
-    line stable while a debounce window is still in progress.
+    A row passes to the plot only when the log line satisfies all three
+    qualifiers documented above `_STATE_RE`: RESOURCE, STATE→STATE, and
+    COMMITTED (True). Rows with `False` (still-in-progress) commitments
+    are dropped so the step line stays stable across the debounce window.
 
     Args:
         input_file: Path to the timeline profile log file.
-        usage_type: Substring matched against the block label column.
-        start_date: Optional datetime; rows whose timestamp is before this
-            value are dropped. Inclusive of start_date itself.
-        stop_date:  Optional datetime; rows whose timestamp is after this
-            value are dropped. Inclusive of stop_date itself.
+        usage_type: Substring matched against the block label column and
+            source of the RESOURCE qualifier keyword.
+        start_date: Optional datetime; rows earlier than this are dropped
+            (inclusive of start_date itself).
+        stop_date:  Optional datetime; rows later than this are dropped
+            (inclusive of stop_date itself).
 
     Returns:
-        List of (timestamp_str, level_int) tuples ordered as encountered.
+        List of (timestamp_str, level_int) tuples in encounter order.
         level_int is 0/1/2 per STATE_LEVEL.
     """
     state_data = []
@@ -334,13 +374,6 @@ def extract_state_data(input_file, usage_type, start_date=None, stop_date=None):
         vlog2(f"Applying start-date bound: {start_date}")
     if stop_date:
         vlog2(f"Applying stop-date bound: {stop_date}")
-
-    # Matches "debounce 'A -> B' (value) (n:m) True/False"
-    state_re = re.compile(
-        r"debounce\s+'(?P<from>okay|warning|failure)\s*->\s*"
-        r"(?P<to>okay|warning|failure)'\s*"
-        r"\([^)]*\)\s*\([^)]*\)\s*(?P<committed>True|False)"
-    )
 
     with open(input_file, 'r') as f:
         for line in f:
@@ -382,25 +415,21 @@ def extract_state_data(input_file, usage_type, start_date=None, stop_date=None):
                     skipped_by_bounds += 1
                     continue
 
-            # First in-window block-label-matching row becomes the baseline
-            # anchor timestamp.
+            # First in-window block-label-matching row becomes the
+            # baseline anchor timestamp.
             if first_seen_ts is None:
                 first_seen_ts = timestamp
 
-            m = state_re.search(log_data)
-            if not m:
+            # Apply the two qualifiers: STATE→STATE + COMMITTED.
+            match = _match_state_transition(log_data)
+            if match is None:
                 continue
-            if m.group('committed') != 'True':
-                continue
+            from_level, level = match
 
-            level = STATE_LEVEL.get(m.group('to'))
-            if level is None:
-                continue
-
-            # Capture the prior state from the first committed transition so
-            # we can prepend a baseline sample.
+            # Capture the prior state from the first committed transition
+            # so we can prepend a baseline sample.
             if initial_from_state is None:
-                initial_from_state = STATE_LEVEL.get(m.group('from'), 0)
+                initial_from_state = from_level
 
             # Collapse consecutive same-state rows: collectd keeps emitting
             # 'failure -> okay' rows even after we've already settled at
@@ -410,7 +439,7 @@ def extract_state_data(input_file, usage_type, start_date=None, stop_date=None):
                 continue
 
             state_data.append((timestamp, level))
-            vlog3(f"State transition -> {m.group('to')} (level {level}) at {timestamp}")
+            vlog3(f"State transition -> level {level} at {timestamp}")
 
     # Prepend a baseline sample so the step plot reads from the correct
     # prior state. Anchor the baseline at the earliest in-window
@@ -703,7 +732,12 @@ def main():
                                         start_date=start_date,
                                         stop_date=stop_date)
         if not state_data:
-            print(f"No {args.name} alarm state transitions found in the input file")
+            # Both stdout and vlog so the "no overages" outcome is
+            # visible in verbose logs and in a plain-terminal run.
+            msg = (f"No {args.name} overages found — nothing to plot, "
+                   f"no CSV or PNG produced")
+            print(msg)
+            vlog1(msg)
             return
 
         create_state_csv(state_data, csv_file, args.name)
