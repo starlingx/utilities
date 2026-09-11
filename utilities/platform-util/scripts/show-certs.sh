@@ -409,10 +409,6 @@ fi
 
 PrintCertInfo-fromFile "DC-AdminEp-Server" "/etc/ssl/private/admin-ep-cert.pem" "${GREEN}$AUTO_LABEL${RESET}"
 
-# OpenStack Certificates
-PrintCertInfo-fromFile "openstack" "/etc/ssl/private/openstack/cert.pem" "${RED}Manual${RESET}"
-PrintCertInfo-fromFile "openstack CA" "/etc/ssl/private/openstack/ca-cert.pem" "${RED}Manual${RESET}"
-
 # works with stable and experimental certs subcommand
 kubeadm certs -h &> /dev/null
 if [ $? -eq 0 ]; then
