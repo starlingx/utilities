@@ -231,6 +231,12 @@ func TestRekeyHappyPath(t *testing.T) {
 	if len(mockCfg.storedSecret.Keys) != 5 {
 		t.Errorf("expected 5 keys stored, got %d", len(mockCfg.storedSecret.Keys))
 	}
+
+	// StoreResult must record the stored generation name so the command layer
+	// can advance the authoritative pointer after verification.
+	if proc.StoredGenName != "openbao-unseal-gen-002" {
+		t.Errorf("expected StoredGenName 'openbao-unseal-gen-002', got %q", proc.StoredGenName)
+	}
 }
 
 // --- Test: Cancel on shard submission error ---

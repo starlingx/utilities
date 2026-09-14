@@ -541,6 +541,12 @@ func TestIntegration_Rekey_CreatesGen002_RetainsGen001(t *testing.T) {
 		t.Errorf("expected StateStored, got %v", proc.State)
 	}
 
+	// StoreResult records the stored generation name so the command layer can
+	// advance the authoritative pointer after verification.
+	if proc.StoredGenName != "openbao-unseal-gen-002" {
+		t.Errorf("StoredGenName = %q, want %q", proc.StoredGenName, "openbao-unseal-gen-002")
+	}
+
 	// Verify gen-002 exists and is immutable (Requirement 1)
 	gen002Sec := assertSecretExists(t, clientset, namespace, "openbao-unseal-gen-002")
 	assertSecretImmutable(t, gen002Sec)

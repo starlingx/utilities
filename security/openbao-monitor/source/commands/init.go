@@ -127,6 +127,13 @@ secret in Kubernetes.`,
 				return err
 			}
 
+			// Advance the authoritative pointer to the freshly stored generation.
+			// Init has no verification step, so the new generation is active
+			// immediately.
+			if err := globalConfig.StoreCurrentKeyPointer(genName); err != nil {
+				return fmt.Errorf("failed to update current key pointer to %q: %w", genName, err)
+			}
+
 			slog.Info("Generation secret stored and verified", "name", genName)
 		}
 

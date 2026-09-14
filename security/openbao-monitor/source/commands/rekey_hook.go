@@ -106,7 +106,17 @@ func RecoverInProgressRekey(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config
 		return fmt.Errorf("rekey verification failed: %w", err)
 	}
 
-	slog.Info("Rekey driven to completion, new generation stored",
+	// Advance the pointer after verification (which applies the new key on the
+	// server). A crash here leaves the pointer on a stale generation; recovery
+	// is by rediscovery on unseal failure, not by trusting it.
+	if err := cfg.StoreCurrentKeyPointer(proc.StoredGenName); err != nil {
+		return fmt.Errorf("rekey verified but failed to advance current key pointer to %q: %w",
+			proc.StoredGenName, err)
+	}
+	// Refresh the in-memory cache to match the newly-advanced pointer.
+	cfg.CurrentKeySecret = proc.StoredGenName
+
+	slog.Info("Rekey driven to completion, new generation active",
 		"currentKeySecret", cfg.CurrentKeySecret)
 	return nil
 }
