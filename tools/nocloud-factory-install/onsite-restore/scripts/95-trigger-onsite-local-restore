@@ -78,8 +78,30 @@ fi
 mkdir -p "${AUTO_RESTORE_DIR}"
 check_rc_die $? "Failed to create ${AUTO_RESTORE_DIR}"
 
+# Use the reconfigured sysadmin password (staged by the 90 script) as the become/ssh
+# password. 10-platform-reconfig already set it on this system, so falling back
+# to execute-restore.sh's factory default would break become mid-restore.
+become_lines=""
+if [ -n "${sysadmin_password_b64:-}" ]; then
+    if ! sysadmin_password=$(printf '%s' "${sysadmin_password_b64}" | base64 -d); then
+        log_fatal "Failed to decode sysadmin_password_b64 from ${STATUS_FILE}"
+    fi
+    if [ -z "${sysadmin_password}" ]; then
+        log_fatal "Decoded sysadmin_password is empty in ${STATUS_FILE}"
+    fi
+    # Emit as a YAML single-quoted scalar
+    yaml_pw=${sysadmin_password//\'/\'\'}
+    become_lines=$(printf "ansible_become_pass: '%s'\nansible_ssh_pass: '%s'" \
+        "${yaml_pw}" "${yaml_pw}")
+else
+    log_info "sysadmin_password_b64 not in status file; using execute-restore.sh default become password"
+fi
+
 log_info "Writing ${RESTORE_VALUES}"
-cat > "${RESTORE_VALUES}" <<EOF
+rm -f "${RESTORE_VALUES}"
+
+# execute-restore.sh removes this file after the playbook runs.
+(umask 077 && cat > "${RESTORE_VALUES}") <<EOF
 auto_restore_mode: auto
 initial_backup_dir: ${BACKUP_DIR}
 ipmi_sel_event_monitoring: false
@@ -87,8 +109,13 @@ restore_mode: optimized
 skip_registry_login: true
 skip_patches_restore: true
 exclude_sw_deployments: true
+${become_lines}
 EOF
 check_rc_die $? "Failed to write ${RESTORE_VALUES}"
+# execute-restore.sh runs the playbook as 'sudo -u sysadmin' and reads this
+# file, so it must be owned by and readable by sysadmin.
+chown sysadmin:sys_protected "${RESTORE_VALUES}"
+check_rc_die $? "Failed to set ownership on ${RESTORE_VALUES}"
 
 # Hand off to dc-auto-restore.service.
 log_info "Enabling and starting dc-auto-restore.service"

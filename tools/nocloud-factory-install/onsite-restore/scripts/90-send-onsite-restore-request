@@ -431,8 +431,16 @@ class OnsiteRestoreTrigger(BaseClass):
     def write_status_file(self):
         """Write a status file consumed by 95-trigger-onsite-local-restore."""
         local_only_str = "true" if self.local_only else "false"
+        # Stage the reconfigured sysadmin password so 95-trigger sets a matching
+        # ansible_become_pass; otherwise execute-restore.sh uses the factory
+        # default and become fails mid-restore.
+        encoded_pw = base64.b64encode(
+            self.sysadmin_password.encode("utf-8")
+        ).decode("utf-8")
         with open(STATUS_FILE, "w", encoding="utf-8") as f:
             f.write(f"local_only={local_only_str}\n")
+            f.write(f"sysadmin_password_b64={encoded_pw}\n")
+        os.chmod(STATUS_FILE, 0o600)
         log_info(f"Wrote status file: {STATUS_FILE}")
 
     def execute(self):
