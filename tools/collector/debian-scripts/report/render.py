@@ -1,6 +1,6 @@
 ########################################################################
 #
-# Copyright (c) 2023 Wind River Systems, Inc.
+# Copyright (c) 2023, 2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -12,10 +12,16 @@
 #
 ########################################################################
 
-from datetime import datetime
 import os
 from pathlib import Path
 import re
+
+# A report log line may be prefixed with a timestamp, for example
+# 2024-09-21T00:47:53. Matched with a regex rather than
+# datetime.fromisoformat() because fromisoformat() was added in Python 3.7
+# and raises on a non-timestamp instead of returning a false value.
+TIMESTAMP_PATTERN = re.compile(
+    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$')
 
 
 def exclude_path():
@@ -69,8 +75,8 @@ def remove_timestamp(text):
     temp = []
     for line in lines:
         split_string = line.split(' ', 1)
-        # check if the first part is time format, then remove if it is
-        if split_string[0] and datetime.fromisoformat(split_string[0]):
+        # strip the leading timestamp when the line starts with one
+        if len(split_string) > 1 and TIMESTAMP_PATTERN.match(split_string[0]):
             temp.append(split_string[1])
         else:
             temp.append(line)

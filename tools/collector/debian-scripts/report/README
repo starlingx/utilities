@@ -303,7 +303,7 @@ Test Suite
 The report tool includes a built-in test suite that can be run to
 verify the tool is functioning correctly.
 
-    report.py --test              Run all 42 unit tests
+    report.py --test              Run all 51 unit tests
     report.py --test --cov        Run tests with code coverage report
 
 Test coverage includes:
@@ -318,6 +318,7 @@ Tests are located in the test/ directory:
     ├── test_alarm.py         Alarm algorithm tests
     ├── test_correlator.py    Correlator logic tests
     ├── test_plugin.py        Plugin parsing/validation tests
+    ├── test_render.py        Render module tests
     └── test_substring.py     Substring algorithm tests
 
 Running the standalone test runner:
