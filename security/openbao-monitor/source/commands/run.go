@@ -215,34 +215,54 @@ func firstServerHost(cfg *baoConfig.MonitorConfig) string {
 	return ""
 }
 
-// discoverCurrentGeneration sets CurrentKeySecret from Kubernetes if it's empty.
-// DiscoverCurrentGeneration ensures CurrentKeySecret points to the latest
-// generation secret in Kubernetes. If empty, it discovers and sets it. If
-// already set, it verifies the pointer matches the latest generation — a stale
-// pointer (e.g. from a crash after rekey stored a new generation but before
-// config was persisted) would cause unseal failures.
+// DiscoverCurrentGeneration reconciles cfg.CurrentKeySecret (an in-memory cache)
+// from the authoritative mutable pointer secret in Kubernetes.
+//
+// Behavior:
+//   - Pointer secret exists: adopt the generation it references. We do NOT
+//     second-guess it against the highest sequence number, so an interrupted
+//     rekey does not silently activate a stored-but-unverified generation.
+//     TODO: on unseal failure (stale pointer after a crashed rekey), rediscover
+//     the active generation. Not yet implemented; tracked separately.
+//   - Pointer secret absent but generation secrets exist: this is a first boot
+//     under the pointer model (or an upgrade from a pre-pointer system). Adopt
+//     the highest-sequence generation and seed the pointer secret from it.
+//   - Neither pointer nor generations exist: leave CurrentKeySecret empty and
+//     wait for init to create gen-001 and the pointer.
 func DiscoverCurrentGeneration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
+	pointer, err := cfg.LoadCurrentKeyPointer()
+	if err != nil {
+		return fmt.Errorf("failed to load current key pointer: %w", err)
+	}
+
+	if pointer != "" {
+		if cfg.CurrentKeySecret != pointer {
+			slog.Info("Reconciled current generation from pointer secret",
+				"previous", cfg.CurrentKeySecret, "current", pointer)
+		}
+		cfg.CurrentKeySecret = pointer
+		return nil
+	}
+
+	// No pointer secret yet — fall back to the highest-sequence generation.
 	gens, err := cfg.ListGenerationSecrets()
 	if err != nil {
 		return fmt.Errorf("failed to list generation secrets: %w", err)
 	}
 
 	if len(gens) == 0 {
-		slog.Info("No generation secrets found in Kubernetes, waiting for init")
+		slog.Info("No pointer secret and no generation secrets found, waiting for init")
 		return nil
 	}
 
 	latest := gens[len(gens)-1]
+	slog.Warn("No pointer secret found; seeding it from the highest-sequence generation",
+		"latest", latest)
 
-	if cfg.CurrentKeySecret == "" {
-		cfg.CurrentKeySecret = latest
-		slog.Info("Discovered current generation from Kubernetes",
-			"currentKeySecret", cfg.CurrentKeySecret)
-	} else if cfg.CurrentKeySecret != latest {
-		slog.Warn("CurrentKeySecret is stale, advancing to latest generation",
-			"stale", cfg.CurrentKeySecret, "latest", latest)
-		cfg.CurrentKeySecret = latest
+	if err := cfg.StoreCurrentKeyPointer(latest); err != nil {
+		return fmt.Errorf("failed to seed current key pointer with %q: %w", latest, err)
 	}
+	cfg.CurrentKeySecret = latest
 
 	return nil
 }
@@ -262,21 +282,24 @@ func runIteration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	// The nil is handled downstream: processServer returns an error for sealed
 	// servers and logs warnings for other states.
 	var genSecret *baoConfig.GenerationSecret
+	if cfg.CurrentKeySecret == "" {
+		// CurrentKeySecret is empty — re-read the authoritative pointer in case
+		// init created it since the last iteration, so a freshly-initialized
+		// cluster starts unsealing promptly.
+		if err := DiscoverCurrentGeneration(cfg, k8sConfig); err != nil {
+			slog.Error("Failed to discover current generation", "err", err)
+			return nil
+		}
+	}
+
 	if cfg.CurrentKeySecret != "" {
 		var err error
 		genSecret, err = cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 		if err != nil {
-			slog.Error("Failed to load generation secret, attempting rediscovery",
+			slog.Error("Failed to load generation secret from current pointer",
 				"name", cfg.CurrentKeySecret, "err", err)
-			// Clear stale pointer so DiscoverCurrentGeneration picks latest.
-			// The stale genSecret (nil from failed load) will not be used below
-			// because we return immediately. Next iteration will load from the
-			// newly-discovered CurrentKeySecret.
-			cfg.CurrentKeySecret = ""
-			discoverErr := DiscoverCurrentGeneration(cfg, k8sConfig)
-			if discoverErr != nil {
-				slog.Error("Failed to rediscover generation", "err", discoverErr)
-			}
+			// Retry next iteration: handles transient K8s errors, and leaves a
+			// persistently missing or corrupt generation visible in logs.
 			return nil
 		}
 	}
@@ -384,6 +407,12 @@ func runInitAndStore(cfg *baoConfig.MonitorConfig, client *clientapi.Client, hos
 	genName, err := cfg.StoreAndVerifyGeneration(genSecret, InitSecretThreshold)
 	if err != nil {
 		return err
+	}
+
+	// Advance the authoritative pointer to the freshly stored generation.
+	// Init has no verification step, so the new generation is active immediately.
+	if err := cfg.StoreCurrentKeyPointer(genName); err != nil {
+		return fmt.Errorf("failed to update current key pointer to %q: %w", genName, err)
 	}
 
 	// Cache the loaded secret in memory

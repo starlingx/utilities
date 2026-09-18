@@ -400,3 +400,127 @@ func (c *MonitorConfig) LoadGenerationSecret(secretName string) (*GenerationSecr
 	slog.Info("Generation secret loaded successfully", "name", secretName)
 	return &genSecret, nil
 }
+
+// currentKeyPointer is the JSON payload of the mutable pointer secret. It holds
+// the name of the generation secret that is currently active.
+type currentKeyPointer struct {
+	Current string `json:"current"`
+}
+
+// LoadCurrentKeyPointer reads the mutable pointer secret from Kubernetes and
+// returns the name of the generation secret it references.
+//
+// The pointer secret is the authoritative source of truth for which generation
+// is active. If the pointer secret does not exist yet (first boot before init,
+// or a system predating the pointer), this returns ("", nil) so callers can
+// distinguish "no pointer yet" from a real API error. All other failures
+// (API errors, missing/malformed data) return a wrapped error.
+func (c *MonitorConfig) LoadCurrentKeyPointer() (string, error) {
+	if c.Clientset == nil {
+		return "", fmt.Errorf("clientset is nil: K8s client not initialized")
+	}
+
+	namespace := c.Namespace
+	if namespace == "" {
+		namespace = k8sNamespace
+	}
+
+	pointerName := c.GetCurrentKeyPointerName()
+	slog.Debug("Loading current key pointer", "namespace", namespace, "name", pointerName)
+
+	secretClient := c.Clientset.CoreV1().Secrets(namespace)
+	ctx := context.Background()
+
+	k8sSecret, err := secretClient.Get(ctx, pointerName, metaV1.GetOptions{})
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			// Not an error: the pointer has not been created yet.
+			slog.Debug("Current key pointer not found", "name", pointerName)
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read current key pointer %q: %w", pointerName, err)
+	}
+
+	rawData, ok := k8sSecret.Data["data"]
+	if !ok {
+		return "", fmt.Errorf("current key pointer %q has no 'data' field", pointerName)
+	}
+
+	var pointer currentKeyPointer
+	if err := json.Unmarshal(rawData, &pointer); err != nil {
+		return "", fmt.Errorf("failed to unmarshal current key pointer %q: %w", pointerName, err)
+	}
+
+	if pointer.Current == "" {
+		return "", fmt.Errorf("current key pointer %q references an empty generation name", pointerName)
+	}
+
+	slog.Debug("Current key pointer loaded", "name", pointerName, "current", pointer.Current)
+	return pointer.Current, nil
+}
+
+// StoreCurrentKeyPointer creates or updates the mutable pointer secret so that
+// it references genName as the active generation secret. Unlike generation
+// secrets, the pointer secret is mutable and is overwritten in place when the
+// active generation advances (after init, and after a verified rekey).
+func (c *MonitorConfig) StoreCurrentKeyPointer(genName string) error {
+	if genName == "" {
+		return fmt.Errorf("cannot store current key pointer: generation name is empty")
+	}
+	if c.Clientset == nil {
+		return fmt.Errorf("clientset is nil: K8s client not initialized")
+	}
+
+	namespace := c.Namespace
+	if namespace == "" {
+		namespace = k8sNamespace
+	}
+
+	pointerName := c.GetCurrentKeyPointerName()
+	slog.Debug("Storing current key pointer", "namespace", namespace, "name", pointerName, "current", genName)
+
+	data, err := json.Marshal(currentKeyPointer{Current: genName})
+	if err != nil {
+		return fmt.Errorf("failed to marshal current key pointer: %w", err)
+	}
+
+	k8sSecret := &v1.Secret{
+		ObjectMeta: metaV1.ObjectMeta{
+			Name:      pointerName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app":       "openbao",
+				"component": "unseal-keys-pointer",
+			},
+		},
+		Data: map[string][]byte{
+			"data": data,
+		},
+	}
+
+	secretClient := c.Clientset.CoreV1().Secrets(namespace)
+	// TODO: bound with context.WithTimeout (+ rest.Config.Timeout fallback).
+	ctx := context.Background()
+
+	// Upsert: create if absent, update in place if it already exists.
+	_, err = secretClient.Create(ctx, k8sSecret, metaV1.CreateOptions{})
+	if err != nil {
+		if k8sErrors.IsAlreadyExists(err) {
+			existing, getErr := secretClient.Get(ctx, pointerName, metaV1.GetOptions{})
+			if getErr != nil {
+				return fmt.Errorf("failed to read existing current key pointer %q for update: %w", pointerName, getErr)
+			}
+			existing.Data = k8sSecret.Data
+			existing.Labels = k8sSecret.Labels
+			if _, updErr := secretClient.Update(ctx, existing, metaV1.UpdateOptions{}); updErr != nil {
+				return fmt.Errorf("failed to update current key pointer %q: %w", pointerName, updErr)
+			}
+			slog.Info("Current key pointer updated", "name", pointerName, "current", genName)
+			return nil
+		}
+		return fmt.Errorf("failed to create current key pointer %q: %w", pointerName, err)
+	}
+
+	slog.Info("Current key pointer created", "name", pointerName, "current", genName)
+	return nil
+}

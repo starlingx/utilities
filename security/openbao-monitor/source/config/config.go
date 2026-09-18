@@ -104,9 +104,15 @@ type MonitorConfig struct {
 	// Default: "openbao-unseal-gen"
 	GenerationPrefix string `yaml:"GenerationPrefix"`
 
-	// CurrentKeySecret names the k8s secret holding the active generation's keys.
-	// Example: "openbao-unseal-gen-001"
+	// CurrentKeySecret names the k8s secret holding the active generation's keys
+	// (e.g. "openbao-unseal-gen-001"). In-memory cache of the pointer secret
+	// (CurrentKeyPointerName), reconciled on startup by DiscoverCurrentGeneration.
 	CurrentKeySecret string `yaml:"CurrentKeySecret"`
+
+	// CurrentKeyPointerName names the mutable Kubernetes secret whose payload
+	// records which generation secret is currently active.
+	// Default: "openbao-unseal-current"
+	CurrentKeyPointerName string `yaml:"CurrentKeyPointerName"`
 
 	// loadedGenerationSecret caches the active generation secret data in memory
 	// after it has been loaded from Kubernetes. This is not serialized to YAML.
@@ -214,6 +220,15 @@ func (configInstance *MonitorConfig) GetCurrentRootToken() string {
 // GetCurrentKeySecret returns the name of the currently active generation secret.
 func (configInstance *MonitorConfig) GetCurrentKeySecret() string {
 	return configInstance.CurrentKeySecret
+}
+
+// GetCurrentKeyPointerName returns the configured CurrentKeyPointerName, falling
+// back to DefaultCurrentKeyPointerName when the config value is empty.
+func (configInstance *MonitorConfig) GetCurrentKeyPointerName() string {
+	if configInstance.CurrentKeyPointerName == "" {
+		return DefaultCurrentKeyPointerName
+	}
+	return configInstance.CurrentKeyPointerName
 }
 
 // If a generation secret is loaded in memory, it returns those keys.

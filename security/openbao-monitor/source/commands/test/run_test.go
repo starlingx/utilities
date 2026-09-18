@@ -39,36 +39,48 @@ func TestDiscoverCurrentGeneration_EmptyNamespace(t *testing.T) {
 	}
 }
 
-// TestDiscoverCurrentGeneration_AlreadySet verifies that when CurrentKeySecret
-// is already set, it is not overwritten.
-func TestDiscoverCurrentGeneration_AlreadySet(t *testing.T) {
+// TestDiscoverCurrentGeneration_PointerIsAuthoritative verifies that when the
+// pointer secret exists, discovery adopts the generation it references — even
+// if a higher-sequence generation secret also exists. The pointer is the source
+// of truth; the "highest sequence" heuristic is not used when a pointer exists.
+func TestDiscoverCurrentGeneration_PointerIsAuthoritative(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	cfg := &baoConfig.MonitorConfig{
 		Namespace:        "openbao",
 		GenerationPrefix: "openbao-unseal-gen",
-		CurrentKeySecret: "openbao-unseal-gen-003",
+		CurrentKeySecret: "",
 		Clientset:        clientset,
 	}
 
-	// Store gen-003 so ListGenerationSecrets finds it and confirms the pointer is correct
-	gen003 := &baoConfig.GenerationSecret{
+	gen := &baoConfig.GenerationSecret{
 		Keys:       []string{"k0", "k1", "k2", "k3", "k4"},
 		KeysBase64: []string{"a0", "a1", "a2", "a3", "a4"},
 		RootToken:  "s.root",
 	}
-	err := cfg.StoreGenerationSecret("openbao-unseal-gen-003", gen003)
-	if err != nil {
+
+	// gen-002 and gen-003 both exist, but the pointer references gen-002.
+	// This models an interrupted rekey: gen-003 was stored but never verified,
+	// so it must NOT become active.
+	if err := cfg.StoreGenerationSecret("openbao-unseal-gen-002", gen); err != nil {
+		t.Fatalf("failed to store gen-002: %v", err)
+	}
+	if err := cfg.StoreGenerationSecret("openbao-unseal-gen-003", gen); err != nil {
 		t.Fatalf("failed to store gen-003: %v", err)
 	}
+	if err := cfg.StoreCurrentKeyPointer("openbao-unseal-gen-002"); err != nil {
+		t.Fatalf("failed to store pointer: %v", err)
+	}
 
-	// DiscoverCurrentGeneration should confirm the pointer is already latest
-	err = baoCommands.DiscoverCurrentGeneration(cfg, nil)
-	if err != nil {
+	// Reset the cache so discovery must read the pointer.
+	cfg.CurrentKeySecret = ""
+
+	if err := baoCommands.DiscoverCurrentGeneration(cfg, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.CurrentKeySecret != "openbao-unseal-gen-003" {
-		t.Errorf("CurrentKeySecret changed to %q, should remain unchanged", cfg.CurrentKeySecret)
+	if cfg.CurrentKeySecret != "openbao-unseal-gen-002" {
+		t.Errorf("CurrentKeySecret = %q, want pointer value openbao-unseal-gen-002 (not highest gen-003)",
+			cfg.CurrentKeySecret)
 	}
 }
 
@@ -106,16 +118,16 @@ func TestInitConstants(t *testing.T) {
 	}
 }
 
-// TestDiscoverCurrentGeneration_WithExistingGens tests that the discovery
-// logic is correct by verifying the underlying ListGenerationSecrets behavior
-// with a fake clientset.
-func TestDiscoverCurrentGeneration_WithExistingGens(t *testing.T) {
-	// Test that a stale pointer is advanced to the latest generation
+// TestDiscoverCurrentGeneration_FallbackSeedsPointer verifies the first-boot /
+// upgrade path: when no pointer secret exists but generation secrets do,
+// discovery adopts the highest-sequence generation AND seeds the pointer secret
+// from it, so subsequent discovery is pointer-driven.
+func TestDiscoverCurrentGeneration_FallbackSeedsPointer(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	cfg := &baoConfig.MonitorConfig{
 		Namespace:        "openbao",
 		GenerationPrefix: "openbao-unseal-gen",
-		CurrentKeySecret: "openbao-unseal-gen-002",
+		CurrentKeySecret: "",
 		Clientset:        clientset,
 	}
 
@@ -125,21 +137,32 @@ func TestDiscoverCurrentGeneration_WithExistingGens(t *testing.T) {
 		RootToken:  "s.root",
 	}
 
-	// Store gen-002 and gen-003
+	// Two generations exist, no pointer secret yet.
 	if err := cfg.StoreGenerationSecret("openbao-unseal-gen-002", genSecret); err != nil {
 		t.Fatalf("failed to store gen-002: %v", err)
 	}
 	if err := cfg.StoreGenerationSecret("openbao-unseal-gen-003", genSecret); err != nil {
 		t.Fatalf("failed to store gen-003: %v", err)
 	}
+	// Reset cache so discovery must fall back to highest gen.
+	cfg.CurrentKeySecret = ""
 
-	// CurrentKeySecret is gen-002 but gen-003 exists — should advance
-	err := baoCommands.DiscoverCurrentGeneration(cfg, nil)
-	if err != nil {
+	if err := baoCommands.DiscoverCurrentGeneration(cfg, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	// Cache should adopt highest generation.
 	if cfg.CurrentKeySecret != "openbao-unseal-gen-003" {
-		t.Errorf("CurrentKeySecret should advance to gen-003, got %q", cfg.CurrentKeySecret)
+		t.Errorf("CurrentKeySecret = %q, want highest gen-003", cfg.CurrentKeySecret)
+	}
+
+	// The pointer secret should now be seeded with the same value.
+	seeded, err := cfg.LoadCurrentKeyPointer()
+	if err != nil {
+		t.Fatalf("failed to load seeded pointer: %v", err)
+	}
+	if seeded != "openbao-unseal-gen-003" {
+		t.Errorf("seeded pointer = %q, want openbao-unseal-gen-003", seeded)
 	}
 }
 

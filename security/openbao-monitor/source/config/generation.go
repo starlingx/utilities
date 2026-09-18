@@ -21,6 +21,11 @@ import (
 // DefaultGenerationPrefix is the default naming prefix for generation secrets.
 const DefaultGenerationPrefix = "openbao-unseal-gen"
 
+// DefaultCurrentKeyPointerName is the default name of the mutable Kubernetes
+// secret that records which generation secret is currently active. Its payload
+// holds the name of the active generation secret (e.g. "openbao-unseal-gen-001").
+const DefaultCurrentKeyPointerName = "openbao-unseal-current"
+
 // GenerationSecret represents the single-document secret format containing
 // all Shamir unseal key shards and root token for one key generation event.
 type GenerationSecret struct {

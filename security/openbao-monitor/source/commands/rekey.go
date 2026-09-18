@@ -150,9 +150,19 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 			return fmt.Errorf("rekey verification failed: %w", err)
 		}
 
+		// Advance the pointer after verification (which applies the new key on
+		// the server). A crash here leaves the pointer on a stale generation;
+		// recovery is by rediscovery on unseal failure, not by trusting it.
+		if err := globalConfig.StoreCurrentKeyPointer(proc.StoredGenName); err != nil {
+			return fmt.Errorf("rekey verified but failed to advance current key pointer to %q: %w",
+				proc.StoredGenName, err)
+		}
+		// Refresh the in-memory cache to match the newly-advanced pointer.
+		globalConfig.CurrentKeySecret = proc.StoredGenName
+
 		slog.Info("Rekey operation completed successfully",
 			"host", host,
-			"newGeneration", globalConfig.CurrentKeySecret)
+			"newGeneration", proc.StoredGenName)
 		return nil
 	},
 	PersistentPostRunE: cleanCmd,

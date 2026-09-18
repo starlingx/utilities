@@ -76,6 +76,12 @@ type RekeyProcess struct {
 	Threshold         int
 	Nonce             string // Stored nonce from rekey init
 	VerificationNonce string // Stored nonce from rekey update (for verification step)
+
+	// StoredGenName is the name of the generation secret written by StoreResult.
+	// The caller uses this to advance the authoritative current-key pointer
+	// after server-side verification succeeds — the pointer must not advance
+	// until the rekey is verified.
+	StoredGenName string
 }
 
 // Start initiates the rekey process on the server by calling /sys/rekey/init.
@@ -232,8 +238,13 @@ func (r *RekeyProcess) StoreResult(response *clientapi.RekeyUpdateResponse) erro
 		return fmt.Errorf("failed to store new generation secret %s: %w", nextGen, err)
 	}
 
+	// Record the stored generation name so the caller can advance the
+	// authoritative pointer after verification. The pointer itself is NOT
+	// updated here — only after the server confirms the rekey via Verify.
+	r.StoredGenName = nextGen
+
 	r.State = StateStored
-	slog.Info("Rekey complete: new generation secret stored", "name", nextGen)
+	slog.Info("Rekey complete: new generation secret stored (pointer not yet advanced)", "name", nextGen)
 	return nil
 }
 
