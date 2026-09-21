@@ -231,6 +231,16 @@ func (configInstance *MonitorConfig) GetCurrentKeyPointerName() string {
 	return configInstance.CurrentKeyPointerName
 }
 
+// GetNamespace returns the configured Namespace, falling back to the package
+// default (k8sNamespace) when the config value is empty (mirrors
+// GetGenerationPrefix).
+func (configInstance *MonitorConfig) GetNamespace() string {
+	if configInstance.Namespace == "" {
+		return k8sNamespace
+	}
+	return configInstance.Namespace
+}
+
 // If a generation secret is loaded in memory, it returns those keys.
 // Otherwise it falls back to the legacy UnsealKeyShards map.
 func (configInstance *MonitorConfig) GetUnsealKeys() []string {

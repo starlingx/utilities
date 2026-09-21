@@ -28,62 +28,12 @@ import (
 // Integration Test Helpers
 // =============================================================================
 
-// detectLegacySecretsInK8s checks if legacy cluster-key-* secrets exist.
-func detectLegacySecretsInK8s(clientset kubernetes.Interface, namespace, prefix string) (bool, error) {
-	ctx := context.Background()
-	for i := 0; i < 5; i++ {
-		name := fmt.Sprintf("%s-%d", prefix, i)
-		_, err := clientset.CoreV1().Secrets(namespace).Get(ctx, name, metaV1.GetOptions{})
-		if err == nil {
-			return true, nil // Found at least one
-		}
-	}
-	return false, nil
-}
-
-// migrateLegacySecretsInK8s migrates cluster-key-* secrets to gen-001 (for integration test).
-func migrateLegacySecretsInK8s(cfg *baoConfig.MonitorConfig, clientset kubernetes.Interface, prefix string) error {
-	ctx := context.Background()
-
-	// Load all 5 legacy shards
-	keys := make([]string, 5)
-	keysB64 := make([]string, 5)
-	var rootToken string
-
-	for i := 0; i < 5; i++ {
-		name := fmt.Sprintf("%s-%d", prefix, i)
-		secret, err := clientset.CoreV1().Secrets(cfg.Namespace).Get(ctx, name, metaV1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to load legacy secret %s: %w", name, err)
-		}
-		if keyData, ok := secret.Data["key"]; ok {
-			keys[i] = string(keyData)
-			keysB64[i] = string(keyData) // Simplified; normally base64 encoded
-		}
-	}
-
-	// Load root token
-	rootSecret, err := clientset.CoreV1().Secrets(cfg.Namespace).Get(ctx, prefix+"-root", metaV1.GetOptions{})
-	if err == nil {
-		if tokenData, ok := rootSecret.Data["key"]; ok {
-			rootToken = string(tokenData)
-		}
-	}
-
-	// Create gen-001 from legacy shards
-	genSecret := &baoConfig.GenerationSecret{
-		Keys:       keys,
-		KeysBase64: keysB64,
-		RootToken:  rootToken,
-	}
-
-	if err := cfg.StoreGenerationSecret("openbao-unseal-gen-001", genSecret); err != nil {
-		return err
-	}
-
-	cfg.CurrentKeySecret = "openbao-unseal-gen-001"
-	return nil
-}
+// Legacy detection/migration in these integration tests uses the real
+// production functions baoCommands.DetectLegacySecretsWithClientset and
+// baoCommands.MigrateLegacySecretsWithClientset (via a fake clientset), rather
+// than local reimplementations, so the tests exercise the actual code path.
+// The shared createAllLegacySecrets helper (see conversion_test.go) seeds the
+// real legacy "strdata"-JSON format those functions consume.
 
 // testGenSecret creates a standard 5-shard GenerationSecret for integration tests.
 func testGenSecret(prefix string) *baoConfig.GenerationSecret {
@@ -91,44 +41,6 @@ func testGenSecret(prefix string) *baoConfig.GenerationSecret {
 		Keys:       []string{prefix + "key0", prefix + "key1", prefix + "key2", prefix + "key3", prefix + "key4"},
 		KeysBase64: []string{prefix + "b64_0", prefix + "b64_1", prefix + "b64_2", prefix + "b64_3", prefix + "b64_4"},
 		RootToken:  "s." + prefix + "root-token",
-	}
-}
-
-// createAllLegacySecrets creates cluster-key-0 through cluster-key-4 and cluster-key-root
-// (simulates pre-upgrade state before migration to generation secrets).
-func createAllLegacySecrets(t *testing.T, clientset kubernetes.Interface, namespace, prefix string) {
-	t.Helper()
-	ctx := context.Background()
-	for i := 0; i < 5; i++ {
-		name := fmt.Sprintf("%s-%d", prefix, i)
-		secret := &v1.Secret{
-			ObjectMeta: metaV1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Data: map[string][]byte{
-				"key": []byte(fmt.Sprintf("abcdef%d", i)),
-			},
-		}
-		_, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metaV1.CreateOptions{})
-		if err != nil {
-			t.Fatalf("failed to create legacy secret %s: %v", name, err)
-		}
-	}
-
-	// Create root token secret
-	rootSecret := &v1.Secret{
-		ObjectMeta: metaV1.ObjectMeta{
-			Name:      prefix + "-root",
-			Namespace: namespace,
-		},
-		Data: map[string][]byte{
-			"key": []byte("s.root-token-123"),
-		},
-	}
-	_, err := clientset.CoreV1().Secrets(namespace).Create(ctx, rootSecret, metaV1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("failed to create legacy root secret: %v", err)
 	}
 }
 
@@ -234,7 +146,7 @@ func TestIntegration_FreshInstall_StoreGen001Immutable(t *testing.T) {
 	}
 
 	// Phase 0: Verify startup legacy migration with no legacy secrets
-	found, err := detectLegacySecretsInK8s(clientset, namespace, "cluster-key")
+	found, err := baoCommands.DetectLegacySecretsWithClientset(clientset, namespace, "cluster-key")
 	if err != nil {
 		t.Fatalf("DetectLegacySecrets failed: %v", err)
 	}
@@ -333,7 +245,7 @@ func TestIntegration_LegacyMigration_CreatesGen001(t *testing.T) {
 	}
 
 	// Detect legacy secrets
-	found, err := detectLegacySecretsInK8s(clientset, namespace, prefix)
+	found, err := baoCommands.DetectLegacySecretsWithClientset(clientset, namespace, prefix)
 	if err != nil {
 		t.Fatalf("DetectLegacySecrets failed: %v", err)
 	}
@@ -342,7 +254,7 @@ func TestIntegration_LegacyMigration_CreatesGen001(t *testing.T) {
 	}
 
 	// Perform migration
-	err = migrateLegacySecretsInK8s(cfg, clientset, prefix)
+	err = baoCommands.MigrateLegacySecretsWithClientset(cfg, clientset)
 	if err != nil {
 		t.Fatalf("MigrateLegacySecrets failed: %v", err)
 	}
@@ -830,7 +742,7 @@ func TestIntegration_NoSecretsDeleted_AfterMigration(t *testing.T) {
 	}
 
 	// Migrate
-	err := migrateLegacySecretsInK8s(cfg, clientset, prefix)
+	err := baoCommands.MigrateLegacySecretsWithClientset(cfg, clientset)
 	if err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}
@@ -1065,12 +977,12 @@ func TestIntegration_FullLifecycle_EndToEnd(t *testing.T) {
 	}
 
 	// === Phase 2: Legacy migration ===
-	found, err := detectLegacySecretsInK8s(clientset, namespace, prefix)
+	found, err := baoCommands.DetectLegacySecretsWithClientset(clientset, namespace, prefix)
 	if err != nil || !found {
 		t.Fatalf("expected legacy secrets detected: found=%v, err=%v", found, err)
 	}
 
-	err = migrateLegacySecretsInK8s(cfg, clientset, prefix)
+	err = baoCommands.MigrateLegacySecretsWithClientset(cfg, clientset)
 	if err != nil {
 		t.Fatalf("migration failed: %v", err)
 	}

@@ -11,8 +11,6 @@ Unit and integration tests for the `commands` package (run loop, legacy migratio
 - TestUnsealWithGenKeys_NilSecret — error on nil secret
 - TestUnsealWithGenKeys_InsufficientKeys — error with fewer than threshold
 - TestUnsealWithGenKeys_EmptyKeys — error with empty keys
-- TestStartupLegacyMigration_NoLegacySecrets — no-op when none found
-- TestStartupLegacyMigration_WithLegacySecrets_Integration — full migration
 - TestRunInitAndStore_ValidatesGenSecret — validates before storing
 - TestInitConstants — 5 shares, 3 threshold
 - TestJoinRaft_NoOtherServers — error when no peers
@@ -30,6 +28,9 @@ Unit and integration tests for the `commands` package (run loop, legacy migratio
 - TestMigrateLegacySecrets_MissingRootToken_Error — error without root
 - TestMigrateLegacySecrets_IdempotentRerun — succeeds on re-run
 - TestMigrateLegacySecrets_DefaultPrefix — uses cluster-key prefix
+- TestMigrateLegacySecrets_InvalidBase64_Refused — refuses bad base64, nothing frozen
+- TestMigrateLegacySecrets_EmptyRootToken_Refused — refuses empty root token, nothing frozen
+- TestMigrateLegacySecrets_ReadBackVerified — stored secret is read back and validated
 
 ### snapshot_test.go
 - TestCreateSnapshotMetadata_ValidGeneration — captures gen name + hash
