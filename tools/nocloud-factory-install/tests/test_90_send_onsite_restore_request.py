@@ -72,6 +72,7 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         self.mock_print = patch("builtins.print").start()
         self.mock_exit = patch("sys.exit").start()
         self.mock_exists = patch("os.path.exists").start()
+        self.mock_chmod = patch("os.chmod").start()
         # The script issues HTTP calls through new_verified_session(), which
         # returns a requests.Session used as a context manager. Replace it
         # with a mock session so assertions can target session.patch and no
@@ -220,6 +221,7 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         """Status file contains local_only=false only (no subcloud_name)."""
         trigger = self._build_trigger()
         trigger.subcloud_name = "subcloud1"
+        trigger.sysadmin_password = "syspass"  # nosec B105
         trigger.local_only = False
 
         m = mock_open()
@@ -238,6 +240,7 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         """Status file lists local_only=true."""
         trigger = self._build_trigger()
         trigger.subcloud_name = "subcloud1"
+        trigger.sysadmin_password = "syspass"  # nosec B105
         trigger.local_only = True
 
         m = mock_open()
@@ -252,6 +255,7 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         """Status file does not include subcloud_name."""
         trigger = self._build_trigger()
         trigger.subcloud_name = "subcloud1"
+        trigger.sysadmin_password = "syspass"  # nosec B105
         trigger.local_only = False
 
         m = mock_open()
