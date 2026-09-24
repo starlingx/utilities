@@ -47,6 +47,16 @@ function collect_feed {
 }
 
 ###############################################################################
+# List apt-ostree repos
+###############################################################################
+function collect_apt_ostree_repos {
+    run_command "find /var/www/pages/updates" "${LOGFILE}"
+    for apt_file in $(find /var/www/pages/updates/ -type f \( -name options -o -name distributions -o -name Release \)); do
+        run_command "cat ${apt_file}" "${LOGFILE}"
+    done
+}
+
+###############################################################################
 # Only Controller
 ###############################################################################
 if [ "$nodetype" = "controller" ] ; then
@@ -57,6 +67,9 @@ if [ "$nodetype" = "controller" ] ; then
 
     # Collect feed info
     collect_feed
+
+    # Collect apt-ostree repos info
+    collect_apt_ostree_repos
 
     # Copy /opt/software to extra dir, excluding large and temp directories
     run_command "rsync -a /opt/software --exclude __pycache__ --exclude ostree_repo --exclude packages ${extradir}" "${LOGFILE}"
