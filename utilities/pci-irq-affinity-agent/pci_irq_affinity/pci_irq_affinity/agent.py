@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2019-2022 StarlingX.
+# Copyright (c) 2019-2022, 2026 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -183,7 +183,8 @@ def start_rabbitmq_client():
     ]
 
     server = oslo_messaging.get_notification_listener(transport, [target],
-                                                      endpoints, "threading", allow_requeue=True)
+                                                      endpoints, "threading", allow_requeue=True,
+                                                      pool='pci-irq-affinity-agent')
     thread = threading.Thread(target=rpc_work, args=(server,))
     thread.start()
     LOG.info("Rabbitmq Client Started!")
