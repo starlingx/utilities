@@ -8,6 +8,7 @@ package baoCommands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -19,6 +20,7 @@ import (
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
 )
 
@@ -29,10 +31,44 @@ var waitInterval int
 // the kubelet probe. The bash health_check function checks this file age.
 const heartbeatPath = "/workdir/health/heartbeat"
 
-// InitSecretShares and InitSecretThreshold define the Shamir parameters
-// used when initializing OpenBao. Per requirement 9, these remain at 5/3.
-const InitSecretShares = 5
-const InitSecretThreshold = 3
+var errUnsealCandidateRejected = errors.New("unseal candidate rejected")
+var errNoGenerationUnsealed = errors.New("no known generation could unseal the server")
+
+// Limit of the # of recovery passes before escalation
+const unsealEscalationThreshold = 10
+
+// UnsealEscalationTracker tracks consecutive failed unseal/recovery attempts
+// and emits a terminal signal once the threshold is exceeded.
+type UnsealEscalationTracker struct {
+	FailureCount  int
+	Threshold     int
+	SignalEmitted bool
+	LastError     string
+	// pendingName/pendingSecret hold a deferred pointer-repair: a recovery
+	// unseal succeeded but the CurrentKeySecret pointer write failed, so the
+	// next iteration retries ActivateGeneration.
+	pendingName   string
+	pendingSecret *baoConfig.GenerationSecret
+}
+
+// IncrementFailure records a failed attempt and returns true the first time the
+// failure count reaches the threshold (so the terminal signal is emitted once).
+func (t *UnsealEscalationTracker) IncrementFailure(reason string) bool {
+	t.FailureCount++
+	t.LastError = reason
+	if t.FailureCount >= t.Threshold && !t.SignalEmitted {
+		t.SignalEmitted = true
+		return true // Signal should be emitted
+	}
+	return false
+}
+
+// ResetFailures clears the failure count and signal state after a success.
+func (t *UnsealEscalationTracker) ResetFailures() {
+	t.FailureCount = 0
+	t.SignalEmitted = false
+	t.LastError = ""
+}
 
 // touchHeartbeat updates the heartbeat file modification time so the
 // liveness probe (bash health_check) sees the manager as alive.
@@ -115,6 +151,8 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 		"currentKeySecret", cfg.CurrentKeySecret,
 		"waitInterval", waitInterval)
 
+	trackers := make(map[string]*UnsealEscalationTracker)
+
 	// Phase 3: Main monitoring loop
 	for {
 		select {
@@ -124,7 +162,7 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 		default:
 		}
 
-		if err := runIteration(cfg, k8sConfig); err != nil {
+		if err := runIteration(cfg, k8sConfig, trackers); err != nil {
 			// Fatal errors are returned; transient errors are logged in runIteration
 			return err
 		}
@@ -227,8 +265,6 @@ func firstServerHost(cfg *baoConfig.MonitorConfig) string {
 //   - Pointer secret exists: adopt the generation it references. We do NOT
 //     second-guess it against the highest sequence number, so an interrupted
 //     rekey does not silently activate a stored-but-unverified generation.
-//     TODO: on unseal failure (stale pointer after a crashed rekey), rediscover
-//     the active generation. Not yet implemented; tracked separately.
 //   - Pointer secret absent but generation secrets exist: this is a first boot
 //     under the pointer model (or an upgrade from a pre-pointer system). Adopt
 //     the highest-sequence generation and seed the pointer secret from it.
@@ -264,21 +300,35 @@ func DiscoverCurrentGeneration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Con
 	slog.Warn("No pointer secret found; seeding it from the highest-sequence generation",
 		"latest", latest)
 
-	if err := cfg.StoreCurrentKeyPointer(latest); err != nil {
-		return fmt.Errorf("failed to seed current key pointer with %q: %w", latest, err)
+	if err := cfg.ActivateGeneration(latest, nil); err != nil {
+		return fmt.Errorf("failed to activate generation %v: %v", latest, err)
 	}
-	cfg.CurrentKeySecret = latest
 
 	return nil
 }
 
 // runIteration performs a single pass of the run loop:
 // refresh pods, load generation secret, check each server, handle rekey.
-func runIteration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
+func runIteration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, trackers map[string]*UnsealEscalationTracker) error {
 	// Refresh pod addresses from Kubernetes
+	k8sAvailable := true
 	if err := cfg.MigratePodConfig(k8sConfig); err != nil {
+		if !baoConfig.IsTransientK8sError(err) {
+			return fmt.Errorf("failed to refresh pod config with non-transient Kubernetes error: %w", err)
+		}
+		k8sAvailable = false
 		slog.Error("Failed to refresh pod config, will retry next iteration", "err", err)
-		return nil // Transient error, continue
+	}
+
+	if k8sAvailable {
+		// If a server is gone from the refreshed address list (e.g. its pod was
+		// deleted), drop its tracker so stale retry/escalation state does not
+		// persist. Guarded by k8sAvailable: the list is authoritative only then.
+		for host := range trackers {
+			if _, exists := cfg.ServerAddresses[host]; !exists {
+				delete(trackers, host)
+			}
+		}
 	}
 
 	// Load current generation secret (if we have one).
@@ -287,7 +337,13 @@ func runIteration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	// The nil is handled downstream: processServer returns an error for sealed
 	// servers and logs warnings for other states.
 	var genSecret *baoConfig.GenerationSecret
-	if cfg.CurrentKeySecret == "" {
+	if !k8sAvailable {
+		genSecret = cfg.GetLoadedGenerationSecret()
+		if cfg.CurrentKeySecret == "" || genSecret == nil || len(cfg.ServerAddresses) == 0 {
+			slog.Warn("Restricted mode (K8s API unavailable) cannot operate without a confirmed cached generation and server addresses")
+			return nil
+		}
+	} else if cfg.CurrentKeySecret == "" {
 		// CurrentKeySecret is empty — re-read the authoritative pointer in case
 		// init created it since the last iteration, so a freshly-initialized
 		// cluster starts unsealing promptly.
@@ -297,39 +353,128 @@ func runIteration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 		}
 	}
 
-	if cfg.CurrentKeySecret != "" {
+	if k8sAvailable && cfg.CurrentKeySecret != "" {
 		var err error
 		genSecret, err = cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
 		if err != nil {
 			slog.Error("Failed to load generation secret from current pointer",
 				"name", cfg.CurrentKeySecret, "err", err)
-			// Retry next iteration: handles transient K8s errors, and leaves a
-			// persistently missing or corrupt generation visible in logs.
-			return nil
+			switch {
+			case k8sErrors.IsNotFound(err), k8sErrors.IsInvalid(err):
+				genSecret = nil
+			case baoConfig.IsTransientK8sError(err):
+				k8sAvailable = false
+				genSecret = cfg.GetLoadedGenerationSecret()
+				if genSecret == nil || len(cfg.ServerAddresses) == 0 {
+					slog.Warn("Restricted mode (transient K8s error loading current generation) cannot operate without a confirmed cached generation and server addresses")
+					return nil
+				}
+			default:
+				return fmt.Errorf("failed to load current generation: %w", err)
+			}
+		} else {
+			cfg.SetLoadedGenerationSecret(genSecret)
 		}
 	}
 
 	// Process each server
+	activeGeneration := cfg.CurrentKeySecret
 	for host := range maps.Keys(cfg.ServerAddresses) {
-		if err := processServer(cfg, host, genSecret); err != nil {
+		tracker, ok := trackers[host]
+		if !ok {
+			tracker = &UnsealEscalationTracker{Threshold: unsealEscalationThreshold}
+			trackers[host] = tracker
+		}
+		if err := processServer(cfg, host, genSecret, tracker, k8sAvailable); err != nil {
 			// Log per-server errors and continue to next server
 			slog.Error("Error processing server", "host", host, "err", err)
 			continue
 		}
+		if cfg.CurrentKeySecret != activeGeneration {
+			activeGeneration = cfg.CurrentKeySecret
+			genSecret = cfg.GetLoadedGenerationSecret()
+		}
 	}
 
 	// Check for rekey-in-progress and drive to completion
-	if err := HandleRekeyIfNeeded(cfg, genSecret); err != nil {
-		slog.Error("Error checking rekey status", "err", err)
+	if k8sAvailable {
+		if err := HandleRekeyIfNeeded(cfg, genSecret); err != nil {
+			slog.Error("Error checking rekey status", "err", err)
+		}
 	}
 
 	return nil
 }
 
+func recoverGenerationByUnseal(cfg *baoConfig.MonitorConfig, client *clientapi.Client, skipName string) (string, *baoConfig.GenerationSecret, error) {
+	gens, err := cfg.ListGenerationSecrets()
+	if err != nil {
+		return "", nil, fmt.Errorf("recovery: list generations %w", err)
+	}
+	if len(gens) == 0 {
+		return "", nil, errNoGenerationUnsealed
+	}
+
+	for i := len(gens) - 1; i >= 0; i-- {
+		name := gens[i]
+		if name == skipName {
+			continue
+		}
+		gen, err := cfg.LoadGenerationSecret(name)
+		if err != nil {
+			if k8sErrors.IsNotFound(err) || k8sErrors.IsInvalid(err) {
+				slog.Debug("Skipping unusable generation", "generation", name, "err", err)
+				continue
+			}
+			return "", nil, fmt.Errorf("recovery: load generation %q: %w", name, err)
+		}
+
+		matched, err := tryGenerationByUnseal(client, name, gen)
+		if err != nil {
+			return "", nil, err
+		}
+		if matched {
+			return name, gen, nil
+		}
+		slog.Debug("Generation did not unseal server", "generation", name)
+	}
+
+	return "", nil, errNoGenerationUnsealed
+}
+
+func tryGenerationByUnseal(client *clientapi.Client, name string, gen *baoConfig.GenerationSecret) (bool, error) {
+	if err := UnsealWithGenKeys(client, gen); err != nil {
+		if isUnsealCandidateRejection(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("recovery: generation %v unseal attempt failed: %v", name, err)
+	}
+	return true, nil
+}
+
+func isUnsealCandidateRejection(err error) bool {
+	if errors.Is(err, errUnsealCandidateRejected) {
+		return true
+	}
+	var responseErr *clientapi.ResponseError
+	return errors.As(err, &responseErr) && responseErr.StatusCode == 400
+}
+
 // processServer checks a single server's health and takes appropriate action
 // during steady-state monitoring. The main loop only handles unsealing sealed
 // servers — initialization and raft join are handled exclusively in startupPhase.
-func processServer(cfg *baoConfig.MonitorConfig, host string, genSecret *baoConfig.GenerationSecret) error {
+func processServer(cfg *baoConfig.MonitorConfig, host string, genSecret *baoConfig.GenerationSecret, tracker *UnsealEscalationTracker, allowRecovery bool) error {
+	if allowRecovery && tracker.pendingName != "" {
+		if err := cfg.ActivateGeneration(tracker.pendingName, tracker.pendingSecret); err != nil {
+			slog.Warn("Failed to repair current generation pointer", "host", host,
+				"generation", tracker.pendingName, "error", err)
+		} else {
+			genSecret = tracker.pendingSecret
+			tracker.pendingName = ""
+			tracker.pendingSecret = nil
+		}
+	}
+
 	client, err := cfg.SetupClient(host)
 	if err != nil {
 		return fmt.Errorf("failed to setup client for host %s: %w", host, err)
@@ -351,13 +496,59 @@ func processServer(cfg *baoConfig.MonitorConfig, host string, genSecret *baoConf
 
 	case health.Sealed:
 		slog.Info("Server is sealed, attempting unseal", "host", host)
-		if genSecret == nil {
-			return fmt.Errorf("cannot unseal host %s: no generation secret loaded", host)
+
+		// Try unseal with the current generation
+		if genSecret != nil {
+			if err := UnsealWithGenKeys(client, genSecret); err == nil {
+				slog.Info("Unseal successful", "host", host)
+				tracker.ResetFailures()
+				return nil
+			} else if !isUnsealCandidateRejection(err) {
+				return fmt.Errorf("unseal attempt with current generation failed for host %v: %v", host, err)
+			}
+			slog.Debug("Unseal failed with current generation", "host", host, "currentGen", cfg.CurrentKeySecret)
+		} else {
+			slog.Debug("No usable current generation loaded", "host", host, "currentGen", cfg.CurrentKeySecret)
 		}
-		if err := UnsealWithGenKeys(client, genSecret); err != nil {
-			return fmt.Errorf("unseal failed for host %s: %w", host, err)
+
+		if !allowRecovery {
+			return fmt.Errorf("kubernetes unavailable; historical generation recovery is disabled")
 		}
-		slog.Info("Unseal successful", "host", host)
+
+		recoveredGen, recoveredSecret, err := recoverGenerationByUnseal(cfg, client, cfg.CurrentKeySecret)
+		if err != nil {
+			if !errors.Is(err, errNoGenerationUnsealed) {
+				return err
+			}
+
+			// No generation unsealed the server.
+			escalationTriggered := tracker.IncrementFailure(err.Error())
+
+			if escalationTriggered {
+				// Escalation threshold crossed
+				slog.Error("Maximum trial reached for unsealing with all known generation keys", "host", host)
+			} else if tracker.FailureCount == 1 {
+				// Signal a warning on the first try
+				slog.Warn("No known generation could unseal the server", "host", host)
+			}
+
+			// No logs for trial 2 to threshold - 1
+			return nil
+		}
+
+		// Recovery succeeded
+		previousGen := cfg.CurrentKeySecret
+		tracker.ResetFailures()
+		if err := cfg.ActivateGeneration(recoveredGen, recoveredSecret); err != nil {
+			// Not a fatal error
+			tracker.pendingName = recoveredGen
+			tracker.pendingSecret = recoveredSecret
+			slog.Error("Failed to update current generation pointer after recovery",
+				"host", host, "recovered generation", recoveredGen, "err", err)
+		} else {
+			slog.Info("Server unsealed via recovery and pointer updated",
+				"host", host, "old generation", previousGen, "newGen", recoveredGen)
+		}
 
 	case health.ClusterID == "":
 		// Initialized and unsealed but no cluster membership. This is an
@@ -370,16 +561,17 @@ func processServer(cfg *baoConfig.MonitorConfig, host string, genSecret *baoConf
 	default:
 		slog.Debug("Server healthy", "host", host,
 			"version", health.Version, "clusterID", health.ClusterID)
+		tracker.ResetFailures()
 	}
 
 	return nil
 }
 
 // runInitAndStore initializes an OpenBao server and stores the result as a
-// new immutable generation secret. Uses 5 shares / 3 threshold per requirement 9.
+// new immutable generation secret.
 func runInitAndStore(cfg *baoConfig.MonitorConfig, client *clientapi.Client, host string) error {
 	slog.Info("Initializing OpenBao server",
-		"host", host, "shares", InitSecretShares, "threshold", InitSecretThreshold)
+		"host", host, "shares", secretShares, "threshold", secretThreshold)
 
 	// Pre-flight: verify K8s connectivity before calling /sys/init.
 	// Once init is called, the keys only exist in the response — if we can't
@@ -390,8 +582,8 @@ func runInitAndStore(cfg *baoConfig.MonitorConfig, client *clientapi.Client, hos
 	}
 
 	opts := &clientapi.InitRequest{
-		SecretShares:    InitSecretShares,
-		SecretThreshold: InitSecretThreshold,
+		SecretShares:    secretShares,
+		SecretThreshold: secretThreshold,
 	}
 
 	response, err := client.Sys().Init(opts)
@@ -404,31 +596,28 @@ func runInitAndStore(cfg *baoConfig.MonitorConfig, client *clientapi.Client, hos
 	if err != nil {
 		return fmt.Errorf("parsing init response to generation: %w", err)
 	}
-	if err := baoConfig.ValidateGenerationSecret(genSecret); err != nil {
-		return fmt.Errorf("init produced invalid generation secret: %w", err)
-	}
 
 	// Store + verify using shared helper (retry on transient K8s failures)
-	genName, err := cfg.StoreAndVerifyGeneration(genSecret, InitSecretThreshold)
+	genName, err := cfg.StoreAndVerifyGeneration(genSecret, secretShares)
 	if err != nil {
 		return err
 	}
 
-	// Advance the authoritative pointer to the freshly stored generation.
-	// Init has no verification step, so the new generation is active immediately.
-	if err := cfg.StoreCurrentKeyPointer(genName); err != nil {
-		return fmt.Errorf("failed to update current key pointer to %q: %w", genName, err)
+	reloaded, err := cfg.LoadGenerationSecret(genName)
+	if err != nil {
+		return fmt.Errorf("pre-unseal validation failed for %v, %v", genName, err)
 	}
 
-	// Cache the loaded secret in memory
-	cfg.SetLoadedGenerationSecret(genSecret)
+	if err := cfg.ActivateGeneration(genName, reloaded); err != nil {
+		return err
+	}
 
 	slog.Info("Init complete, generation secret stored",
 		"host", host, "generation", genName)
 
 	// Unseal the freshly initialized server
 	slog.Info("Unsealing freshly initialized server", "host", host)
-	if err := UnsealWithGenKeys(client, genSecret); err != nil {
+	if err := UnsealWithGenKeys(client, reloaded); err != nil {
 		slog.Error("Failed to unseal after init", "host", host, "err", err)
 		// Not fatal — the next iteration will attempt unseal
 	}
@@ -443,9 +632,24 @@ func UnsealWithGenKeys(client *clientapi.Client, genSecret *baoConfig.Generation
 		return fmt.Errorf("generation secret is nil")
 	}
 
-	keysNeeded := InitSecretThreshold
+	if len(genSecret.Keys) == 0 {
+		return fmt.Errorf("generation holds no key shards: %w", errUnsealCandidateRejected)
+	}
+	if client == nil {
+		return fmt.Errorf("unseal client is nil")
+	}
+
+	status, err := client.Sys().ResetUnsealProcess()
+	if err != nil {
+		return err
+	}
+	if status == nil || !status.Sealed || status.Progress != 0 || status.T < 1 {
+		return fmt.Errorf("cannot confirm a fresh unseal attempt")
+	}
+	keysNeeded := status.T
+
 	if len(genSecret.Keys) < keysNeeded {
-		return fmt.Errorf("not enough keys: need %d, have %d", keysNeeded, len(genSecret.Keys))
+		return fmt.Errorf("generation has %d shard(s) but server requires %d: %w", len(genSecret.Keys), keysNeeded, errUnsealCandidateRejected)
 	}
 
 	for i := 0; i < keysNeeded; i++ {
@@ -453,17 +657,25 @@ func UnsealWithGenKeys(client *clientapi.Client, genSecret *baoConfig.Generation
 		if err != nil {
 			return fmt.Errorf("unseal failed on key %d: %w", i, err)
 		}
+		if result == nil {
+			return fmt.Errorf("unseal returned no status for key %v", i)
+		}
 		if !result.Sealed {
+			if i+1 < keysNeeded {
+				return fmt.Errorf("server became unsealed before this attempt supplied the threshold; candidate is not proven")
+			}
 			slog.Debug("Server unsealed", "keysUsed", i+1)
 			return nil
 		}
 		slog.Debug("Unseal progress", "submitted", i+1, "threshold", result.T, "progress", result.Progress)
 	}
 
-	return fmt.Errorf("server still sealed after submitting %d keys", keysNeeded)
+	return fmt.Errorf("submitted %d shard(s) but server did not unseal: %w", keysNeeded, errUnsealCandidateRejected)
 }
 
 func init() {
 	runCmd.Flags().IntVar(&waitInterval, "waitInterval", 5, "wait time in seconds between each check iteration")
+	runCmd.Flags().IntVar(&secretShares, "secret-shares", 5, "The number of shares that the root key will split to")
+	runCmd.Flags().IntVar(&secretThreshold, "secret-threshold", 3, "The number of shares required to unseal")
 	RootCmd.AddCommand(runCmd)
 }
