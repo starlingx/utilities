@@ -9,7 +9,6 @@ package rekey
 import (
 	"fmt"
 	"log/slog"
-	"time"
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
@@ -55,7 +54,7 @@ type SysAPI interface {
 	RekeyUpdate(shard, nonce string) (*clientapi.RekeyUpdateResponse, error)
 	RekeyCancel() error
 	RekeyVerificationUpdate(shard, nonce string) (*clientapi.RekeyVerificationUpdateResponse, error)
-	RekeyVerificationCancel() error
+	RekeyVerificationStatus() (*clientapi.RekeyVerificationStatusResponse, error)
 }
 
 // ConfigLoader abstracts the config operations needed by the rekey process.
@@ -63,7 +62,7 @@ type SysAPI interface {
 type ConfigLoader interface {
 	LoadGenerationSecret(secretName string) (*baoConfig.GenerationSecret, error)
 	NextGenerationName() (string, error)
-	StoreGenerationSecret(genName string, secret *baoConfig.GenerationSecret) error
+	StoreAndVerifyGenerationAtName(genName string, secret *baoConfig.GenerationSecret, minShares, maxAttempts int) error
 	GetCurrentRootToken() string
 	GetCurrentKeySecret() string
 }
@@ -77,7 +76,7 @@ type RekeyProcess struct {
 	Nonce             string // Stored nonce from rekey init
 	VerificationNonce string // Stored nonce from rekey update (for verification step)
 
-	// StoredGenName is the name of the generation secret written by StoreResult.
+	// StoredGenName is the name of the generation secret written by StoreResultWithRetry.
 	// The caller uses this to advance the authoritative current-key pointer
 	// after server-side verification succeeds — the pointer must not advance
 	// until the rekey is verified.
@@ -104,7 +103,9 @@ func (r *RekeyProcess) Start(sys SysAPI) error {
 	if err != nil {
 		return fmt.Errorf("failed to initiate rekey: %w", err)
 	}
-
+	if initResp == nil {
+		return fmt.Errorf("rekey init response is nil")
+	}
 	if !initResp.Started {
 		return fmt.Errorf("rekey init response indicates not started")
 	}
@@ -112,7 +113,7 @@ func (r *RekeyProcess) Start(sys SysAPI) error {
 	if !initResp.VerificationRequired {
 		// Safety check: we always request verification. If the server does not
 		// confirm it, abort rather than proceeding with an unverifiable rekey.
-		return fmt.Errorf("server did not confirm verification_required; aborting rekey to prevent unverifiable key rotation")
+		return r.abortAndConfirm(sys, fmt.Errorf("server did not confirm verification_required; aborting rekey to prevent unverifiable key rotation"))
 	}
 
 	r.Nonce = initResp.Nonce
@@ -131,13 +132,20 @@ func (r *RekeyProcess) SubmitShards(sys SysAPI) (*clientapi.RekeyUpdateResponse,
 	// Load the current generation's keys
 	genSecret, err := r.Config.LoadGenerationSecret(r.Config.GetCurrentKeySecret())
 	if err != nil {
-		// Cancel rekey on error to avoid stuck state
-		cancelErr := sys.RekeyCancel()
-		if cancelErr != nil {
-			slog.Error("Failed to cancel rekey after load error", "cancelErr", cancelErr)
-		}
-		r.State = StateIdle
-		return nil, fmt.Errorf("failed to load generation secret for rekey: %w", err)
+		return nil, r.abortAndConfirm(sys, fmt.Errorf("failed to load generation secret for rekey: %w", err))
+	}
+
+	status, err := sys.RekeyStatus()
+	if err != nil {
+		return nil, r.abortAndConfirm(sys, err)
+	}
+	if status == nil || status.Required < 1 {
+		return nil, r.abortAndConfirm(sys, fmt.Errorf("rekey status has no required key count"))
+	}
+	required := status.Required
+	progress := status.Progress
+	if progress < 0 || progress >= required {
+		return nil, r.abortAndConfirm(sys, fmt.Errorf("invalid rekey progress %d for required key count %d", progress, required))
 	}
 
 	r.State = StateInProgress
@@ -145,28 +153,20 @@ func (r *RekeyProcess) SubmitShards(sys SysAPI) (*clientapi.RekeyUpdateResponse,
 	// Pre-check: ensure we have enough keys before starting submission.
 	// Failing mid-loop after partial submission would leave the server in a
 	// harder-to-recover state.
-	if len(genSecret.Keys) < r.Threshold {
-		cancelErr := sys.RekeyCancel()
-		if cancelErr != nil {
-			slog.Error("Failed to cancel rekey", "cancelErr", cancelErr)
-		}
-		r.State = StateIdle
-		return nil, fmt.Errorf("not enough keys: need %d, have %d", r.Threshold, len(genSecret.Keys))
+	if len(genSecret.Keys) < required {
+		return nil, r.abortAndConfirm(sys, fmt.Errorf("not enough keys: need %d, have %d", r.Threshold, len(genSecret.Keys)))
 	}
 
 	// Submit threshold keys sequentially
 	var finalResp *clientapi.RekeyUpdateResponse
-	for i := 0; i < r.Threshold; i++ {
+	for i := progress; i < required; i++ {
 		resp, err := sys.RekeyUpdate(genSecret.Keys[i], r.Nonce)
 		if err != nil {
-			// Cancel rekey on submission error to avoid stuck state
-			slog.Error("Rekey update failed, cancelling", "shard", i, "err", err)
-			cancelErr := sys.RekeyCancel()
-			if cancelErr != nil {
-				slog.Error("Failed to cancel rekey after update error", "cancelErr", cancelErr)
-			}
-			r.State = StateIdle
-			return nil, fmt.Errorf("failed to submit shard %d during rekey: %w", i, err)
+			return nil, r.abortAndConfirm(sys, fmt.Errorf("failed to submit shard %d during rekey: %w", i, err))
+		}
+
+		if resp == nil {
+			return nil, r.abortAndConfirm(sys, fmt.Errorf("rekey shard %d returned a nil response", i))
 		}
 
 		if resp.Complete {
@@ -176,13 +176,7 @@ func (r *RekeyProcess) SubmitShards(sys SysAPI) (*clientapi.RekeyUpdateResponse,
 	}
 
 	if finalResp == nil || !finalResp.Complete {
-		// Cancel since we submitted all threshold keys but didn't complete
-		cancelErr := sys.RekeyCancel()
-		if cancelErr != nil {
-			slog.Error("Failed to cancel rekey after incomplete submission", "cancelErr", cancelErr)
-		}
-		r.State = StateIdle
-		return nil, fmt.Errorf("rekey did not complete after submitting %d threshold keys", r.Threshold)
+		return nil, r.abortAndConfirm(sys, fmt.Errorf("rekey did not complete after submitting %d threshold keys", r.Threshold))
 	}
 
 	// Capture the verification nonce for the verify step
@@ -197,11 +191,7 @@ func (r *RekeyProcess) SubmitShards(sys SysAPI) (*clientapi.RekeyUpdateResponse,
 	return finalResp, nil
 }
 
-// StoreResult persists the rekey result as a new generation secret.
-// It preserves the root token from the current generation (rekey does not
-// change root token) and creates a new immutable generation secret.
-// Transitions state to StateStored on success.
-func (r *RekeyProcess) StoreResult(response *clientapi.RekeyUpdateResponse) error {
+func (r *RekeyProcess) storeResult(response *clientapi.RekeyUpdateResponse, maxAttempts int) error {
 	if response == nil {
 		return fmt.Errorf("cannot store nil rekey response")
 	}
@@ -221,19 +211,13 @@ func (r *RekeyProcess) StoreResult(response *clientapi.RekeyUpdateResponse) erro
 		RootToken:  currentRootToken,
 	}
 
-	// Validate the new secret before storing
-	if err := baoConfig.ValidateGenerationSecret(newSecret); err != nil {
-		return fmt.Errorf("new generation secret failed validation: %w", err)
-	}
-
 	// Compute the next generation name
 	nextGen, err := r.Config.NextGenerationName()
 	if err != nil {
 		return fmt.Errorf("failed to compute next generation name: %w", err)
 	}
 
-	// Store the new immutable generation secret
-	err = r.Config.StoreGenerationSecret(nextGen, newSecret)
+	err = r.Config.StoreAndVerifyGenerationAtName(nextGen, newSecret, r.NewShares, maxAttempts)
 	if err != nil {
 		return fmt.Errorf("failed to store new generation secret %s: %w", nextGen, err)
 	}
@@ -244,17 +228,13 @@ func (r *RekeyProcess) StoreResult(response *clientapi.RekeyUpdateResponse) erro
 	r.StoredGenName = nextGen
 
 	r.State = StateStored
-	slog.Info("Rekey complete: new generation secret stored (pointer not yet advanced)", "name", nextGen)
+	slog.Info("Rekey generation stored", "name", nextGen, "verificationRequired", response.VerificationRequired)
 	return nil
 }
 
 // Verify completes the rekey verification step by submitting threshold new keys
 // to the server. This confirms the client received the correct keys and triggers
 // the server to actually apply the new master key.
-//
-// Must be called after StoreResult when RequireVerification was set to true.
-// On success, transitions state to StateVerified.
-// On failure, cancels the verification (server reverts the pending rekey).
 func (r *RekeyProcess) Verify(sys SysAPI, response *clientapi.RekeyUpdateResponse) error {
 	if response == nil {
 		return fmt.Errorf("cannot verify with nil rekey response")
@@ -274,12 +254,6 @@ func (r *RekeyProcess) Verify(sys SysAPI, response *clientapi.RekeyUpdateRespons
 	for i := 0; i < r.Threshold; i++ {
 		verifyResp, err := sys.RekeyVerificationUpdate(response.Keys[i], r.VerificationNonce)
 		if err != nil {
-			slog.Error("Rekey verification update failed, cancelling verification",
-				"shard", i, "err", err)
-			cancelErr := sys.RekeyVerificationCancel()
-			if cancelErr != nil {
-				slog.Error("Failed to cancel rekey verification", "cancelErr", cancelErr)
-			}
 			return fmt.Errorf("rekey verification failed on shard %d: %w", i, err)
 		}
 
@@ -291,11 +265,6 @@ func (r *RekeyProcess) Verify(sys SysAPI, response *clientapi.RekeyUpdateRespons
 	}
 
 	// If we submitted threshold keys and didn't get Complete, something is wrong
-	slog.Error("Rekey verification did not complete after submitting threshold keys")
-	cancelErr := sys.RekeyVerificationCancel()
-	if cancelErr != nil {
-		slog.Error("Failed to cancel rekey verification", "cancelErr", cancelErr)
-	}
 	return fmt.Errorf("rekey verification did not complete after submitting %d keys", r.Threshold)
 }
 
@@ -307,7 +276,56 @@ func (r *RekeyProcess) CheckInProgress(sys SysAPI) (bool, error) {
 		return false, fmt.Errorf("failed to check rekey status: %w", err)
 	}
 
-	return status.Started, nil
+	if status == nil {
+		return false, fmt.Errorf("nil rekey status response")
+	}
+
+	if status.Started {
+		return true, nil
+	}
+
+	verification, err := sys.RekeyVerificationStatus()
+	if err != nil {
+		return false, fmt.Errorf("failed to check rekey verification status: %w", err)
+	}
+	if verification == nil {
+		return false, fmt.Errorf("nil rekey verification status response")
+	}
+	return verification.Started, nil
+}
+
+func (r *RekeyProcess) abortAndConfirm(sys SysAPI, cause error) error {
+	if err := r.CancelAndConfirm(sys); err != nil {
+		return fmt.Errorf("rekey cancellation for issue '%v' failed: %w", cause, err)
+	}
+	return fmt.Errorf("rekey cancelled. reason: %v", cause)
+}
+
+func (r *RekeyProcess) CancelAndConfirm(sys SysAPI) error {
+	if err := sys.RekeyCancel(); err != nil {
+		return fmt.Errorf("failed to cancel rekey: %w", err)
+	}
+
+	inProgress, err := r.CheckInProgress(sys)
+	if err != nil {
+		return fmt.Errorf("rekey cancel outcome is unknown: %w", err)
+	}
+	if inProgress {
+		return fmt.Errorf("rekey remains in progress after cancellation")
+	}
+	r.State = StateIdle
+	return nil
+}
+
+func (r *RekeyProcess) CancelInProgress(sys SysAPI) error {
+	inProgress, err := r.CheckInProgress(sys)
+	if err != nil {
+		return err
+	}
+	if !inProgress {
+		return nil
+	}
+	return r.CancelAndConfirm(sys)
 }
 
 // Cancel aborts a rekey operation in progress on the server and resets
@@ -333,48 +351,16 @@ func (r *RekeyProcess) Cancel(sys SysAPI) error {
 //   - Transient K8s API failures (retry with exponential backoff)
 //   - Silent storage corruption (read-back comparison)
 func (r *RekeyProcess) StoreResultWithRetry(response *clientapi.RekeyUpdateResponse, maxAttempts int) error {
-	var storeErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		storeErr = r.StoreResult(response)
-		if storeErr == nil {
-			break
-		}
-		slog.Error("Failed to store rekey result, retrying",
-			"attempt", attempt, "err", storeErr)
-		if attempt < maxAttempts {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
-		}
-	}
-	if storeErr != nil {
-		return fmt.Errorf("failed to store rekey result after %d attempts (keys may be lost): %w",
-			maxAttempts, storeErr)
-	}
-
-	// Read-back verification: re-read stored secret from K8s and confirm it
-	// matches what we stored. This guards against silent storage corruption
-	// before proceeding to verification (which would commit the new keys as active).
-	stored, err := r.Config.LoadGenerationSecret(r.Config.GetCurrentKeySecret())
-	if err != nil {
-		return fmt.Errorf("failed to re-read generation secret after store: %w", err)
-	}
-	if len(stored.Keys) != len(response.Keys) {
-		return fmt.Errorf("stored secret key count (%d) does not match response (%d)",
-			len(stored.Keys), len(response.Keys))
-	}
-	for i, key := range response.Keys {
-		if stored.Keys[i] != key {
-			return fmt.Errorf("stored secret key[%d] does not match response", i)
-		}
-	}
-	slog.Debug("Re-read verification passed: stored secret matches in-memory response")
-
-	return nil
+	return r.storeResult(response, maxAttempts)
 }
 
 // VerifyWithServer completes the server-side rekey verification step if
 // verification was required. Returns nil without action if the response
 // does not require verification.
 func (r *RekeyProcess) VerifyWithServer(sys SysAPI, response *clientapi.RekeyUpdateResponse) error {
+	if response == nil {
+		return fmt.Errorf("cannot verify nil rekey response")
+	}
 	if !response.VerificationRequired {
 		return nil
 	}

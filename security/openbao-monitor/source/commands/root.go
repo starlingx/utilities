@@ -145,8 +145,10 @@ func setupCmd(cmd *cobra.Command, args []string) error {
 		// Load the generation secret into memory so that GetCurrentRootToken()
 		// returns the real token for authenticated API calls (e.g. snapshot).
 		if globalConfig.CurrentKeySecret != "" {
-			if _, err := globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret); err != nil {
+			if loaded, err := globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret); err != nil {
 				slog.Debug("Failed to load generation secret (non-fatal)", "err", err)
+			} else {
+				globalConfig.SetLoadedGenerationSecret(loaded)
 			}
 		}
 	}

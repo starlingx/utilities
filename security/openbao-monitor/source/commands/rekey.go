@@ -70,10 +70,12 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 		}
 
 		// Load the current generation secret to ensure we have keys available
-		_, err = globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret)
+		currentGeneration, err := globalConfig.LoadGenerationSecret(globalConfig.CurrentKeySecret)
 		if err != nil {
 			return fmt.Errorf("failed to load current generation secret: %w", err)
 		}
+
+		globalConfig.SetLoadedGenerationSecret(currentGeneration)
 
 		// The openbao client's Sys() satisfies the rekey.SysAPI interface
 		sys := newClient.Sys()
@@ -92,14 +94,10 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 			return fmt.Errorf("failed to check rekey status: %w", err)
 		}
 		if inProgress {
-			slog.Info("Rekey already in progress, driving to completion", "host", host)
-			if err := RecoverInProgressRekey(&globalConfig, nil, sys); err != nil {
-				return fmt.Errorf("failed to drive in-progress rekey: %w", err)
+			if err := proc.CancelAndConfirm(sys); err != nil {
+				return fmt.Errorf("did not cancel in-progress rekey: %w", err)
 			}
-			slog.Info("In-progress rekey driven to completion",
-				"host", host,
-				"newGeneration", globalConfig.CurrentKeySecret)
-			return nil
+			slog.Info("In-progress rekey canceled", "host", host)
 		}
 
 		// Step 1: Initiate rekey
@@ -131,7 +129,10 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 		slog.Info("Storing new generation secret")
 
 		if err := proc.StoreResultWithRetry(response, 3); err != nil {
-			return err
+			if cancelErr := proc.CancelInProgress(sys); cancelErr != nil {
+				return fmt.Errorf("rekey store failed (%v) and cancellation also failed: %w", err, cancelErr)
+			}
+			return fmt.Errorf("rekey cancelled: %w", err)
 		}
 
 		// Failpoint 3: After Pointer Updated, Before Verification
@@ -153,12 +154,10 @@ Requires --k8s flag since the new generation secret must be stored in Kubernetes
 		// Advance the pointer after verification (which applies the new key on
 		// the server). A crash here leaves the pointer on a stale generation;
 		// recovery is by rediscovery on unseal failure, not by trusting it.
-		if err := globalConfig.StoreCurrentKeyPointer(proc.StoredGenName); err != nil {
+		if err := globalConfig.ActivateGeneration(proc.StoredGenName, nil); err != nil {
 			return fmt.Errorf("rekey verified but failed to advance current key pointer to %q: %w",
 				proc.StoredGenName, err)
 		}
-		// Refresh the in-memory cache to match the newly-advanced pointer.
-		globalConfig.CurrentKeySecret = proc.StoredGenName
 
 		slog.Info("Rekey operation completed successfully",
 			"host", host,

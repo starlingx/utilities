@@ -13,17 +13,11 @@ import (
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
-	"k8s.io/client-go/rest"
 )
-
-// InitSecretShares and InitSecretThreshold define the Shamir parameters
-// used when initializing OpenBao. Per requirement 9, these remain at 5/3.
-const InitSecretShares = 5
-const InitSecretThreshold = 3
 
 // HandleRekeyIfNeeded checks if a rekey operation is in progress on any server
 // and drives it to completion if so. Called directly from runIteration.
-func HandleRekeyIfNeeded(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, genSecret *baoConfig.GenerationSecret) error {
+func HandleRekeyIfNeeded(cfg *baoConfig.MonitorConfig, genSecret *baoConfig.GenerationSecret) error {
 	if genSecret == nil {
 		// No generation secret loaded, can't participate in rekey
 		return nil
@@ -42,24 +36,16 @@ func HandleRekeyIfNeeded(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, g
 			continue
 		}
 
-		// Create a rekey process to check status
-		proc := &rekey.RekeyProcess{
-			Config:    cfg,
-			State:     rekey.StateIdle,
-			NewShares: InitSecretShares,
-			Threshold: InitSecretThreshold,
-		}
-
 		sys := client.Sys()
-		inProgress, err := proc.CheckInProgress(sys)
+		status, err := sys.RekeyStatus()
 		if err != nil {
 			slog.Debug("Failed to check rekey status", "host", host, "err", err)
 			continue
 		}
 
-		if inProgress {
+		if status != nil && status.Started {
 			slog.Info("Rekey in progress detected, driving to completion", "host", host)
-			if err := RecoverInProgressRekey(cfg, k8sConfig, sys); err != nil {
+			if err := RecoverInProgressRekey(cfg, sys); err != nil {
 				slog.Error("Failed to drive rekey to completion", "host", host, "err", err)
 			}
 		}
@@ -72,23 +58,23 @@ func HandleRekeyIfNeeded(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, g
 }
 
 // RecoverInProgressRekey submits shards and stores the result for an in-progress rekey.
-func RecoverInProgressRekey(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config, sys rekey.SysAPI) error {
-	proc := &rekey.RekeyProcess{
-		Config:    cfg,
-		State:     rekey.StateInProgress,
-		NewShares: InitSecretShares,
-		Threshold: InitSecretThreshold,
-	}
-
+func RecoverInProgressRekey(cfg *baoConfig.MonitorConfig, sys rekey.SysAPI) error {
 	// Get the nonce from the rekey status
 	status, err := sys.RekeyStatus()
 	if err != nil {
 		return fmt.Errorf("failed to get rekey status: %w", err)
 	}
-	if !status.Started {
+	if status == nil || !status.Started {
 		return nil // Rekey no longer in progress
 	}
-	proc.Nonce = status.Nonce
+
+	proc := &rekey.RekeyProcess{
+		Config:    cfg,
+		State:     rekey.StateInProgress,
+		NewShares: status.N,
+		Threshold: status.T,
+		Nonce:     status.Nonce,
+	}
 
 	// Submit shards
 	response, err := proc.SubmitShards(sys)
@@ -109,12 +95,10 @@ func RecoverInProgressRekey(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config
 	// Advance the pointer after verification (which applies the new key on the
 	// server). A crash here leaves the pointer on a stale generation; recovery
 	// is by rediscovery on unseal failure, not by trusting it.
-	if err := cfg.StoreCurrentKeyPointer(proc.StoredGenName); err != nil {
+	if err := cfg.ActivateGeneration(proc.StoredGenName, nil); err != nil {
 		return fmt.Errorf("rekey verified but failed to advance current key pointer to %q: %w",
 			proc.StoredGenName, err)
 	}
-	// Refresh the in-memory cache to match the newly-advanced pointer.
-	cfg.CurrentKeySecret = proc.StoredGenName
 
 	slog.Info("Rekey driven to completion, new generation active",
 		"currentKeySecret", cfg.CurrentKeySecret)

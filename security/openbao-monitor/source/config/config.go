@@ -117,6 +117,7 @@ type MonitorConfig struct {
 	// loadedGenerationSecret caches the active generation secret data in memory
 	// after it has been loaded from Kubernetes. This is not serialized to YAML.
 	loadedGenerationSecret *GenerationSecret `yaml:"-"`
+	loadedGenerationName   string            `yaml:"-"`
 
 	// Clientset is the Kubernetes client used for all K8s operations.
 	// Set programmatically at startup; not serialized to YAML.
@@ -203,8 +204,8 @@ func (configInstance *MonitorConfig) GetRootTokenName() string {
 // If a generation secret is loaded in memory, it returns that root token.
 // Otherwise it falls back to the legacy Tokens map lookup.
 func (configInstance *MonitorConfig) GetCurrentRootToken() string {
-	if configInstance.loadedGenerationSecret != nil {
-		return configInstance.loadedGenerationSecret.RootToken
+	if loaded := configInstance.GetLoadedGenerationSecret(); loaded != nil {
+		return loaded.RootToken
 	}
 
 	// Fallback to legacy token lookup
@@ -244,8 +245,8 @@ func (configInstance *MonitorConfig) GetNamespace() string {
 // If a generation secret is loaded in memory, it returns those keys.
 // Otherwise it falls back to the legacy UnsealKeyShards map.
 func (configInstance *MonitorConfig) GetUnsealKeys() []string {
-	if configInstance.loadedGenerationSecret != nil {
-		return configInstance.loadedGenerationSecret.Keys
+	if loaded := configInstance.GetLoadedGenerationSecret(); loaded != nil {
+		return loaded.Keys
 	}
 
 	// Fallback to legacy unseal key shards
@@ -260,10 +261,14 @@ func (configInstance *MonitorConfig) GetUnsealKeys() []string {
 // This is called after loading a generation secret from Kubernetes.
 func (configInstance *MonitorConfig) SetLoadedGenerationSecret(secret *GenerationSecret) {
 	configInstance.loadedGenerationSecret = secret
+	configInstance.loadedGenerationName = configInstance.CurrentKeySecret
 }
 
 // GetLoadedGenerationSecret returns the in-memory cached generation secret.
 func (configInstance *MonitorConfig) GetLoadedGenerationSecret() *GenerationSecret {
+	if configInstance.loadedGenerationName != configInstance.CurrentKeySecret {
+		return nil
+	}
 	return configInstance.loadedGenerationSecret
 }
 

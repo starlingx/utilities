@@ -29,6 +29,11 @@ var waitInterval int
 // the kubelet probe. The bash health_check function checks this file age.
 const heartbeatPath = "/workdir/health/heartbeat"
 
+// InitSecretShares and InitSecretThreshold define the Shamir parameters
+// used when initializing OpenBao. Per requirement 9, these remain at 5/3.
+const InitSecretShares = 5
+const InitSecretThreshold = 3
+
 // touchHeartbeat updates the heartbeat file modification time so the
 // liveness probe (bash health_check) sees the manager as alive.
 func touchHeartbeat() {
@@ -314,7 +319,7 @@ func runIteration(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	}
 
 	// Check for rekey-in-progress and drive to completion
-	if err := HandleRekeyIfNeeded(cfg, k8sConfig, genSecret); err != nil {
+	if err := HandleRekeyIfNeeded(cfg, genSecret); err != nil {
 		slog.Error("Error checking rekey status", "err", err)
 	}
 

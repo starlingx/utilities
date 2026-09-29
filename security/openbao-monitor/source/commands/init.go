@@ -122,16 +122,17 @@ secret in Kubernetes.`,
 				return fmt.Errorf("failed to parse init response: %w", err)
 			}
 
-			genName, err := globalConfig.StoreAndVerifyGeneration(genSecret, secretThreshold)
+			// The floor is a minimum shard count, so pass SecretShares, not the
+			// threshold. opts holds the values actually sent to /sys/init, including
+			// the --file path; the package vars are only set in the flag path and
+			// would be stale under --file. Use opts here as the source of truth.
+			genName, err := globalConfig.StoreAndVerifyGeneration(genSecret, opts.SecretShares)
 			if err != nil {
 				return err
 			}
 
-			// Advance the authoritative pointer to the freshly stored generation.
-			// Init has no verification step, so the new generation is active
-			// immediately.
-			if err := globalConfig.StoreCurrentKeyPointer(genName); err != nil {
-				return fmt.Errorf("failed to update current key pointer to %q: %w", genName, err)
+			if err := globalConfig.ActivateGeneration(genName, genSecret); err != nil {
+				return err
 			}
 
 			slog.Info("Generation secret stored and verified", "name", genName)
@@ -145,7 +146,7 @@ secret in Kubernetes.`,
 
 func init() {
 	initCmd.Flags().StringVarP(&optFileStr, "file", "f", "", "A JSON file containing the options for init")
-	initCmd.Flags().IntVar(&secretShares, "secret-shares", 0, "The number of shares to split the root key into.")
-	initCmd.Flags().IntVar(&secretThreshold, "secret-threshold", 0, "The number of shares required to reconstruct the root key.")
+	initCmd.Flags().IntVar(&secretShares, "secret-shares", 5, "The number of shares to split the root key into.")
+	initCmd.Flags().IntVar(&secretThreshold, "secret-threshold", 3, "The number of shares required to reconstruct the root key.")
 	RootCmd.AddCommand(initCmd)
 }

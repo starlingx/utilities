@@ -8,7 +8,6 @@ package baoCommands
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -23,10 +22,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	coreV1Client "k8s.io/client-go/kubernetes/typed/core/v1"
 )
-
-// expectedLegacyShardCount is the number of unseal key shards expected
-// in the legacy per-shard secret format.
-const expectedLegacyShardCount = 5
 
 // k8sCallTimeout bounds each Kubernetes API call made by the conversion
 // command so a hung or unreachable API server cannot block the operator
@@ -72,20 +67,23 @@ func DetectLegacySecretsWithClientset(clientset kubernetes.Interface, namespace,
 
 	secretClient := clientset.CoreV1().Secrets(namespace)
 
-	// Check for shard secrets {prefix}-0 through {prefix}-4
-	for i := 0; i < expectedLegacyShardCount; i++ {
+	for i := 0; i < secretShares; i++ {
 		name := fmt.Sprintf("%s-%d", prefix, i)
 		if _, err := getSecretWithTimeout(secretClient, name); err != nil {
-			slog.Debug("Legacy secret not found", "name", name)
-			return false, nil
+			if k8sErrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
 		}
 	}
 
 	// Check for root token secret {prefix}-root
 	rootName := fmt.Sprintf("%s-root", prefix)
 	if _, err := getSecretWithTimeout(secretClient, rootName); err != nil {
-		slog.Debug("Legacy root token secret not found", "name", rootName)
-		return false, nil
+		if k8sErrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
 	}
 
 	slog.Info("All legacy secrets detected", "prefix", prefix)
@@ -120,8 +118,7 @@ func MigrateLegacySecretsWithClientset(cfg *baoConfig.MonitorConfig, clientset k
 	var genSecret baoConfig.GenerationSecret
 	var missingSecrets []string
 
-	// Read each shard secret {prefix}-0 through {prefix}-4
-	for i := 0; i < expectedLegacyShardCount; i++ {
+	for i := 0; i < secretShares; i++ {
 		name := fmt.Sprintf("%s-%d", prefix, i)
 		secret, err := getSecretWithTimeout(secretClient, name)
 		if err != nil {
@@ -183,16 +180,12 @@ func MigrateLegacySecretsWithClientset(cfg *baoConfig.MonitorConfig, clientset k
 	// Store as gen-001 via the shared, immutable, idempotent storage path.
 	slog.Info("Migrating legacy secrets to generation secret", "name", genName)
 
-	if err := cfg.StoreGenerationSecret(genName, &genSecret); err != nil {
+	if err := cfg.StoreAndVerifyGenerationAtName(genName, &genSecret, secretShares, baoConfig.DefaultStoreMaxAttempts); err != nil {
 		return fmt.Errorf("failed to store generation secret during migration: %w", err)
 	}
 
-	// READ-BACK VERIFICATION. Mirrors the init path's StoreAndVerifyGeneration:
-	// confirm K8s persisted a usable secret (loads cleanly + threshold keys).
-	// Catches a persistence anomaly at mint time, while the operator is still
-	// watching.
-	if _, err := loadAndValidateGeneration(cfg, genName, InitSecretThreshold); err != nil {
-		return fmt.Errorf("read-back verification failed for %s: %w", genName, err)
+	if err := cfg.ActivateGeneration(genName, &genSecret); err != nil {
+		return fmt.Errorf("failed to activate migrated generation %v: %w", genName, err)
 	}
 
 	slog.Info("Legacy secret migration complete", "generation", genName)
@@ -207,33 +200,31 @@ func MigrateLegacySecretsWithClientset(cfg *baoConfig.MonitorConfig, clientset k
 // It is the counterpart to validateAssembledGeneration, which is the stricter
 // PRE-store assembly check (exact legacy shard count, base64 decode) on a
 // not-yet-frozen secret. Callers wrap the returned error with their own context.
-func loadAndValidateGeneration(cfg *baoConfig.MonitorConfig, genName string, threshold int) (*baoConfig.GenerationSecret, error) {
+func loadAndValidateGeneration(cfg *baoConfig.MonitorConfig, genName string, minShares int) (*baoConfig.GenerationSecret, error) {
 	gen, err := cfg.LoadGenerationSecret(genName)
 	if err != nil {
 		return nil, fmt.Errorf("failed validation on load: %w", err)
 	}
-	if len(gen.Keys) < threshold {
-		return nil, fmt.Errorf("has only %d keys, need at least %d", len(gen.Keys), threshold)
+	if len(gen.Keys) < minShares {
+		return nil, fmt.Errorf("has only %d keys, need at least %d", len(gen.Keys), minShares)
 	}
 	return gen, nil
 }
 
 // validateAssembledGeneration performs the offline "well-formed" checks on the
 // generation secret assembled from legacy shards, BEFORE it is frozen immutable.
-// It asserts the full expected shard count was collected, runs the shared
-// structural validation, and confirms every base64 key actually decodes.
 func validateAssembledGeneration(genSecret *baoConfig.GenerationSecret, genName string) error {
 	// Complete key set: every legacy shard must have contributed a key. The
 	// missing-secrets guard only catches failed Gets; this catches shards that
 	// existed but yielded no usable key, which would otherwise freeze a short
 	// (below-threshold) generation secret.
-	if len(genSecret.Keys) != expectedLegacyShardCount {
+	if len(genSecret.Keys) != secretShares {
 		return fmt.Errorf("refusing to store %s: assembled %d keys, expected %d legacy shards",
-			genName, len(genSecret.Keys), expectedLegacyShardCount)
+			genName, len(genSecret.Keys), secretShares)
 	}
-	if len(genSecret.KeysBase64) != expectedLegacyShardCount {
+	if len(genSecret.KeysBase64) != secretShares {
 		return fmt.Errorf("refusing to store %s: assembled %d base64 keys, expected %d legacy shards",
-			genName, len(genSecret.KeysBase64), expectedLegacyShardCount)
+			genName, len(genSecret.KeysBase64), secretShares)
 	}
 
 	// Structural validation (non-empty keys, keys_base64 length matches keys,
@@ -241,15 +232,6 @@ func validateAssembledGeneration(genSecret *baoConfig.GenerationSecret, genName 
 	// functional one — a server is required to prove the token authenticates.
 	if err := baoConfig.ValidateGenerationSecret(genSecret); err != nil {
 		return fmt.Errorf("refusing to store %s: %w", genName, err)
-	}
-
-	// base64 sanity: a payload that unmarshaled as a string but is not valid
-	// base64 indicates corruption. Fail before freezing.
-	for i, b64 := range genSecret.KeysBase64 {
-		if _, err := base64.StdEncoding.DecodeString(b64); err != nil {
-			return fmt.Errorf("refusing to store %s: keys_base64[%d] is not valid base64: %w",
-				genName, i, err)
-		}
 	}
 
 	return nil
@@ -269,8 +251,10 @@ assembled keys BEFORE storing (full shard count, structure, base64) and verifies
 the stored secret by reading it back — it refuses to freeze a malformed or
 incomplete secret rather than leave an unrepairable state.
 
-Idempotency: if a valid generation secret already exists, the command is a
-no-op success. If one exists but is unusable (fails validation or has too few
+Pre-existing generation secret: if gen-001 already exists, the command refuses
+to run and does not touch the current-key pointer — migration has already been
+performed, and re-pointing could drag the active pointer back from a newer
+generation. If gen-001 exists but is unusable (fails validation or has too few
 keys), the command fails with guidance to tear it down and re-migrate — an
 immutable secret cannot be repaired in place.`,
 	PersistentPreRunE: setupCmd,
@@ -293,33 +277,39 @@ immutable secret cannot be repaired in place.`,
 
 		namespace := globalConfig.GetNamespace()
 
-		// DETECT-ON-INVOKE: if gen-001 already exists, judge whether it is usable
-		// before doing anything else. A frozen but malformed gen-001 (e.g. from an
-		// earlier bungled migration) is an unrepairable stuck state — surface it
-		// with an actionable error rather than a cryptic "already exists" or a
-		// silent success. A valid existing gen-001 is an idempotent no-op.
+		// DETECT-ON-INVOKE: if gen-001 already exists, refuse before doing
+		// anything else. Conversion only creates gen-001 from legacy secrets; a
+		// pre-existing gen-001 means migration already ran, so there is nothing
+		// to do and the current-key pointer must not be touched. Judge usability
+		// only to give a clearer error: a frozen but malformed gen-001 (e.g. from
+		// an earlier bungled migration) is an unrepairable stuck state needing
+		// teardown, versus a valid gen-001 that just means already-migrated.
 		genName := fmt.Sprintf("%s-%03d", globalConfig.GetGenerationPrefix(), 1)
 		genExists, err := secretExists(globalConfig.Clientset, namespace, genName)
 		if err != nil {
 			return fmt.Errorf("error checking for existing generation secret %s: %w", genName, err)
 		}
 		if genExists {
-			// It exists; confirm it is usable (loads cleanly + threshold keys).
-			// Any error here means the frozen secret is unusable — this is NOT
-			// the normal already-migrated case, and an immutable secret cannot be
-			// repaired in place, so surface it with actionable rollback guidance.
-			if _, err := loadAndValidateGeneration(&globalConfig, genName, InitSecretThreshold); err != nil {
+			// Conversion's only job is to create gen-001 from legacy secrets.
+			// If gen-001 already exists, migration has already run — refuse
+			// rather than touch the current-key pointer. Re-pointing it here
+			// could drag it back from a newer generation (e.g. one created by a
+			// later rekey), so conversion must not advance the pointer at all.
+			//
+			// Distinguish the two sub-cases for a clearer error: an unusable
+			// frozen gen-001 (fails validation) is unrepairable in place and
+			// needs a teardown; a valid gen-001 simply means we are already
+			// migrated.
+			if _, err := loadAndValidateGeneration(&globalConfig, genName, secretShares); err != nil {
 				return fmt.Errorf(
-					"%s exists but is not usable (%w) — this is not the normal "+
-						"already-migrated case; the frozen secret is unrepairable and must be "+
-						"torn down and re-migrated (delete the openbao namespace via rollback "+
-						"and re-run the migration)", genName, err)
+					"%s exists but is not usable (%w) — the frozen secret is "+
+						"unrepairable and must be torn down and re-migrated (delete the "+
+						"openbao namespace via rollback and re-run the migration)", genName, err)
 			}
-			slog.Info("Generation secret already present and valid, nothing to migrate",
-				"name", genName)
-			fmt.Printf("%s already exists and is valid. Nothing to migrate.\n", genName)
-			globalConfig.CurrentKeySecret = genName
-			return nil
+			return fmt.Errorf(
+				"%s already exists — migration has already been performed; refusing "+
+					"to re-run conversion (delete the openbao namespace and re-migrate "+
+					"if you intend to start over)", genName)
 		}
 
 		// Detect legacy secrets
@@ -346,5 +336,7 @@ immutable secret cannot be repaired in place.`,
 }
 
 func init() {
+	conversionCmd.Flags().IntVar(&secretShares, "secret-shares", 5, "The number of legacy key shares to migrate")
+	conversionCmd.Flags().IntVar(&secretThreshold, "secret-threshold", 3, "The number of shares required to unseal")
 	RootCmd.AddCommand(conversionCmd)
 }

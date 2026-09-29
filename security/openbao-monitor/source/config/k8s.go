@@ -4,15 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"regexp"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/pingcap/failpoint"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -31,6 +37,39 @@ var secretPrefix string = "cluster-key"
 type KeySecret struct {
 	Key        []string `json:"keys"`
 	KeyEncoded []string `json:"keys_base64"`
+}
+
+// Filters errors that can be solved on retry
+func IsTransientK8sError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if k8sErrors.IsTimeout(err) || k8sErrors.IsServerTimeout(err) ||
+		k8sErrors.IsTooManyRequests(err) || k8sErrors.IsServiceUnavailable(err) ||
+		k8sErrors.IsInternalError(err) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	if strings.Contains(strings.ToLower(err.Error()), "request timed out") {
+		return true
+	}
+
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && (networkErr.Timeout() || networkErr.Temporary()) {
+		return true
+	}
+
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
+}
+
+func getK8sContextWithTimeout(restConfig *rest.Config) (context.Context, context.CancelFunc) {
+	timeout := 30 * time.Second // Default
+
+	if restConfig != nil && restConfig.Timeout != 0 {
+		timeout = restConfig.Timeout
+	}
+
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 // Get list of DNS names fro k8s pods
@@ -60,7 +99,8 @@ func (configInstance *MonitorConfig) MigratePodConfig(config *rest.Config) error
 
 	// client for core
 	coreClient := clientset.CoreV1()
-	ctx := context.Background()
+	ctx, cancel := getK8sContextWithTimeout(config)
+	defer cancel()
 
 	slog.Debug("Accessing the server pods for the addresses...")
 	// get pod list
@@ -265,21 +305,12 @@ func (configInstance *MonitorConfig) StoreSecretConfig(config *rest.Config) erro
 
 // StoreGenerationSecret creates a new immutable Kubernetes secret for a key
 // generation event. The secret is stored with labels for discovery and its
-// data field contains the JSON-marshaled GenerationSecret. On success,
-// CurrentKeySecret is updated to genName.
-//
-// If the secret already exists (AlreadyExists error), the function compares
-// the existing data with what we intended to store. If they are identical,
-// the operation is treated as a success (idempotent retry). If the data
-// differs, a fatal error is returned indicating corruption or conflict.
+// data field contains the JSON-marshaled GenerationSecret.
 func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *GenerationSecret) error {
 	if c.Clientset == nil {
 		return fmt.Errorf("clientset is nil: K8s client not initialized")
 	}
-	namespace := c.Namespace
-	if namespace == "" {
-		namespace = k8sNamespace
-	}
+	namespace := c.GetNamespace()
 
 	slog.Debug("Storing generation secret", "namespace", namespace, "name", genName)
 
@@ -309,15 +340,16 @@ func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *Generation
 	}
 
 	secretClient := c.Clientset.CoreV1().Secrets(namespace)
-	ctx := context.Background()
+	ctx, cancel := getK8sContextWithTimeout(nil)
+	defer cancel()
 
-	_, err = secretClient.Create(ctx, k8sSecret, metaV1.CreateOptions{})
+	created, err := secretClient.Create(ctx, k8sSecret, metaV1.CreateOptions{})
 	if err != nil {
 		if k8sErrors.IsAlreadyExists(err) {
 			slog.Info("Generation secret already exists, checking data consistency", "name", genName)
 			existing, getErr := secretClient.Get(ctx, genName, metaV1.GetOptions{})
 			if getErr != nil {
-				return fmt.Errorf("failed to read existing generation secret %s: %w", genName, getErr)
+				return getErr
 			}
 			existingData, ok := existing.Data["data"]
 			if !ok {
@@ -325,12 +357,11 @@ func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *Generation
 			}
 			if bytes.Equal(existingData, data) {
 				slog.Info("Existing generation secret has identical data, treating as success", "name", genName)
-				c.CurrentKeySecret = genName
 				return nil
 			}
 			return fmt.Errorf("generation secret %s already exists with different data: corruption or conflict", genName)
 		}
-		return fmt.Errorf("failed to create generation secret %s: %w", genName, err)
+		return err
 	}
 
 	// Failpoint 2: Rekey: After K8s Secret Created, Before Pointer Update
@@ -340,21 +371,13 @@ func (c *MonitorConfig) StoreGenerationSecret(genName string, secret *Generation
 		failpoint.Return(fmt.Errorf("failpoint: rekey after shards before store"))
 	})
 
-	c.CurrentKeySecret = genName
-	slog.Info("Generation secret stored successfully", "name", genName)
+	slog.Info("Generation secret stored successfully", "name", genName,
+		"uid", created.UID, "createdAt", created.CreationTimestamp)
 	return nil
 }
 
 // LoadGenerationSecret reads the current generation secret from Kubernetes,
-// deserializes and validates it, then caches it in memory via SetLoadedGenerationSecret.
-// The secret to read is determined by secretName.
-//
-// Returns descriptive errors for:
-//   - CurrentKeySecret is empty
-//   - Secret not found in Kubernetes
-//   - No "data" field in the secret
-//   - Malformed JSON in the "data" field
-//   - Validation failure (wrong key count, empty root token)
+// deserializes and validates it. The secret to read is determined by secretName.
 func (c *MonitorConfig) LoadGenerationSecret(secretName string) (*GenerationSecret, error) {
 	if secretName == "" {
 		return nil, fmt.Errorf("generation secret name is empty")
@@ -363,43 +386,31 @@ func (c *MonitorConfig) LoadGenerationSecret(secretName string) (*GenerationSecr
 		return nil, fmt.Errorf("clientset is nil: K8s client not initialized")
 	}
 
-	namespace := c.Namespace
-	if namespace == "" {
-		namespace = k8sNamespace
-	}
+	namespace := c.GetNamespace()
 
 	slog.Debug("Loading generation secret", "namespace", namespace, "name", secretName)
 
 	secretClient := c.Clientset.CoreV1().Secrets(namespace)
-	ctx := context.Background()
+	ctx, cancel := getK8sContextWithTimeout(nil)
+	defer cancel()
 
 	k8sSecret, err := secretClient.Get(ctx, secretName, metaV1.GetOptions{})
 	if err != nil {
-		if k8sErrors.IsNotFound(err) {
-			return nil, fmt.Errorf("generation secret %q not found in namespace %q", secretName, namespace)
-		}
-		return nil, fmt.Errorf("failed to read generation secret %q: %w", secretName, err)
+		return nil, err
 	}
 
-	// Extract the "data" field from the k8s secret
-	rawData, ok := k8sSecret.Data["data"]
-	if !ok {
-		return nil, fmt.Errorf("generation secret %q has no 'data' field", secretName)
-	}
-
-	// Deserialize JSON into GenerationSecret
 	var genSecret GenerationSecret
-	if err := json.Unmarshal(rawData, &genSecret); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal generation secret %q: %w", secretName, err)
+	if rawData, ok := k8sSecret.Data["data"]; !ok {
+		err = fmt.Errorf("no \"data\" field")
+	} else if err = json.Unmarshal(rawData, &genSecret); err == nil {
+		err = ValidateGenerationSecret(&genSecret)
 	}
-
-	// Validate the loaded secret
-	if err := ValidateGenerationSecret(&genSecret); err != nil {
-		return nil, fmt.Errorf("generation secret %q failed validation: %w", secretName, err)
+	if err != nil {
+		// Using k8sErrors to notify runIteration that this error should be
+		// discarded, and recovery attempted.
+		return nil, k8sErrors.NewInvalid(schema.GroupKind{Kind: "secret"}, secretName,
+			field.ErrorList{field.Invalid(field.NewPath("data"), nil, err.Error())})
 	}
-
-	// Cache the loaded secret in memory
-	c.SetLoadedGenerationSecret(&genSecret)
 
 	slog.Info("Generation secret loaded successfully", "name", secretName)
 	return &genSecret, nil
@@ -424,16 +435,14 @@ func (c *MonitorConfig) LoadCurrentKeyPointer() (string, error) {
 		return "", fmt.Errorf("clientset is nil: K8s client not initialized")
 	}
 
-	namespace := c.Namespace
-	if namespace == "" {
-		namespace = k8sNamespace
-	}
+	namespace := c.GetNamespace()
 
 	pointerName := c.GetCurrentKeyPointerName()
 	slog.Debug("Loading current key pointer", "namespace", namespace, "name", pointerName)
 
 	secretClient := c.Clientset.CoreV1().Secrets(namespace)
-	ctx := context.Background()
+	ctx, cancel := getK8sContextWithTimeout(nil)
+	defer cancel()
 
 	k8sSecret, err := secretClient.Get(ctx, pointerName, metaV1.GetOptions{})
 	if err != nil {
@@ -475,10 +484,7 @@ func (c *MonitorConfig) StoreCurrentKeyPointer(genName string) error {
 		return fmt.Errorf("clientset is nil: K8s client not initialized")
 	}
 
-	namespace := c.Namespace
-	if namespace == "" {
-		namespace = k8sNamespace
-	}
+	namespace := c.GetNamespace()
 
 	pointerName := c.GetCurrentKeyPointerName()
 	slog.Debug("Storing current key pointer", "namespace", namespace, "name", pointerName, "current", genName)
@@ -503,8 +509,8 @@ func (c *MonitorConfig) StoreCurrentKeyPointer(genName string) error {
 	}
 
 	secretClient := c.Clientset.CoreV1().Secrets(namespace)
-	// TODO: bound with context.WithTimeout (+ rest.Config.Timeout fallback).
-	ctx := context.Background()
+	ctx, cancel := getK8sContextWithTimeout(nil)
+	defer cancel()
 
 	// Upsert: create if absent, update in place if it already exists.
 	_, err = secretClient.Create(ctx, k8sSecret, metaV1.CreateOptions{})
@@ -512,12 +518,12 @@ func (c *MonitorConfig) StoreCurrentKeyPointer(genName string) error {
 		if k8sErrors.IsAlreadyExists(err) {
 			existing, getErr := secretClient.Get(ctx, pointerName, metaV1.GetOptions{})
 			if getErr != nil {
-				return fmt.Errorf("failed to read existing current key pointer %q for update: %w", pointerName, getErr)
+				return getErr
 			}
 			existing.Data = k8sSecret.Data
 			existing.Labels = k8sSecret.Labels
 			if _, updErr := secretClient.Update(ctx, existing, metaV1.UpdateOptions{}); updErr != nil {
-				return fmt.Errorf("failed to update current key pointer %q: %w", pointerName, updErr)
+				return updErr
 			}
 			slog.Info("Current key pointer updated", "name", pointerName, "current", genName)
 			return nil
