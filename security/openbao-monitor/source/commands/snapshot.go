@@ -4,16 +4,21 @@
 package baoCommands
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
+	"time"
 
 	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -66,13 +71,20 @@ func CreateSnapshotMetadata(cfg *baoConfig.MonitorConfig, rekeyChecker RekeyChec
 		}
 	}
 
-	// Validate CurrentKeySecret is set
-	if cfg.CurrentKeySecret == "" {
-		return nil, fmt.Errorf("cannot create snapshot metadata: no current generation secret configured (CurrentKeySecret is empty)")
+	genName, err := cfg.LoadCurrentKeyPointer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current pointer: %v", err)
+	}
+	if genName == "" {
+		// Pointer not created yet. use the in-cache data
+		genName = cfg.CurrentKeySecret
+	}
+	if genName == "" {
+		return nil, fmt.Errorf("no active generation")
 	}
 
 	// Load the generation secret to compute the hash
-	genSecret, err := cfg.LoadGenerationSecret(cfg.CurrentKeySecret)
+	genSecret, err := cfg.LoadGenerationSecret(genName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load generation secret for snapshot metadata: %w", err)
 	}
@@ -84,7 +96,7 @@ func CreateSnapshotMetadata(cfg *baoConfig.MonitorConfig, rekeyChecker RekeyChec
 	}
 
 	metadata := &SnapshotMetadata{
-		GenerationName: cfg.CurrentKeySecret,
+		GenerationName: genName,
 		KeyDataHash:    hash,
 	}
 
@@ -124,7 +136,7 @@ func ValidateSnapshotMetadata(metadata *SnapshotMetadata, cfg *baoConfig.Monitor
 	return nil
 }
 
-// computeKeyDataHash computes the SHA-256 hex digest of the marshaled GenerationSecret.
+// ComputeKeyDataHash computes the SHA-256 hex digest of the marshaled GenerationSecret.
 func ComputeKeyDataHash(secret *baoConfig.GenerationSecret) (string, error) {
 	data, err := json.Marshal(secret)
 	if err != nil {
@@ -133,6 +145,134 @@ func ComputeKeyDataHash(secret *baoConfig.GenerationSecret) (string, error) {
 
 	hash := sha256.Sum256(data)
 	return fmt.Sprintf("%x", hash), nil
+}
+
+func snapshotMetadataSecret(rawMetadata string) (string, error) {
+	var metadata struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal([]byte(rawMetadata), &metadata); err != nil {
+		return "", fmt.Errorf("failed to parse snapshot metadata: %v", err)
+	}
+	if metadata.Secret == "" {
+		return "", fmt.Errorf("snapshot metadata omits the Kubernetes secret")
+	}
+	return metadata.Secret, nil
+}
+
+// Loads the generation record associated with the backup metadata
+// and validates that its generation still exists
+func ResolveSnapshotMetadata(ctx context.Context, rawMetadata string, cfg *baoConfig.MonitorConfig) (*SnapshotMetadata, error) {
+	secretName, err := snapshotMetadataSecret(rawMetadata)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Clientset == nil {
+		return nil, fmt.Errorf("kubernetes client not initialized")
+	}
+
+	k8sCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Load in the snapshot metadata from its secret
+	secret, err := cfg.Clientset.CoreV1().Secrets(cfg.GetNamespace()).Get(k8sCtx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load snapshot metadata secret %s: %w", secretName, err)
+	}
+	storedCallerMetadata, ok := secret.Data["metadata"]
+	if !ok {
+		return nil, fmt.Errorf("snapshot metadata secret %v has no metadata field", secretName)
+	}
+
+	// compare the loaded metadata from the secret to rawMetadata
+	var incomingValue, storedValue any
+	if err := json.Unmarshal([]byte(rawMetadata), &incomingValue); err != nil {
+		return nil, fmt.Errorf("failed to parse snapshot metadata: %v", err)
+	}
+	if err := json.Unmarshal(storedCallerMetadata, &storedValue); err != nil {
+		return nil, fmt.Errorf("failed to parse secret data")
+	}
+	if !reflect.DeepEqual(incomingValue, storedValue) {
+		return nil, fmt.Errorf("snapshot metadata does not match Kubernetes secret %v", secretName)
+	}
+
+	// Prepare snapshot metadate from the secret for validation
+	generationData, ok := secret.Data["generation"]
+	if !ok {
+		return nil, fmt.Errorf("snapshot metadata secret %v has no generation info", secretName)
+	}
+	var generation SnapshotMetadata
+	if err := json.Unmarshal(generationData, &generation); err != nil {
+		return nil, fmt.Errorf("snapshot metadata secret %v has invalid generation data: %v", secretName, err)
+	}
+	if err := ValidateSnapshotMetadata(&generation, cfg); err != nil {
+		return nil, err
+	}
+
+	return &generation, nil
+}
+
+func StoreSnapshotMetadata(ctx context.Context, cfg *baoConfig.MonitorConfig, secretName, callerMetadata string, generation *SnapshotMetadata) error {
+	if generation == nil {
+		return fmt.Errorf("snapshot metadata is nil")
+	}
+	if cfg.Clientset == nil {
+		return fmt.Errorf("client is not initialized")
+	}
+
+	generationData, err := json.Marshal(generation)
+	if err != nil {
+		return fmt.Errorf("failed to marshal generation metadata: %v", err)
+	}
+
+	namespace := cfg.GetNamespace()
+
+	// New k8s secret for snapshot metadata
+	k8sSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app":       "openbao",
+				"component": "snapshot-metadata",
+			},
+		},
+		Data: map[string][]byte{
+			"metadata":   []byte(callerMetadata),
+			"generation": generationData,
+		},
+	}
+
+	k8sCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	secretClient := cfg.Clientset.CoreV1().Secrets(namespace)
+	if _, err := secretClient.Create(k8sCtx, k8sSecret, metav1.CreateOptions{}); err != nil {
+		if !k8sErrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create snapshot metadata secret %v: %v", secretName, err)
+		}
+		existing, getErr := secretClient.Get(k8sCtx, secretName, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("failed to verify existing snapshot metadata secret %v: %v", secretName, getErr)
+		}
+		if bytes.Equal(existing.Data["metadata"], []byte(callerMetadata)) &&
+			bytes.Equal(existing.Data["generation"], generationData) {
+			slog.Debug("An existing snapshot metadata secret found with identical data",
+				"secret", secretName, "generation", generation.GenerationName)
+			return nil
+		}
+		return fmt.Errorf("snapshot metadata secret %v found with conflicting data", secretName)
+	}
+
+	slog.Info("Snapshot metadata secret created", "secret", secretName,
+		"generation", generation.GenerationName)
+	return nil
+}
+
+func ActivateRestoredGeneration(cfg *baoConfig.MonitorConfig, metadata *SnapshotMetadata) error {
+	if metadata == nil {
+		return nil
+	}
+	return cfg.ActivateGeneration(metadata.GenerationName, nil)
 }
 
 var forceCmd bool
@@ -200,7 +340,12 @@ The result is stored as a tarball to the specified filename.
 		if err != nil {
 			return fmt.Errorf("openbao client setup failed with error: %v", err)
 		}
-		snapFile, err := os.Create(args[1])
+		checker := &openbaoRekeyChecker{sys: newClient.Sys()}
+		before, err := CreateSnapshotMetadata(&globalConfig, checker)
+		if err != nil {
+			return fmt.Errorf("snapshot precheck failed: %v", err)
+		}
+		snapFile, err := os.OpenFile(args[1], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return fmt.Errorf("unable to create file %v: %v", args[1], err)
 		}
@@ -208,6 +353,13 @@ The result is stored as a tarball to the specified filename.
 		err = newClient.Sys().RaftSnapshot(snapFile)
 		if err != nil {
 			return fmt.Errorf("snapshot create failed with error: %v", err)
+		}
+		after, err := CreateSnapshotMetadata(&globalConfig, checker)
+		if err != nil {
+			return fmt.Errorf("snapshot postcheck failed: %v", err)
+		}
+		if !reflect.DeepEqual(before, after) {
+			return fmt.Errorf("active generation changed during capture")
 		}
 		slog.Info("Snapshot create successful.")
 
@@ -226,21 +378,32 @@ var snapshotRestoreCmd = &cobra.Command{
 		slog.Debug("Running snapshot restore...")
 
 		// If metadata is provided, validate generation secret before restoring
-		if metadataJSON != "" {
-			var metadata SnapshotMetadata
-			if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
-				return fmt.Errorf("failed to parse snapshot metadata: %w", err)
-			}
-			if err := ValidateSnapshotMetadata(&metadata, &globalConfig); err != nil {
-				return fmt.Errorf("snapshot metadata validation failed: %w", err)
-			}
-			slog.Info("Snapshot metadata validated, proceeding with restore")
+		if metadataJSON == "" {
+			return fmt.Errorf("snapshot restore requires metadata")
 		}
+		metadata, err := ResolveSnapshotMetadata(cmd.Context(), metadataJSON, &globalConfig)
+		if err != nil {
+			return fmt.Errorf("snapshot metadata validation failed: %v", err)
+		}
+		slog.Debug("Snapshot metadata validated, proceeding with restore")
 
+		// Setup client
 		newClient, err := globalConfig.SetupClient(args[0])
 		if err != nil {
 			return fmt.Errorf("openbao client setup failed with error: %v", err)
 		}
+
+		// Check rekey status
+		restoreChecker := &openbaoRekeyChecker{sys: newClient.Sys()}
+		inProgress, err := restoreChecker.CheckRekeyInProgress()
+		if err != nil {
+			return fmt.Errorf("failed to check rekey status before restore: %v", err)
+		}
+		if inProgress {
+			return fmt.Errorf("cannot run snapshot restore while a rekey is in progress")
+		}
+
+		// Start snapshot restore
 		snapFile, err := os.Open(args[1])
 		if err != nil {
 			return fmt.Errorf("unable to open file %v: %v", args[1], err)
@@ -251,6 +414,18 @@ var snapshotRestoreCmd = &cobra.Command{
 			return fmt.Errorf("snapshot restore failed with error: %v", err)
 		}
 		slog.Info("Snapshot restore successful.")
+
+		// Surface a pointer-update failure as a non-zero exit. The data is
+		// restored, but the current-key pointer still names the pre-restore
+		// generation. The run loop would eventually trial-unseal and repair
+		// the pointer, but that is conditional (only when the restored server
+		// is sealed and the stale pointer cannot unseal it), so an
+		// operator-driven restore must report that it did not fully complete.
+		if err := ActivateRestoredGeneration(&globalConfig, metadata); err != nil {
+			return fmt.Errorf("snapshot restore succeeded but current key pointer "+
+				"update failed; the restore did not fully complete: %w", err)
+		}
+		slog.Debug("Snapshot restore succeeded, and the pointer was updated.")
 
 		return nil
 	},
@@ -273,6 +448,14 @@ snapshot tarball to the generation secret that can unseal it.`,
 
 		slog.Debug("Running snapshot set-metadata...", "secret", secretName)
 
+		metadataSecret, err := snapshotMetadataSecret(callerMetadata)
+		if err != nil {
+			return err
+		}
+		if metadataSecret != secretName {
+			return fmt.Errorf("snapshot metadata secret %v does not match supplied name %v", metadataSecret, secretName)
+		}
+
 		// Set up a rekey checker using the first available server.
 		// This queries /sys/rekey/init to ensure no rekey is in progress,
 		// matching the legacy vault-manager snapshotPreCheck behavior.
@@ -287,51 +470,17 @@ snapshot tarball to the generation secret that can unseal it.`,
 			break
 		}
 
+		if checker == nil {
+			return fmt.Errorf("no Openbao server was available for rekey status validation")
+		}
+
 		// Create generation-aware metadata (captures current generation + hash)
 		genMetadata, err := CreateSnapshotMetadata(&globalConfig, checker)
 		if err != nil {
 			return fmt.Errorf("failed to create snapshot metadata: %w", err)
 		}
 
-		// Marshal generation metadata
-		genMetadataBytes, err := json.Marshal(genMetadata)
-		if err != nil {
-			return fmt.Errorf("failed to marshal generation metadata: %w", err)
-		}
-
-		// Store as K8s secret with both caller metadata and generation metadata
-		namespace := globalConfig.Namespace
-		if namespace == "" {
-			namespace = "openbao"
-		}
-
-		secretClient := globalConfig.Clientset.CoreV1().Secrets(namespace)
-		k8sSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: namespace,
-				Labels: map[string]string{
-					"app":       "openbao",
-					"component": "snapshot-metadata",
-				},
-			},
-			Data: map[string][]byte{
-				"metadata":   []byte(callerMetadata),
-				"generation": genMetadataBytes,
-			},
-		}
-
-		ctx := cmd.Context()
-		_, err = secretClient.Create(ctx, k8sSecret, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create snapshot metadata secret %q: %w", secretName, err)
-		}
-
-		slog.Info("Snapshot metadata secret created",
-			"secret", secretName,
-			"generation", genMetadata.GenerationName,
-			"hash", genMetadata.KeyDataHash)
-		return nil
+		return StoreSnapshotMetadata(cmd.Context(), &globalConfig, secretName, callerMetadata, genMetadata)
 	},
 }
 
