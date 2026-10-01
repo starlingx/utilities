@@ -306,7 +306,7 @@ func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config
 	}
 
 	// Set the DNS address as the configured address for the server
-	defConfig.Address = strings.Join([]string{"https://", dnsAddr.Host, ":", strconv.Itoa(dnsAddr.Port)}, "")
+	defConfig.Address = ServerURL(dnsAddr.Host, dnsAddr.Port)
 
 	slog.Debug("Server address set", "address", defConfig.Address)
 

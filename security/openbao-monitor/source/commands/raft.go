@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strings"
 
@@ -54,7 +55,14 @@ the command will not run.
 				return fmt.Errorf("unable to marshal raft-config %v: %v", customPayload, err)
 			}
 		} else if raftAddress != "" {
-			RJReq.LeaderAPIAddr = raftAddress
+			// Bracket a bare IPv6 literal; leave a full URL untouched.
+			normalizedAddr := raftAddress
+			if !strings.Contains(raftAddress, "://") {
+				if ip := net.ParseIP(raftAddress); ip != nil && ip.To4() == nil {
+					normalizedAddr = "[" + raftAddress + "]"
+				}
+			}
+			RJReq.LeaderAPIAddr = normalizedAddr
 			cacertbuf, err := os.ReadFile(globalConfig.CACert)
 			if err != nil {
 				return fmt.Errorf("error with trying to read the CACert file in the configs: %w", err)

@@ -22,12 +22,10 @@ var availableLogLevels = map[int]string{
 }
 
 func (configInstance MonitorConfig) validateDNS() error {
-	for domain_name, url := range configInstance.ServerAddresses {
-		// If Host is empty, then the domain entry is invalid
-		// The ports will always at least have the default value of 8200
-		if url.Host == "" {
+	for domainName, addr := range configInstance.ServerAddresses {
+		if !IsValidServerHost(addr.Host) {
 			return fmt.Errorf(
-				"the domain entry %v in ServerAddresses is invalid", domain_name)
+				"the domain entry %v (host %q) in ServerAddresses is invalid", domainName, addr.Host)
 		}
 	}
 
