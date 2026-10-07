@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 // State represents the rekey process state machine states.

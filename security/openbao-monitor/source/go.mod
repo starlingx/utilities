@@ -4,17 +4,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-module github.com/michel-thebeau-WR/openbao-manager-go/baomon
+module opendev.org/starlingx/utilities/openbao-monitor
 
 go 1.24.0
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/config => ./config
+replace opendev.org/starlingx/utilities/openbao-monitor/config => ./config
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands => ./commands
+replace opendev.org/starlingx/utilities/openbao-monitor/commands => ./commands
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey => ./rekey
+replace opendev.org/starlingx/utilities/openbao-monitor/rekey => ./rekey
 
-require github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands v0.0.0-00010101000000-000000000000
+require opendev.org/starlingx/utilities/openbao-monitor/commands v0.0.0-00010101000000-000000000000
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -42,8 +42,8 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/michel-thebeau-WR/openbao-manager-go/baomon/config v0.0.0-00010101000000-000000000000 // indirect
-	github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey v0.0.0-00010101000000-000000000000 // indirect
+	opendev.org/starlingx/utilities/openbao-monitor/config v0.0.0-00010101000000-000000000000 // indirect
+	opendev.org/starlingx/utilities/openbao-monitor/rekey v0.0.0-00010101000000-000000000000 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect

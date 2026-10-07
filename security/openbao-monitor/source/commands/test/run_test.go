@@ -9,11 +9,11 @@ package baoCommands_test
 import (
 	"testing"
 
-	baoCommands "github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands"
+	baoCommands "opendev.org/starlingx/utilities/openbao-monitor/commands"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 // TestDiscoverCurrentGeneration_EmptyNamespace verifies that when no generation

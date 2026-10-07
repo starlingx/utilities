@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	coreV1Client "k8s.io/client-go/kubernetes/typed/core/v1"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 // k8sCallTimeout bounds each Kubernetes API call made by the conversion

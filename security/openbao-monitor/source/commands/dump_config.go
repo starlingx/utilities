@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"os"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/spf13/cobra"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 	yaml "sigs.k8s.io/yaml/goyaml.v3"
 )
 

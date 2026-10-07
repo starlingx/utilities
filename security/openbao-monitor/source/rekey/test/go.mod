@@ -1,14 +1,14 @@
-module github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey/test
+module opendev.org/starlingx/utilities/openbao-monitor/rekey/test
 
 go 1.24.0
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey => ../
+replace opendev.org/starlingx/utilities/openbao-monitor/rekey => ../
 
-replace github.com/michel-thebeau-WR/openbao-manager-go/baomon/config => ../../config
+replace opendev.org/starlingx/utilities/openbao-monitor/config => ../../config
 
 require (
-	github.com/michel-thebeau-WR/openbao-manager-go/baomon/config v0.0.0-00010101000000-000000000000
-	github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey v0.0.0-00010101000000-000000000000
+	opendev.org/starlingx/utilities/openbao-monitor/config v0.0.0-00010101000000-000000000000
+	opendev.org/starlingx/utilities/openbao-monitor/rekey v0.0.0-00010101000000-000000000000
 	github.com/openbao/openbao/api/v2 v2.2.0
 	github.com/pingcap/failpoint v0.0.0-20260521055755-e7642935314f
 )

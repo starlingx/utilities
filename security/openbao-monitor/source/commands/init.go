@@ -12,10 +12,10 @@ import (
 	"log/slog"
 	"os"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/pingcap/failpoint"
 	"github.com/spf13/cobra"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 var optFileStr string

@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
 	"github.com/pingcap/failpoint"
 	"github.com/spf13/cobra"
+	"opendev.org/starlingx/utilities/openbao-monitor/rekey"
 )
 
 // rekey command flags

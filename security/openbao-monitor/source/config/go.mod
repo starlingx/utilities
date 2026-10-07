@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-module github.com/michel-thebeau-WR/openbao-manager-go/baomon/config
+module opendev.org/starlingx/utilities/openbao-monitor/config
 
 go 1.24.0
 

@@ -17,11 +17,11 @@ import (
 	"syscall"
 	"time"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 // waitInterval is the seconds between monitoring iterations.
