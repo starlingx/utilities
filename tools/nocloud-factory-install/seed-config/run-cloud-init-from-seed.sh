@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2025 Wind River Systems, Inc.
+# Copyright (c) 2025-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -128,14 +128,16 @@ fi
 
 # Extracts the network-config file from the seed ISO.
 # The network-config file is used to configure the network
-# settings for the cloud-init instance.
-isoinfo -i $DEVICE -R -x "/$SEED_NETWORK_CFG" > $NETWORK_CFG_FILE
-check_rc_die $? "Unable to retrieve network-config from seed ISO. Exiting."
-
-# Checks if the network-config file is empty.
-# If it is empty, exit the script.
-if [ ! -s $NETWORK_CFG_FILE ]; then
-    log_fatal "Invalid network-config file. Exiting."
+# settings for the cloud-init instance. It is optional: an auto-restore
+# seed ISO carries no network-config because the restore runs inside the
+# subcloud and does not reconfigure the network.
+has_network_config=0
+if isoinfo -i "$DEVICE" -R -x "/$SEED_NETWORK_CFG" > "$NETWORK_CFG_FILE" 2>/dev/null \
+    && [ -s "$NETWORK_CFG_FILE" ]; then
+    has_network_config=1
+    log_info "Found network-config in seed ISO; will apply it."
+else
+    log_info "No network-config in seed ISO; skipping network reconfiguration."
 fi
 
 # Check if the custom cloud.cfg file exists.
@@ -161,19 +163,22 @@ cp -f "$CUSTOM_CLOUD_CFG" "$ORIGIN_CLOUD_CFG"
 check_rc_die $? "Unable to copy factory-install cloud.cfg file"
 
 # We separate the cloud-init sequence into two parts:
-# First, we run cloud-init initialization mode to set up the network
-# configuration using the network-config file extracted from the seed
-# ISO.
+# First, we run cloud-init initialization mode. When the seed ISO carries a
+# network-config, we also convert it to ENI so it can be applied below. When
+# it does not (auto-restore), the network is left untouched.
 cloud-init clean &&
 cloud-init init --local &&
-cloud-init init &&
-cloud-init devel net-convert \
-    --network-data $NETWORK_CFG_FILE \
-    --kind yaml \
-    --output-kind eni \
-    -d / \
-    -D debian
+cloud-init init
 CLOUD_INIT_RC=$?
+if [ $CLOUD_INIT_RC -eq 0 ] && [ "$has_network_config" -eq 1 ]; then
+    cloud-init devel net-convert \
+        --network-data $NETWORK_CFG_FILE \
+        --kind yaml \
+        --output-kind eni \
+        -d / \
+        -D debian
+    CLOUD_INIT_RC=$?
+fi
 if [ $CLOUD_INIT_RC -ne 0 ]; then
     restore_cloud_init_config
     check_rc_die $CLOUD_INIT_RC "cloud-init initialization failed from seed ISO."
@@ -189,6 +194,12 @@ fi
 # The --force option is used here to prevent ifup from pausing in case the new
 # OAM address is configured with a different address, but in the same VLAN and
 # interface.
+
+# The network configuration is applied using the ifup command, but only when
+# the seed ISO provided a network-config. An auto-restore seed ISO has none,
+# so the whole network application below is skipped and the subcloud network
+# is left as is.
+if [ "$has_network_config" -eq 1 ]; then
 
 # Store initial default routes before any network changes
 declare -A INITIAL_ROUTES
@@ -406,6 +417,8 @@ NET_ROUTE4_STATE=$(echo "======= IPv4 Routes post config"; ip -4 route 2>&1)
 log_info "network routes state output post config: $NET_ROUTE4_STATE"
 NET_ROUTE6_STATE=$(echo "======= IPv6 Routes post config"; ip -6 route 2>&1)
 log_info "network routes state output post config: $NET_ROUTE6_STATE"
+
+fi  # has_network_config
 
 # After the network is set up, we run cloud-init config and final
 # modes to apply the configuration and finalize the instance.
