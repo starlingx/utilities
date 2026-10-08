@@ -129,7 +129,11 @@ func (configInstance *MonitorConfig) MigratePodConfig(config *rest.Config) error
 				slog.Debug("Skipping pod with no IP (not yet scheduled or starting)", "pod", podName)
 				continue
 			}
-			podURL := fmt.Sprintf("%v.%v.%v", strings.ReplaceAll(podIP, ".", "-"), k8sNamespace, podAddressSuffix)
+			podURL, err := PodDNSName(podIP, k8sNamespace, podAddressSuffix)
+			if err != nil {
+				slog.Warn("Skipping pod with unparseable IP", "pod", podName, "ip", podIP, "err", err)
+				continue
+			}
 			newAddresses[podName] = ServerAddress{podURL, podPort}
 		}
 	}
