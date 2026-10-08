@@ -6,9 +6,17 @@
 
 # true  -> restore from the locally prestaged backup at
 #          /opt/platform-backup/backups/<sw-version>/ (no transfer)
-# false -> dcmanager rsyncs the central backup from system controller
-#           to /opt/platform-backup/auto-restore/ on the subcloud.
+# false -> the system controller transfers the central backup to the subcloud
+#          during the restore (handled by the restore playbook).
 local_only: false
 
-# Total timeout in seconds for the restore monitoring phase.
+# If true, the system will be patched to the same patch level as captured
+# in the backup (the patch must be uploaded to the system controller
+# with "software --os-region-name SystemController upload <patch>").
+# If false, no patches are applied and the system is left at the same
+# patch level as the factory-installed system.
+# If not defined, this parameter defaults to true.
+patch_before_restore: true
+
+# Total timeout in seconds for the restore.
 restore_timeout: 5400

@@ -188,7 +188,7 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         self.mock_requests_patch.return_value.content = b""
         self.mock_requests_patch.return_value.raise_for_status = lambda: None
 
-        with patch("builtins.open", mock_open(read_data=b"yaml")):
+        with patch("builtins.open", mock_open(read_data="local_only: true\n")):
             trigger.trigger_restore()
 
         call_kwargs = self.mock_requests_patch.call_args[1]
@@ -211,60 +211,11 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         self.mock_requests_patch.return_value.content = b""
         self.mock_requests_patch.return_value.raise_for_status = lambda: None
 
-        with patch("builtins.open", mock_open(read_data=b"yaml")):
+        with patch("builtins.open", mock_open(read_data="local_only: false\n")):
             trigger.trigger_restore()
 
         url = self.mock_requests_patch.call_args[0][0]
         self.assertIn("https://[fd00::2]:8119", url)
-
-    def test_write_status_file_remote(self):
-        """Status file contains local_only=false only (no subcloud_name)."""
-        trigger = self._build_trigger()
-        trigger.subcloud_name = "subcloud1"
-        trigger.sysadmin_password = "syspass"  # nosec B105
-        trigger.local_only = False
-
-        m = mock_open()
-        with patch("builtins.open", m):
-            trigger.write_status_file()
-
-        m.assert_called_once_with(
-            self.module.STATUS_FILE, "w", encoding="utf-8"
-        )
-        handle = m()
-        written = "".join(call.args[0] for call in handle.write.call_args_list)
-        self.assertIn("local_only=false", written)
-        self.assertNotIn("subcloud_name", written)
-
-    def test_write_status_file_local(self):
-        """Status file lists local_only=true."""
-        trigger = self._build_trigger()
-        trigger.subcloud_name = "subcloud1"
-        trigger.sysadmin_password = "syspass"  # nosec B105
-        trigger.local_only = True
-
-        m = mock_open()
-        with patch("builtins.open", m):
-            trigger.write_status_file()
-
-        handle = m()
-        written = "".join(call.args[0] for call in handle.write.call_args_list)
-        self.assertIn("local_only=true", written)
-
-    def test_write_status_file_no_subcloud_name(self):
-        """Status file does not include subcloud_name."""
-        trigger = self._build_trigger()
-        trigger.subcloud_name = "subcloud1"
-        trigger.sysadmin_password = "syspass"  # nosec B105
-        trigger.local_only = False
-
-        m = mock_open()
-        with patch("builtins.open", m):
-            trigger.write_status_file()
-
-        handle = m()
-        written = "".join(call.args[0] for call in handle.write.call_args_list)
-        self.assertNotIn("subcloud_name", written)
 
     def test_missing_bootstrap_values_exits(self):
         """sys.exit(1) is called when bootstrap-values file is absent."""
@@ -280,8 +231,8 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
         trigger.load_restore_config()
         self.mock_exit.assert_called_with(1)
 
-    def test_http_error_exits_without_writing_status_file(self):
-        """4xx/5xx from API calls sys.exit(1) before write_status_file runs."""
+    def test_http_error_exits(self):
+        """4xx/5xx from the restore API calls sys.exit(1)."""
 
         trigger = self._build_trigger()
         trigger.subcloud_name = "subcloud1"
@@ -297,7 +248,7 @@ class TestTriggerOnsiteRestore(unittest.TestCase):
             response=mock_resp
         )
 
-        with patch("builtins.open", mock_open(read_data=b"yaml")):
+        with patch("builtins.open", mock_open(read_data="local_only: false\n")):
             trigger.trigger_restore()
         self.mock_exit.assert_called_with(1)
 
