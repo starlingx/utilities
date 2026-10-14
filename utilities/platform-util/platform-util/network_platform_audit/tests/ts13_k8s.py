@@ -32,8 +32,8 @@ def _check_nodes_ready(cat):
 
 
 def _check_critical_pods_running(cat):
-    rc_ks, pods_ks, _ = _kubectl("get pods -n kube-system --no-headers")
-    rc_cs, pods_cs, _ = _kubectl("get pods -n calico-system --no-headers")
+    rc_ks, pods_ks, _ = _kubectl("get pods -o wide -n kube-system --no-headers")
+    rc_cs, pods_cs, _ = _kubectl("get pods -o wide -n calico-system --no-headers")
     all_pods_out = ""
     if rc_ks == 0 and pods_ks:
         all_pods_out += pods_ks + "\n"

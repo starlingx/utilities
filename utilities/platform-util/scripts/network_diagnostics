@@ -1682,8 +1682,13 @@ def test_configured_ip_addresses():
 
                     # Find all "address <IP>" lines in the file
                     # Matches both IPv4 (e.g., 192.168.1.1) and IPv6 (e.g., fd00::1)
-                    for match in re.finditer(r"address\s+([0-9a-fA-F:.]+)", content):
+                    for match in re.finditer(r"^\s*address\s+([0-9a-fA-F:.]+)",
+                                             content, re.MULTILINE):
                         configured_ip = match.group(1)
+                        try:
+                            ipaddress.ip_address(configured_ip)
+                        except ValueError:
+                            continue
                         total_ips += 1
 
                         # Check if this IP is actually assigned in the system
