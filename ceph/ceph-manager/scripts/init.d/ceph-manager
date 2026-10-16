@@ -55,7 +55,7 @@ start()
 stop()
 {
     echo -n "Stopping $DESC..."
-    start-stop-daemon --stop --quiet --pidfile $PIDFILE --retry 60
+    start-stop-daemon --stop --quiet --pidfile $PIDFILE --retry=TERM/8/KILL/2
     if [ $? -eq 0 ]; then
         echo "done."
     else
