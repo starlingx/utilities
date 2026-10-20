@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+# dh_installlogrotate auto-installs debian/openbao-host.logrotate to
+# /etc/logrotate.d/openbao-host. At compat 10 dh_installtmpfiles does not
+# auto-run, so install the tmpfiles fragment explicitly (pre-creates
+# /var/log/openbao.log at 0640 root:root before the service starts).
+override_dh_install:
+	install -m 644 -p -D debian/openbao-host.tmpfiles \
+	    debian/openbao-host/usr/lib/tmpfiles.d/openbao-host.conf
+	dh_install
+

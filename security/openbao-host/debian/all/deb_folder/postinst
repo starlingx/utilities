@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    # Create openbao group if it doesn't exist
+    if ! getent group openbao >/dev/null; then
+        addgroup --system openbao
+    fi
+
+    # Create openbao user if it doesn't exist
+    if ! getent passwd openbao >/dev/null; then
+        adduser --system --no-create-home --shell /bin/false \
+                --ingroup openbao openbao
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

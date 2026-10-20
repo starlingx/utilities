@@ -1,0 +1,15 @@
+Source: openbao-host
+Section: default
+Priority: optional
+Standards-Version: 4.7.2
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends:
+  debhelper (>= 13)
+Homepage: https://www.starlingx.io
+
+Package: openbao-host
+Architecture: amd64
+Description: Repackaged OpenBao for integration to StarlingX
+Depends:
+  ${shlibs:Depends},
+  ${misc:Depends}

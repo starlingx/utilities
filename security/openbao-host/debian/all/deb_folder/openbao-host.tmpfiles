@@ -1,0 +1,12 @@
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Pre-create the openbao log file with the intended mode. openbao logs
+# via the systemd override StandardOutput=append:, and systemd would
+# otherwise create it under the service UMask (too restrictive). This
+# ensures /var/log/openbao.log is root:root 0640 before the service
+# starts. logrotate (copytruncate) then preserves this mode.
+#
+f /var/log/openbao.log 0640 root root -

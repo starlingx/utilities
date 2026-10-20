@@ -1,0 +1,9 @@
+debname: openbao-host
+debver: 2.4-4
+dl_path:
+  name: bao_2.4.4_linux_amd64.pkg.tar.zst
+  url: https://github.com/openbao/openbao/releases/download/v2.4.4/bao_2.4.4_linux_amd64.pkg.tar.zst
+  sha256sum: f3eb3edf092c42ca66268f6738a0bbd7619656fe301a13541aaf800c1e4b4971
+revision:
+    dist: $STX_DIST
+    PKG_GITREVCOUNT: true

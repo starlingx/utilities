@@ -1,0 +1,23 @@
+#
+# Copyright (c) 2026 Wind River Systems, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# openbao logs to /var/log/openbao.log via the puppet-rendered systemd
+# override (StandardOutput=append:). systemd holds the file descriptor
+# open, so rotation MUST use copytruncate (systemd will not reopen the
+# file on rename). copytruncate preserves the file's owner/mode
+# (root:root 0640). openbao is quiet at the default 'info' level, so a
+# size-based (not daily) policy is used.
+#
+/var/log/openbao.log
+{
+    nodateext
+    size 10M
+    start 1
+    rotate 20
+    missingok
+    notifempty
+    compress
+    copytruncate
+}

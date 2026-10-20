@@ -1,5 +1,6 @@
 ceph/ceph-manager
 ceph/python-cephclient
+security/openbao-host
 security/openbao-monitor
 tools/collector
 tools/engtools/hostdata-collectors
