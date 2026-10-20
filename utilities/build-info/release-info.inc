@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2014-2025 Wind River Systems, Inc.
+# Copyright (c) 2014-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -9,4 +9,4 @@
 #
 # Note: Sourced from scripts, so needs to be bash-able
 #
-PLATFORM_RELEASE="26.10"
+PLATFORM_RELEASE="27.03"
