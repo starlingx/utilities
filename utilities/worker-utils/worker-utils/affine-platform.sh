@@ -1,6 +1,6 @@
 #!/bin/bash
 ################################################################################
-# Copyright (c) 2013-2025 Wind River Systems, Inc.
+# Copyright (c) 2013-2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -21,7 +21,7 @@ PATH=/bin:/usr/bin:/usr/local/bin
 LOG_FUNCTIONS=${LOG_FUNCTIONS:-"/etc/init.d/log_functions.sh"}
 CPUMAP_FUNCTIONS=${CPUMAP_FUNCTIONS:-"/etc/init.d/cpumap_functions.sh"}
 TASK_AFFINITY_FUNCTIONS=${TASK_AFFINITY_FUNCTIONS:-"/etc/init.d/task_affinity_functions.sh"}
-source /etc/init.d/functions
+source /lib/lsb/init-functions
 [[ -e ${LOG_FUNCTIONS} ]] && source ${LOG_FUNCTIONS}
 [[ -e ${CPUMAP_FUNCTIONS} ]] && source ${CPUMAP_FUNCTIONS}
 [[ -e ${TASK_AFFINITY_FUNCTIONS} ]] && source ${TASK_AFFINITY_FUNCTIONS}

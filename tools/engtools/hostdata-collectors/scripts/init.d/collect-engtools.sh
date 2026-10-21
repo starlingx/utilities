@@ -21,7 +21,7 @@ DEFAULTFILE=/etc/default/${NAME}
 
 # Exit if the package is not installed
 [ -x "$DAEMON" ] || exit 0
-. /etc/init.d/functions
+. /lib/lsb/init-functions
 # Read configuration variable file if it is present
 [ -r $DEFAULTFILE ] && . $DEFAULTFILE
 
