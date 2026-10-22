@@ -1,18 +1,8 @@
 #!/bin/sh
 
-case "$1" in
-  purge)
-    # Remove openbao user if it exists
-    if getent passwd openbao >/dev/null; then
-        deluser --quiet openbao
-    fi
-
-    # Remove openbao group if it exists
-    if getent group openbao >/dev/null; then
-        delgroup --quiet openbao
-    fi
-    ;;
-esac
+# NOTE: the openbao user/group are managed by puppet
+# (platform::openbao::user in stx-puppet), not by this package, so they
+# are not removed here.
 
 #DEBHELPER#
 

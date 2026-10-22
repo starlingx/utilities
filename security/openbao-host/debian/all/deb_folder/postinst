@@ -1,20 +1,10 @@
 #!/bin/sh
 set -e
 
-case "$1" in
-  configure)
-    # Create openbao group if it doesn't exist
-    if ! getent group openbao >/dev/null; then
-        addgroup --system openbao
-    fi
-
-    # Create openbao user if it doesn't exist
-    if ! getent passwd openbao >/dev/null; then
-        adduser --system --no-create-home --shell /bin/false \
-                --ingroup openbao openbao
-    fi
-    ;;
-esac
+# NOTE: the openbao user/group are created by puppet
+# (platform::openbao::user in stx-puppet), not here, so that the account
+# exists on upgrade where package maintainer scripts run at ostree build
+# time rather than on the live system.
 
 #DEBHELPER#
 
