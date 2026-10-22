@@ -156,16 +156,14 @@ else
     check_rc_die $? "Failed to create UEFI boot entry"
     log_info "UEFI boot entry created"
 
-    # efibootmgr prints boot numbers in hex, grubs get_efivar -f uint8 returns
-    # BootCurrent in decimal, need to convert for the comparison in grub.cfg.
+    # Confirm the entry was created so a later restore can find it.
     EFI_BOOTNUM=$(efibootmgr | grep "${EFI_LABEL}" | cut -c5-8)
     if [ -z "${EFI_BOOTNUM}" ]; then
         log_fatal "Could not find boot number for '${EFI_LABEL}' after creation"
     fi
-    EFI_BOOTNUM_DEC=$(printf '%d' "0x${EFI_BOOTNUM}")
-    log_info "UEFI boot entry: Boot${EFI_BOOTNUM} (decimal: ${EFI_BOOTNUM_DEC})"
+    log_info "UEFI boot entry: Boot${EFI_BOOTNUM}"
 
-    # Write install_kargs and install_bootnum to boot.env
+    # Write install_kargs to boot.env
     if [ ! -f "${BOOT_ENV}" ]; then
         log_fatal "boot.env not found at ${BOOT_ENV}"
     fi
@@ -176,14 +174,17 @@ else
         sed -i "1 a install_kargs=${INSTALL_KARGS}" "${BOOT_ENV}"
     fi
     check_rc_die $? "Failed to write install_kargs to ${BOOT_ENV}"
+    log_info "Updated install_kargs in ${BOOT_ENV}"
 
+    # Do not persist install_bootnum here. It is a machine-local UEFI boot
+    # number that would be cloned onto other servers via boot.env, where it can
+    # match an unrelated BootCurrent and wrongly select Local Factory Restore.
+    # local-install-trigger.sh writes the live value just before a restore, and
+    # miniboot.cfg re-arms it in the installer, so real restores are unaffected.
     if grep -q "^install_bootnum=" "${BOOT_ENV}"; then
-        sed -i "s/^install_bootnum=.*/install_bootnum=${EFI_BOOTNUM_DEC}/" "${BOOT_ENV}"
-    else
-        sed -i "1 a install_bootnum=${EFI_BOOTNUM_DEC}" "${BOOT_ENV}"
+        sed -i "/^install_bootnum=/d" "${BOOT_ENV}"
+        log_info "Removed stale install_bootnum from ${BOOT_ENV}"
     fi
-    check_rc_die $? "Failed to write install_bootnum to ${BOOT_ENV}"
-    log_info "Updated install_kargs and install_bootnum in ${BOOT_ENV}"
 fi
 
 # Write backup_restore_values.yml consumed by dc-auto-restore.service on the
