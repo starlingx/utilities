@@ -21,6 +21,23 @@ declare -i CREATE_TARBALL_TIMEOUT_DEFAULT=200
 declare -i COLLECT_DIAGS_SCRIPT_TIMEOUT=210
 declare -i COLLECT_DIAGS_OVERALL_TIMEOUT=300
 
+# platform command timeout, in seconds
+#
+# Bounds every 'system' and 'dcmanager' invocation a collect makes. Those
+# clients block indefinitely when the inventory or distributed cloud API
+# stops responding. The clients allow 600s, which carries budget for upload
+# operations; 60s is sufficient for the GET queries a collect makes.
+# shellcheck disable=SC2034
+declare -i PLATFORM_CMD_TIMEOUT=60
+
+# platform command failure threshold
+#
+# The inventory plugin stops querying once this many of its commands have
+# timed out in one run, so a stalled API costs some inventory rather than
+# the whole host bundle.
+# shellcheck disable=SC2034
+declare -i SYSTEM_CMD_FAILURE_THRESHOLD=3
+
 declare -i TIMEOUT_MIN_MINS=10
 declare -i TIMEOUT_MAX_MINS=120
 declare -i TIMEOUT_DEF_MINS=30

@@ -576,6 +576,10 @@ function report_error()
     elif [ ${code} -eq ${FAIL_TIMEOUT_SUBCLOUD} ] ; then
         cause="${FAIL_TIMEOUT_SUBCLOUD_STR}"
 
+    elif [ ${code} -eq ${FAIL_SUBCLOUD_LIST_TIMEOUT} ] ; then
+        cause="${FAIL_SUBCLOUD_LIST_TIMEOUT_STR}"
+        error_log=true
+
     elif [ ${code} -eq ${FAIL_PASSWORDLESS} ] ; then
         cause="${FAIL_PASSWORDLESS_STR}"
         extra=" ; User '${UN}' may have passwordless sudo enabled. Please disable and retry"
@@ -675,6 +679,7 @@ check_if_collect_is_running
 #
 # Return    : PASS              ... hostname is valid (success path)
 #             FAIL_HOSTNAME     ... hostname is not valid
+#             FAIL_PLATFORM_CMD_TIMEOUT ... the inventory query timed out
 #             FAIL_INACTIVE     ... this host is not active
 #
 ###########################################################################
@@ -690,8 +695,11 @@ function is_valid_host()
     elif [ "${check_hostname}" == "${HOSTNAME}" ] ; then
         return ${PASS}
     elif [ "${ACTIVE}" = true ] ; then
-        system host-show "${check_hostname}" 2>/dev/null 1>/dev/null
-        if [ ${?} -ne 0 ] ; then
+        timeout ${PLATFORM_CMD_TIMEOUT} system host-show "${check_hostname}" 2>/dev/null 1>/dev/null
+        local rc=${?}
+        if [ ${rc} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+            return ${FAIL_PLATFORM_CMD_TIMEOUT}
+        elif [ ${rc} -ne 0 ] ; then
             return ${FAIL_HOSTNAME}
         else
             return ${PASS}
@@ -713,6 +721,7 @@ function is_valid_host()
 #
 # Return    : PASS              ... subcloudname is valid (success path)
 #             FAIL_SUBCLOUDNAME ... subcloudname is not valid
+#             FAIL_PLATFORM_CMD_TIMEOUT ... the dcmanager query timed out
 #             FAIL_INACTIVE     ... this host is not the active controller
 #
 ###########################################################################
@@ -724,8 +733,11 @@ function is_valid_subcloud()
     if [ "${check_subcloudname}" == "None" ] ; then
         return ${FAIL_SUBCLOUDNAME}
     elif [ "${ACTIVE}" = true ] ; then
-        dcmanager subcloud show "${check_subcloudname}" 2>/dev/null 1>/dev/null
-        if [ ${?} -ne 0 ] ; then
+        timeout ${PLATFORM_CMD_TIMEOUT} dcmanager subcloud show "${check_subcloudname}" 2>/dev/null 1>/dev/null
+        local rc=${?}
+        if [ ${rc} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+            return ${FAIL_PLATFORM_CMD_TIMEOUT}
+        elif [ ${rc} -ne 0 ] ; then
             return ${FAIL_SUBCLOUDNAME}
         else
             return ${PASS}
@@ -736,9 +748,24 @@ function is_valid_subcloud()
     fi
 }
 
+###########################################################################
+#
+# Name      : query_and_update_dcrole
+#
+# Purpose   : Learn this system's distributed cloud role
+#
+# Description: Reads the role from platform.conf. A system that is neither a
+#              system controller nor a subcloud has no distributed_cloud_role
+#              line, which leaves DCROLE empty and is handled as a regular
+#              system by the callers below.
+#
+# Updates   : DCROLE
+#
+###########################################################################
+
 function query_and_update_dcrole ()
 {
-    DCROLE=$(system show | grep distributed_cloud_role | cut -d '|' -f 3 | tr -d ' ')
+    DCROLE=$(grep '^distributed_cloud_role' ${PLATFORM_CONF} | cut -d '=' -f 2)
 }
 
 ############################################################################
@@ -1155,7 +1182,13 @@ if [ "${ALLHOSTS}" = true ] ; then
     if [ "${SUBCLOUD_COLLECT}" = false ]; then
         HOSTLIST=(${HOSTNAME})
         HOSTS=1
-        for foreign_host in $(system host-list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' ' | grep -v ${HOSTNAME}); do
+        # capture before filtering, so that ${?} is the query's status
+        # rather than the last filter's
+        host_list_output=$(timeout ${PLATFORM_CMD_TIMEOUT} system host-list)
+        if [ ${?} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+            wlog "cannot query the list of hosts ; collecting ${HOSTNAME} only"
+        fi
+        for foreign_host in $(echo "${host_list_output}" | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' ' | grep -v ${HOSTNAME}); do
             if [ "${foreign_host}" != "None" ] ; then
                 HOSTS=$((HOSTS+1))
                 HOSTLIST+=(${foreign_host})
@@ -1163,7 +1196,13 @@ if [ "${ALLHOSTS}" = true ] ; then
         done
 
     else
-        for foreign_host in $(dcmanager subcloud list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' '); do
+        # capture before filtering, see the host list above
+        subcloud_list_output=$(timeout ${PLATFORM_CMD_TIMEOUT} dcmanager subcloud list)
+        if [ ${?} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+            report_error "failed to query list of subclouds" ${FAIL_SUBCLOUD_LIST_TIMEOUT}
+            collect_exit ${FAIL_SUBCLOUD_LIST_TIMEOUT}
+        fi
+        for foreign_host in $(echo "${subcloud_list_output}" | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' '); do
             if [ "${foreign_host}" != "None" ] ; then
                 SUBCLOUDS=$((SUBCLOUDS+1))
                 SUBCLOUDLIST+=(${foreign_host})
@@ -1199,7 +1238,8 @@ else
         else
             for host in "${temp_hostlist[@]}" ; do
                 is_valid_host ${host}
-                if [ ${?} -eq 0 ] ; then
+                host_rc=${?}
+                if [ ${host_rc} -eq 0 ] ; then
                     # don't add duplicates
                     drop=false
                     for tmp in "${HOSTLIST[@]}" ; do
@@ -1213,6 +1253,8 @@ else
                         HOSTS=$((HOSTS+1))
                         HOSTLIST+=("${host}")
                     fi
+                elif [ ${host_rc} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+                    wlog "cannot check host '${host}' ; the platform API is not responding"
                 else
                     wlog "cannot collect data from unknown host '${host}'"
                 fi
@@ -1227,17 +1269,24 @@ else
         # validate the specified list from the full list
         elif [ ${temp_hosts} -gt 10 ] ; then
             SUBCLOUDLIST_TEMP=()
+            # capture before filtering, see the host list above
+            bulk_list_output=$(timeout ${PLATFORM_CMD_TIMEOUT} dcmanager subcloud list)
+            if [ ${?} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+                report_error "failed to query list of subclouds" ${FAIL_SUBCLOUD_LIST_TIMEOUT}
+                collect_exit ${FAIL_SUBCLOUD_LIST_TIMEOUT}
+            fi
             # reuse HOSTS and HOSTLIST vars for this operation
-            for foreign_host in $(dcmanager subcloud list | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' '); do
+            for foreign_host in $(echo "${bulk_list_output}" | grep '[0-9]' | cut -d '|' -f 3 | tr -d ' '); do
                 if [ "${foreign_host}" != "None" ] ; then
                     SUBCLOUDLIST_TEMP+=(${foreign_host})
                 fi
             done
             # validate the subcloud names
             for subcloud in "${temp_hostlist[@]}" ; do
+                found=false
                 for temp in "${SUBCLOUDLIST_TEMP[@]}" ; do
-                    found=false
                     if [ "${temp}" == "${subcloud}" ] ; then
+                        found=true
                         # don't add duplicates
                         drop=false
                         for tmp in "${SUBCLOUDLIST[@]}" ; do
@@ -1249,30 +1298,12 @@ else
                         if [ "${drop}" = false ] ; then
                             SUBCLOUDS=$((SUBCLOUDS+1))
                             SUBCLOUDLIST+=(${subcloud})
-                            found=true
-                            break
                         fi
+                        break
                     fi
                 done
                 if [ "${found}" = false ] ; then
-                    is_valid_subcloud ${subcloud}
-                    if [ ${?} -eq 0 ] ; then
-                        # don't add duplicates
-                        drop=false
-                        for tmp in "${SUBCLOUDLIST[@]}" ; do
-                            if [ "${subcloud}" == "${tmp}" ] ; then
-                                drop=true
-                                break
-                            fi
-                        done
-                        if [ "${drop}" = false ] ; then
-                            # add this subcloud
-                            SUBCLOUDS=$((SUBCLOUDS+1))
-                            SUBCLOUDLIST+=("${subcloud}")
-                        fi
-                    else
-                        wlog "cannot collect data from unknown subcloud '${subcloud}'"
-                    fi
+                    wlog "cannot collect data from unknown subcloud '${subcloud}'"
                 fi
             done
         else

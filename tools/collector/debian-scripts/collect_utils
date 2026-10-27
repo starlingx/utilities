@@ -70,6 +70,10 @@ FAIL_INSUFFICIENT_SPACE_REMOTE=70
 FAIL_NOT_ENOUGH_SPACE_REMOTE=71
 FAIL_OUT_OF_SPACE_REMOTE=72
 FAIL_ALREADY_RUNNING=73
+FAIL_SUBCLOUD_LIST_TIMEOUT=74
+
+# The exit status the 'timeout' utility returns when it kills a command
+FAIL_PLATFORM_CMD_TIMEOUT=124
 
 # Warnings are above 200
 WARN_WARNING=200
@@ -112,6 +116,8 @@ FAIL_TIMEOUT_HOST_STR="host collect timeout"
 FAIL_TIMEOUT_SUBCLOUD_ACCESS_STR="subcloud access timeout"
 FAIL_TIMEOUT_SUBCLOUD_STR="subcloud collect timeout"
 
+FAIL_SUBCLOUD_LIST_TIMEOUT_STR="subcloud list query timeout"
+
 FAIL_NO_FILE_SPECIFIED_STR="no file specified"
 FAIL_FILE_NOT_FOUND_STR="no such file or directory"
 FAIL_FILE_EMPTY_STR="file is empty"
@@ -151,6 +157,7 @@ COLLECT_CMD_TIMING_LOG="/tmp/$(whoami)_collect_cmd_timing.log"
 HOST_COLLECT_CMD_TIMING_LOG="collect_cmd_timing.log"
 DCROLE_SYSTEMCONTROLLER="systemcontroller"
 DCROLE_SUBCLOUD="subcloud"
+PLATFORM_CONF=/etc/platform/platform.conf
 
 function is_active_controller
 {
@@ -167,7 +174,6 @@ function source_openrc_if_needed
     # get the node and subfunction types
     nodetype=""
     subfunction=""
-    PLATFORM_CONF=/etc/platform/platform.conf
     if [ -e ${PLATFORM_CONF} ] ; then
         source ${PLATFORM_CONF}
     fi
@@ -358,6 +364,49 @@ function run_command () {
         sleep ${sleep_time}
     fi
     echo "$(date ${DATE_FORMAT}): ${duration}->${sleep_time_str} - ${log} - ${cmd}" >> ${COLLECT_CMD_TIMING_LOG}
+    return ${rc}
+}
+
+###############################################################################
+#
+# Name:        run_platform_cmd
+#
+# Purpose:     Run a platform client command under a timeout and log it.
+#
+# Description: The 'system' and 'dcmanager' clients talk to the inventory and
+#              distributed cloud APIs and block indefinitely when those APIs
+#              stop responding. This bounds every such command from one place,
+#              writes the standard delimiter header, and names the command in
+#              both the log and syslog if the bound fires.
+#
+# Arguments:   $1 - the command to run, including any arguments
+#              $2 - path of the log file to append the output to
+#
+# Returns:     the command's exit status ; FAIL_PLATFORM_CMD_TIMEOUT on timeout
+#
+# Warning:     $1 is deliberately left unquoted where it is executed so that
+#              the command and its arguments word split, matching run_command
+#              above. Do not pass a pipeline or a glob; capture the output and
+#              filter it instead, see collect_dc.sh for an example.
+#
+###############################################################################
+
+function run_platform_cmd()
+{
+    local cmd="${1}"
+    local log="${2}"
+
+    delimiter "${log}" "${cmd}"
+
+    # shellcheck disable=SC2086
+    timeout ${PLATFORM_CMD_TIMEOUT} ${cmd} >> "${log}" 2>>"${COLLECT_ERROR_LOG}"
+    local rc=${?}
+
+    if [ ${rc} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+        echo "Command timed out after ${PLATFORM_CMD_TIMEOUT}s: ${cmd}" >> "${log}"
+        wlog "'${cmd}' timed out after ${PLATFORM_CMD_TIMEOUT}s"
+    fi
+
     return ${rc}
 }
 
