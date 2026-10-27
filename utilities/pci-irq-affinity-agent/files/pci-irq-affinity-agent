@@ -1,6 +1,6 @@
 #! /bin/sh
 #
-# Copyright (c) 2019-2022 StarlingX.
+# Copyright (c) 2019-2022, 2026 StarlingX.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -12,7 +12,7 @@
 # Provides:          pci-irq-affinity-agent
 ### END INIT INFO
 
-source /etc/init.d/functions
+source /lib/lsb/init-functions
 
 DAEMON_NAME="pci-irq-affinity-agent"
 AFFINITYAGENT="/usr/bin/${DAEMON_NAME}"
