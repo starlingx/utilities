@@ -4,17 +4,28 @@
 package baoCommands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	clientapi "github.com/openbao/openbao/api/v2"
 	"github.com/spf13/cobra"
 )
 
+// healthProbeTimeout bounds a single health probe so a not-yet-ready server
+// fails fast and the monitor loop (WaitInterval) drives the retry, rather than
+// the probe blocking inside the client's default retry/timeout behavior.
+const healthProbeTimeout = 5 * time.Second
+
 func checkHealth(dnshost string, client *clientapi.Client) (*clientapi.HealthResponse, error) {
 	slog.Debug("Checking health", "host", dnshost)
-	healthResult, err := client.Sys().Health()
+
+	ctx, cancel := context.WithTimeout(context.Background(), healthProbeTimeout)
+	defer cancel()
+
+	healthResult, err := client.Sys().HealthWithContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error during call to check health: %w", err)
 	}

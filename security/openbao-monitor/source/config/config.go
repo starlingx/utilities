@@ -315,6 +315,12 @@ func (configInstance MonitorConfig) NewConfig(dnshost string) (*clientapi.Config
 	}
 	slog.Debug("No issues found in retrieving default config.")
 
+	// The monitor loop retries at WaitInterval, so disable the client's own
+	// retries. Otherwise a probe to a not-yet-ready server (e.g. a restarting
+	// pod) retries 2 more times against the default 60s overall Timeout and
+	// 30s dial, blocking the loop for tens of seconds and stalling unseal.
+	defConfig.MaxRetries = 0
+
 	// Check if there is a domain name listed under ServerAddresses
 	dnsAddr, ok := configInstance.ServerAddresses[dnshost]
 	if !ok {
