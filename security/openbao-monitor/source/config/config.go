@@ -242,6 +242,22 @@ func (configInstance *MonitorConfig) GetNamespace() string {
 	return configInstance.Namespace
 }
 
+// GetPodPrefix returns PodPrefix, or the package default when unset.
+func (configInstance *MonitorConfig) GetPodPrefix() string {
+	if configInstance.PodPrefix == "" {
+		return podPrefix
+	}
+	return configInstance.PodPrefix
+}
+
+// GetDefaultPort returns DefaultPort, or the package default when unset.
+func (configInstance *MonitorConfig) GetDefaultPort() int {
+	if configInstance.DefaultPort == 0 {
+		return podPort
+	}
+	return configInstance.DefaultPort
+}
+
 // If a generation secret is loaded in memory, it returns those keys.
 // Otherwise it falls back to the legacy UnsealKeyShards map.
 func (configInstance *MonitorConfig) GetUnsealKeys() []string {

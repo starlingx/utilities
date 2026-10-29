@@ -142,7 +142,7 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	}
 
 	// Phase 2: One-time startup phase (init uninitialized servers, join followers)
-	if err := startupPhase(cfg, k8sConfig); err != nil {
+	if err := startupPhase(ctx, cfg, k8sConfig); err != nil {
 		slog.Error("Startup phase failed", "err", err)
 		// Not fatal — servers may come up later, retryable in next iteration
 	}
@@ -178,12 +178,17 @@ func runMainLoop(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	}
 }
 
+// raftJoinStartupAttempts bounds per-follower join retries: 12 × 5s ≈ 1 min.
+const raftJoinStartupAttempts = 12
+
 // startupPhase performs one-time initialization before the main monitoring loop.
-// If any server is already initialized (regardless of seal status), we conclude
-// that initialization was previously completed and return immediately — unseal
-// and raft-join are handled by the main monitoring loop.
-// Only when NO server has ever been initialized do we run init on the first one.
-func startupPhase(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
+// If any server is already initialized, init was done before and we return,
+// leaving unseal to the main loop. Only when NO server has been initialized do
+// we init the first one and join the other followers.
+//
+// Join runs only here and in the joinRaft CLI, never in the steady-state loop:
+// a replaced pod rejoins from its persisted Raft data and only needs unsealing.
+func startupPhase(ctx context.Context, cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	slog.Info("Startup phase: checking cluster initialization state")
 
 	// Wait for pod addresses to be available from Kubernetes
@@ -242,6 +247,18 @@ func startupPhase(cfg *baoConfig.MonitorConfig, k8sConfig *rest.Config) error {
 	// Reload generation after successful init
 	if err := DiscoverCurrentGeneration(cfg, k8sConfig); err != nil {
 		return fmt.Errorf("startup: discover generation after init: %w", err)
+	}
+
+	// Join the other followers, retrying each while the cluster converges.
+	leader := cfg.ActiveServiceURL()
+	for host := range maps.Keys(cfg.ServerAddresses) {
+		if host == firstHost {
+			continue
+		}
+		if err := raftJoinFollowerRetry(ctx, cfg, host, leader, raftJoinStartupAttempts); err != nil {
+			slog.Error("Startup: follower did not join raft cluster",
+				"host", host, "leader", leader, "err", err)
+		}
 	}
 
 	slog.Info("Startup phase complete")
@@ -460,9 +477,9 @@ func isUnsealCandidateRejection(err error) bool {
 	return errors.As(err, &responseErr) && responseErr.StatusCode == 400
 }
 
-// processServer checks a single server's health and takes appropriate action
-// during steady-state monitoring. The main loop only handles unsealing sealed
-// servers — initialization and raft join are handled exclusively in startupPhase.
+// processServer checks a single server's health and acts on it: raft-joins
+// uninitialized followers and unseals sealed servers. First-time cluster init
+// happens only in startupPhase.
 func processServer(cfg *baoConfig.MonitorConfig, host string, genSecret *baoConfig.GenerationSecret, tracker *UnsealEscalationTracker, allowRecovery bool) error {
 	if allowRecovery && tracker.pendingName != "" {
 		if err := cfg.ActivateGeneration(tracker.pendingName, tracker.pendingSecret); err != nil {
@@ -487,12 +504,9 @@ func processServer(cfg *baoConfig.MonitorConfig, host string, genSecret *baoConf
 
 	switch {
 	case !health.Initialized:
-		// In steady-state, uninitialized servers should not appear.
-		// Init and raft-join are handled at startup. If a server appears
-		// uninitialized here, it indicates pod replacement or PVC loss —
-		// a restart of baomon will re-run startupPhase to handle it.
-		slog.Error("Server not initialized during steady-state monitoring",
-			"host", host)
+		// Join is startup-only; the loop does not join servers to the cluster.
+		// A replaced pod returns initialized-and-sealed (handled below).
+		slog.Info("Server uninitialized; not joining from monitor loop", "host", host)
 
 	case health.Sealed:
 		slog.Info("Server is sealed, attempting unseal", "host", host)
