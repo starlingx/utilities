@@ -48,6 +48,17 @@ func ServerURL(host string, port int) string {
 	return "https://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+const serviceDomainSuffix = "svc.cluster.local"
+
+// ActiveServiceURL returns the HA active service URL
+// (<prefix>-active.<ns>.svc.cluster.local), a cert-SAN-covered address for use
+// as the Raft join leader address.
+func (configInstance *MonitorConfig) ActiveServiceURL() string {
+	host := fmt.Sprintf("%s-active.%s.%s",
+		configInstance.GetPodPrefix(), configInstance.GetNamespace(), serviceDomainSuffix)
+	return ServerURL(host, configInstance.GetDefaultPort())
+}
+
 // dnsHostPattern matches an RFC 1123 hostname: dot-separated LDH labels, each
 // 1-63 chars (the {0,61} bound plus the two anchors), starting and ending
 // alphanumeric, hyphens only interior.
