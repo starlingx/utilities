@@ -396,6 +396,45 @@ function generate_ostree_checkum {
     )
 }
 
+function verify_iso_images {
+    # Verify that the image archives packed into the generated ISO match the
+    # checksums recorded while they were copied in. The archives are read cold
+    # from the finished ISO, so a copy that was corrupted on disk after its
+    # checksum was recorded (and then packed) is detected here. On a mismatch
+    # the ISO is removed and the build fails instead of producing an ISO whose
+    # image archives cannot be loaded at install time.
+    local iso="${1}"
+    local md5_rel="${PLATFORM_ROOT}/${ISO_VERSION}/${MD5_FILE}"
+    local mnt rc
+
+    mnt="$(mktemp -d -p /tmp verify_iso_XXXXXX)" \
+        || log_fatal "verify_iso_images: failed to create temp mount dir"
+    trap 'umount "${mnt}" 2>/dev/null; rmdir "${mnt}" 2>/dev/null' RETURN
+
+    log_info "Verifying image archives inside ${iso} against ${MD5_FILE}"
+    mount -o loop,ro "${iso}" "${mnt}" \
+        || log_fatal "verify_iso_images: failed to mount ${iso}"
+
+    if [ ! -f "${mnt}/${md5_rel}" ]; then
+        umount "${mnt}" 2>/dev/null
+        rm -f "${iso}"
+        log_fatal "verify_iso_images: ${MD5_FILE} missing from ${iso} although" \
+            "image archives were included; ISO removed, build FAILED."
+    fi
+
+    ( cd "$(dirname "${mnt}/${md5_rel}")" && md5sum -c "$(basename "${md5_rel}")" )
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        umount "${mnt}" 2>/dev/null
+        rm -f "${iso}"
+        log_fatal "verify_iso_images: image archive checksum mismatch in ${iso}." \
+            "The corrupt ISO has been removed and the build FAILED." \
+            "Check the build filesystem for I/O or filesystem errors."
+    fi
+
+    log_info "verify_iso_images: all image archives in ${iso} verified OK."
+}
+
 # Constants
 DIR_NAME=$(dirname "$0")
 if [ ! -e "${DIR_NAME}"/stx-iso-utils.sh ]; then
@@ -717,5 +756,9 @@ mkisofs -o "${OUTPUT_ISO}" \
         "${BUILDDIR}"
 
 isohybrid --uefi "${OUTPUT_ISO}"
+
+if [ -n "${IMAGES[*]}" ]; then
+    verify_iso_images "${OUTPUT_ISO}"
+fi
 
 log_info "Prestage ISO created successfully: ${OUTPUT_ISO}"
