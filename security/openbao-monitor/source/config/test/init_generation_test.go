@@ -9,7 +9,7 @@ package baoConfig_test
 import (
 	"testing"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 
 	clientapi "github.com/openbao/openbao/api/v2"
 	"k8s.io/client-go/kubernetes/fake"

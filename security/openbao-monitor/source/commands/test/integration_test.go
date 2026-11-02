@@ -13,15 +13,15 @@ import (
 	"strings"
 	"testing"
 
-	baoCommands "github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands"
+	baoCommands "opendev.org/starlingx/utilities/openbao-monitor/commands"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
-	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
 	clientapi "github.com/openbao/openbao/api/v2"
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
+	"opendev.org/starlingx/utilities/openbao-monitor/rekey"
 )
 
 // =============================================================================

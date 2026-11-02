@@ -11,8 +11,8 @@ import (
 	"log/slog"
 	"maps"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
-	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
+	"opendev.org/starlingx/utilities/openbao-monitor/rekey"
 )
 
 // HandleRekeyIfNeeded checks if a rekey operation is in progress on any server

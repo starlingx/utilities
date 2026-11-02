@@ -14,12 +14,12 @@ import (
 	"strings"
 	"testing"
 
-	baoCommands "github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands"
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	baoCommands "opendev.org/starlingx/utilities/openbao-monitor/commands"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 // createLegacyShardSecret creates a legacy shard secret in the fake clientset.

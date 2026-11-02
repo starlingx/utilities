@@ -11,11 +11,11 @@ import (
 	"log/slog"
 	"os"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 // Command-wide objects

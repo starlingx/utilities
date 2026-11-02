@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 )
 
 func TestYAMLRoundTrip_NewFields(t *testing.T) {

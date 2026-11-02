@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
 
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"

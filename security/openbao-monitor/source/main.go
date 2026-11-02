@@ -7,7 +7,7 @@
 package main
 
 import (
-	baoCommands "github.com/michel-thebeau-WR/openbao-manager-go/baomon/commands"
+	baoCommands "opendev.org/starlingx/utilities/openbao-monitor/commands"
 )
 
 func main() {

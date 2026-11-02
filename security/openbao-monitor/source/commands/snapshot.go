@@ -14,12 +14,12 @@ import (
 	"reflect"
 	"time"
 
-	baoConfig "github.com/michel-thebeau-WR/openbao-manager-go/baomon/config"
-	"github.com/michel-thebeau-WR/openbao-manager-go/baomon/rekey"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	baoConfig "opendev.org/starlingx/utilities/openbao-monitor/config"
+	"opendev.org/starlingx/utilities/openbao-monitor/rekey"
 )
 
 // SnapshotMetadata records which generation secret was active when a snapshot
