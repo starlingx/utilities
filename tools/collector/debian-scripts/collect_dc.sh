@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (c) 2020-2022 Wind River Systems, Inc.
+# Copyright (c) 2020-2022,2026 Wind River Systems, Inc.
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -56,23 +56,28 @@ if [ "$nodetype" = "controller" ] ; then
         echo "Distributed Cloud Role: Subcloud" >> ${LOGFILE}
 
         delimiter ${LOGFILE} "Address Pool of System Controller"
-        # Prints the column names of the table
-        system addrpool-list --nowrap | head -3 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
-        # Prints the System Controller's address pool
-        system addrpool-list --nowrap | grep "system-controller-subnet" 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+        # Only the system controller's subnet is wanted from this table, so
+        # query once into a variable and filter the captured output.
+        addrpool=$(timeout ${PLATFORM_CMD_TIMEOUT} system addrpool-list --nowrap 2>>${COLLECT_ERROR_LOG})
+        if [ ${?} -eq ${FAIL_PLATFORM_CMD_TIMEOUT} ] ; then
+            echo "Command timed out after ${PLATFORM_CMD_TIMEOUT}s: system addrpool-list --nowrap" >> ${LOGFILE}
+            wlog "'system addrpool-list' timed out after ${PLATFORM_CMD_TIMEOUT}s"
+        else
+            # Prints the column names of the table
+            echo "${addrpool}" | head -3 >> ${LOGFILE}
+            # Prints the System Controller's address pool
+            echo "${addrpool}" | grep "system-controller-subnet" >> ${LOGFILE}
+        fi
 
     else
         # System Controller
         echo "Distributed Cloud Role: System Controller" >> ${LOGFILE}
 
-        delimiter ${LOGFILE} "dcmanager alarm summary"
-        dcmanager alarm summary 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+        run_platform_cmd "dcmanager alarm summary" "${LOGFILE}"
 
-        delimiter ${LOGFILE} "dcmanager subcloud list"
-        dcmanager subcloud list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+        run_platform_cmd "dcmanager subcloud list" "${LOGFILE}"
 
-        delimiter ${LOGFILE} "dcmanager subcloud-group list"
-        dcmanager subcloud-group list 2>>${COLLECT_ERROR_LOG} >> ${LOGFILE}
+        run_platform_cmd "dcmanager subcloud-group list" "${LOGFILE}"
 
         # copy the /opt/dc/ansible dir but exclude any iso files
         rsync -a --exclude '*.iso' /opt/dc/ansible ${extradir}
