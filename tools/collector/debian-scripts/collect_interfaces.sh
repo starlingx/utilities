@@ -51,6 +51,9 @@ for iface_path in /sys/class/net/*; do
 
     delimiter ${LOGFILE} "ethtool -S ${iface} | grep -v ': 0'"
     ethtool -S ${iface} | grep -v ": 0" >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
+
+    delimiter ${LOGFILE} "ethtool -l ${iface}"
+    ethtool -l ${iface} >> ${LOGFILE} 2>>${COLLECT_ERROR_LOG}
 done
 
 delimiter ${LOGFILE} "dpdk-devbind.py -s"
