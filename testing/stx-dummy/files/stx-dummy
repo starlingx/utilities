@@ -1,0 +1,5 @@
+stx-dummy
+
+Dummy StarlingX package used to experiment with patches and with GitLab
+ISO builds. This file is installed to /usr/share/stx-dummy/stx-dummy so
+that it can be observed after a patch is applied or an ISO is built.

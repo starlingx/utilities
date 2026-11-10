@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+
+export ROOT = debian/tmp
+
+%:
+	dh $@
+
+override_dh_install:
+	install -d -m 755 $(ROOT)/usr/share/stx-dummy
+	install -m 644 -p -D stx-dummy $(ROOT)/usr/share/stx-dummy/stx-dummy
+
+	dh_install

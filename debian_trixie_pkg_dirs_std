@@ -1,6 +1,7 @@
 ceph/ceph-manager
 ceph/python-cephclient
 security/openbao-monitor
+testing/stx-dummy
 tools/collector
 tools/engtools/hostdata-collectors
 tools/lpmp
