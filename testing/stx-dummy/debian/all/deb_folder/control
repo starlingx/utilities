@@ -1,0 +1,16 @@
+Source: stx-dummy
+Section: admin
+Priority: optional
+Maintainer: StarlingX Developers <starlingx-discuss@lists.starlingx.io>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.4
+Rules-Requires-Root: no
+Homepage: https://www.starlingx.io
+
+Package: stx-dummy
+Architecture: all
+Depends: ${misc:Depends}
+Description: StarlingX dummy package
+ Dummy package used to experiment with patches and with GitLab ISO builds.
+ It installs a simple placeholder file and carries no runtime behaviour
+ of its own.
